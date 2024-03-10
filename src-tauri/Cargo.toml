@@ -25,6 +25,7 @@ cozo = { version = "0.7.5", features = ["storage-rocksdb"] }
 dirs = "5.0.1"
 eyre = "0.6.12"
 miette = { version = "5.10.0", features = ["backtrace", "fancy", "is-terminal", "serde"] }
+autosurgeon = "0.8.3"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
