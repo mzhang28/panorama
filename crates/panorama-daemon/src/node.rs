@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::{
   extract::{Path, State},
   http::StatusCode,
@@ -54,12 +56,26 @@ pub async fn get_node(
   ))
 }
 
-#[derive(Deserialize)]
-struct NodeUpdate {}
+#[derive(Deserialize, Debug)]
+pub struct UpdateData {
+  title: Option<String>,
+  extra_data: Option<HashMap<String, Value>>,
+}
 
 pub async fn update_node(
   State(state): State<AppState>,
   Path(node_id): Path<String>,
+  Json(update_data): Json<UpdateData>,
 ) -> AppResult<Json<Value>> {
+  println!("Update data: {:?}", update_data);
+
   Ok(Json(json!({})))
+}
+
+pub async fn node_types() -> AppResult<Json<Value>> {
+  Ok(Json(json!({
+    "types": [
+      { "id": "panorama/journal/page", "display": "Journal Entry" },
+    ]
+  })))
 }

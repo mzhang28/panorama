@@ -4,6 +4,7 @@ import ReactTimeAgo from "react-time-ago";
 import Markdown from "react-markdown";
 import MDEditor, { commands } from "@uiw/react-md-editor";
 import { useState } from "react";
+import JournalPage from "./nodes/JournalPage";
 
 export interface NodeDisplayProps {
 	id: string;
@@ -26,8 +27,11 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 				{isSuccess ? (
 					<NodeDisplayHeaderLoaded id={id} data={data} />
 				) : (
-					<small>ID {id}</small>
+					<>ID {id}</>
 				)}
+			</div>
+			<div className={styles.title}>
+				{data.title ?? <span className={styles.untitled}>(untitled)</span>}
 			</div>
 			<div className={styles.body}>
 				{isSuccess ? (
@@ -42,49 +46,23 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 
 function NodeDisplayHeaderLoaded({ id, data }) {
 	return (
-		<small>
+		<>
 			Type {data.type} &middot; Last updated{" "}
 			<ReactTimeAgo date={data.created_at * 1000} /> &middot; {id}
-		</small>
+		</>
 	);
 }
 
 function NodeDisplayLoaded({ id, data }) {
-	const [value, setValue] = useState(() => data.content);
-	const [isEditing, setIsEditing] = useState(() => false);
-	return (
-		<>
-			<details>
-				<summary>JSON</summary>
-				<pre>{JSON.stringify(data, null, 2)}</pre>
-			</details>
+	switch (data.type) {
+		case "panorama/journal/page":
+			return <JournalPage id={id} data={data} />;
 
-			<button type="button" onClick={() => setIsEditing((prev) => !prev)}>
-				{isEditing ? "done" : "edit"}
-			</button>
-
-			<div className={styles.mdContent} data-color-mode="light">
-				{
-					isEditing ? (
-						<>
-							<MDEditor
-								data-color-mode="light"
-								className={styles.mdEditor}
-								value={value}
-								onChange={setValue}
-							/>
-						</>
-					) : (
-						<>
-							<MDEditor.Markdown
-								source={value}
-								style={{ whiteSpace: "pre-wrap" }}
-							/>
-						</>
-					)
-					// <Markdown>{data.content}</Markdown>
-				}
-			</div>
-		</>
-	);
+		default:
+			return (
+				<>
+					Don't know how to render node of type <code>{data.type}</code>
+				</>
+			);
+	}
 }

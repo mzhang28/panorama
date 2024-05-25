@@ -29,7 +29,7 @@ use tower_http::cors::{self, CorsLayer};
 use crate::{
   journal::get_todays_journal_id,
   migrations::run_migrations,
-  node::{get_node, update_node},
+  node::{get_node, node_types, update_node},
 };
 
 #[derive(Clone)]
@@ -66,12 +66,13 @@ async fn main() -> Result<()> {
     .route("/", get(|| async { "Hello, World!" }))
     .route("/node/:id", get(get_node))
     .route("/node/:id", post(update_node))
+    .route("/node/types", get(node_types))
     .route("/journal/get_todays_journal_id", get(get_todays_journal_id))
     .layer(ServiceBuilder::new().layer(cors))
     .with_state(state);
 
   let listener = TcpListener::bind("0.0.0.0:5195").await?;
-  println!("Listening...");
+  println!("Listening... {:?}", listener);
   axum::serve(listener, app).await?;
 
   Ok(())

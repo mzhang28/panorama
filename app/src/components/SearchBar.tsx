@@ -33,6 +33,7 @@ export default function SearchBar() {
 		<>
 			<div>
 				<input
+					className={styles.entry}
 					type="text"
 					placeholder="Search..."
 					onFocus={() => setShowMenu(true)}
@@ -44,7 +45,6 @@ export default function SearchBar() {
 			{showMenu && (
 				<FloatingPortal>
 					<FloatingOverlay>
-						{/* <FloatingFocusManager context={context} modal={false}> */}
 						<div
 							ref={refs.setFloating}
 							className={styles.menu}
@@ -53,7 +53,6 @@ export default function SearchBar() {
 						>
 							<SearchMenu />
 						</div>
-						{/* </FloatingFocusManager> */}
 					</FloatingOverlay>
 				</FloatingPortal>
 			)}
@@ -61,6 +60,6 @@ export default function SearchBar() {
 	);
 }
 
-function SearchMenu({}) {
-	return <>Search</>;
+function SearchMenu() {
+	return <>Search suggestions...</>;
 }
