@@ -1,0 +1,10 @@
+.Header {
+  display: flex;
+  align-items: center;
+
+  padding: 12px;
+  gap: 12px;
+
+  background: rgb(204, 201, 255);
+  background: linear-gradient(90deg, rgba(204, 201, 255, 1) 0%, rgba(255, 255, 255, 1) 100%);
+}
