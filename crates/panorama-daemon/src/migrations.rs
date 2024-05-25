@@ -1,6 +1,6 @@
-use anyhow::{bail, Result};
-use cozo::{DbInstance, ScriptMutability};
-use futures::Future;
+use anyhow::Result;
+use cozo::DbInstance;
+
 use serde_json::Value;
 
 use crate::ensure_ok;
@@ -9,11 +9,8 @@ pub async fn run_migrations(db: &DbInstance) -> Result<()> {
   let migration_status = check_migration_status(db).await?;
   println!("migration status: {:?}", migration_status);
 
-  let migrations: Vec<Box<dyn for<'a> Fn(&'a DbInstance) -> Result<()>>> = vec![
-    Box::new(no_op),
-    Box::new(migration_01),
-    Box::new(migration_02),
-  ];
+  let migrations: Vec<Box<dyn for<'a> Fn(&'a DbInstance) -> Result<()>>> =
+    vec![Box::new(no_op), Box::new(migration_01)];
 
   if let MigrationStatus::NoMigrations = migration_status {
     let result = db.run_script_str(
@@ -108,34 +105,26 @@ fn migration_01(db: &DbInstance) -> Result<()> {
         :create node {
           id: String
           =>
+          type: String,
+          title: String? default null,
           created_at: Float default now(),
           updated_at: Float default now(),
           extra_data: Json default {},
         }
       }
 
-      # Inverse mapping from keys to nodes
-      { :create has_key { key: String => id: String } }
+      # Inverse mappings for easy querying
+      { :create node_has_key { key: String => id: String } }
       { :create node_managed_by_app { node_id: String => app: String } }
-    ",
-    "",
-    false,
-  );
-  ensure_ok(&result)?;
+      { :create node_refers_to { node_id: String => other_node_id: String } }
 
-  Ok(())
-}
-
-fn migration_02(db: &DbInstance) -> Result<()> {
-  let result = db.run_script_str(
-    "
       # Create journal type
-      { :create journal { node_id: String => plaintext: String } }
+      { :create journal { node_id: String => content: String } }
       { :create journal_days { day: String => node_id: String } }
       {
         ::fts create journal:text_index {
-          extractor: plaintext,
-          extract_filter: !is_null(plaintext),
+          extractor: content,
+          extract_filter: !is_null(content),
           tokenizer: Simple,
           filters: [Lowercase, Stemmer('english'), Stopwords('en')],
         }

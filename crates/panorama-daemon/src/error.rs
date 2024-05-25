@@ -2,7 +2,7 @@ use axum::{
   http::StatusCode,
   response::{IntoResponse, Response},
 };
-use miette::{IntoDiagnostic, Report};
+
 
 pub type AppResult<T, E = AppError> = std::result::Result<T, E>;
 

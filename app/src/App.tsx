@@ -6,8 +6,12 @@ import "./global.scss";
 import { useEffect, useState } from "react";
 import NodeDisplay from "./components/NodeDisplay";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import TimeAgo from "javascript-time-ago";
+import en from "javascript-time-ago/locale/en";
 
 const queryClient = new QueryClient();
+
+TimeAgo.addDefaultLocale(en);
 
 function App() {
 	const [nodesOpened, setNodesOpened] = useState<string[]>(() => []);

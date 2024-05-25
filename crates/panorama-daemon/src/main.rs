@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate anyhow;
 #[macro_use]
+extern crate serde;
+#[macro_use]
 extern crate serde_json;
 #[macro_use]
 extern crate sugars;
@@ -13,7 +15,11 @@ mod node;
 use std::fs;
 
 use anyhow::Result;
-use axum::{http::Method, routing::get, Router};
+use axum::{
+  http::Method,
+  routing::{get, post},
+  Router,
+};
 use cozo::DbInstance;
 use serde_json::Value;
 use tokio::net::TcpListener;
@@ -21,7 +27,9 @@ use tower::ServiceBuilder;
 use tower_http::cors::{self, CorsLayer};
 
 use crate::{
-  journal::get_todays_journal_id, migrations::run_migrations, node::get_node,
+  journal::get_todays_journal_id,
+  migrations::run_migrations,
+  node::{get_node, update_node},
 };
 
 #[derive(Clone)]
@@ -57,6 +65,7 @@ async fn main() -> Result<()> {
   let app = Router::new()
     .route("/", get(|| async { "Hello, World!" }))
     .route("/node/:id", get(get_node))
+    .route("/node/:id", post(update_node))
     .route("/journal/get_todays_journal_id", get(get_todays_journal_id))
     .layer(ServiceBuilder::new().layer(cors))
     .with_state(state);
