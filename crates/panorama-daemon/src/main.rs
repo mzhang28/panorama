@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
   // build our application with a single route
   let app = Router::new()
     .route("/", get(|| async { "Hello, World!" }))
-    .route("/node/{id}", get(get_node))
+    .route("/node/:id", get(get_node))
     .route("/journal/get_todays_journal_id", get(get_todays_journal_id))
     .layer(ServiceBuilder::new().layer(cors))
     .with_state(state);

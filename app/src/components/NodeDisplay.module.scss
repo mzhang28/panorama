@@ -1,9 +1,18 @@
 .container {
-  max-width: 400px;
+  width: 400px;
   overflow-wrap: break-word;
   overflow-y: auto;
 
   border: 1px solid lightgray;
+  border-radius: 4px;
+}
 
+.header {
+  padding: 2px 12px;
+  background-color: lightgray;
+  color: gray;
+}
+
+.body {
   padding: 12px;
 }

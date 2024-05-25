@@ -10,15 +10,33 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 		queryKey: ["fetchNode", id],
 		queryFn: async () => {
 			const resp = await fetch(`http://localhost:5195/node/${id}`);
-			console.log("id", resp);
-			return "helloge";
+			const json = await resp.json();
+			return json;
 		},
 	});
+	const { isSuccess, status, data } = query;
 
 	return (
 		<div className={styles.container}>
-			Node {id}
-			<p>{JSON.stringify(query)}</p>
+			<div className={styles.header}>
+				<small>ID {id}</small>
+			</div>
+			<div className={styles.body}>
+				{isSuccess ? (
+					<NodeDisplayLoaded id={id} data={data} />
+				) : (
+					<>Status: {status}</>
+				)}
+			</div>
 		</div>
+	);
+}
+
+function NodeDisplayLoaded({ id, data }) {
+	return (
+		<>
+			Node {id}
+			<p>{JSON.stringify(data)}</p>
+		</>
 	);
 }
