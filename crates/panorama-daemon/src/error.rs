@@ -3,7 +3,6 @@ use axum::{
   response::{IntoResponse, Response},
 };
 
-
 pub type AppResult<T, E = AppError> = std::result::Result<T, E>;
 
 // Make our own error that wraps `anyhow::Error`.
@@ -13,6 +12,7 @@ pub struct AppError(miette::Report);
 impl IntoResponse for AppError {
   fn into_response(self) -> Response {
     eprintln!("Encountered error: {}", self.0);
+    eprintln!("{:?}", self.0);
     (
       StatusCode::INTERNAL_SERVER_ERROR,
       format!("Something went wrong: {}", self.0),

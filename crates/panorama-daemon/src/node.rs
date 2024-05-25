@@ -19,12 +19,12 @@ pub async fn get_node(
     j[content] := *journal{ node_id, content }, node_id = $node_id
     j[content] := not *journal{ node_id }, node_id = $node_id, content = null
 
-    jd[day] := *journal_days{ node_id, day }, node_id = $node_id
-    jd[day] := not *journal_days{ node_id }, node_id = $node_id, day = null
+    jd[day] := *journal_day{ node_id, day }, node_id = $node_id
+    jd[day] := not *journal_day{ node_id }, node_id = $node_id, day = null
 
     ?[
-      extra_data, content, day, created_at, updated_at, type
-    ] := *node{ id, type, created_at, updated_at, extra_data },
+      extra_data, content, day, created_at, updated_at, type, title
+    ] := *node{ id, type, title, created_at, updated_at, extra_data },
       j[content],
       jd[day],
       id = $node_id
@@ -52,6 +52,7 @@ pub async fn get_node(
       "created_at": row[3].get_float(),
       "updated_at": row[4].get_float(),
       "type": row[5].get_str(),
+      "title": row[6].get_str(),
     })),
   ))
 }

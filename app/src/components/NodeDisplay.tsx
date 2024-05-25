@@ -1,9 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import styles from "./NodeDisplay.module.scss";
 import ReactTimeAgo from "react-time-ago";
-import Markdown from "react-markdown";
-import MDEditor, { commands } from "@uiw/react-md-editor";
-import { useState } from "react";
 import JournalPage from "./nodes/JournalPage";
 
 export interface NodeDisplayProps {
@@ -19,6 +16,7 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 			return json;
 		},
 	});
+
 	const { isSuccess, status, data } = query;
 
 	return (
@@ -31,7 +29,7 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 				)}
 			</div>
 			<div className={styles.title}>
-				{data.title ?? <span className={styles.untitled}>(untitled)</span>}
+				{data?.title ?? <span className={styles.untitled}>(untitled)</span>}
 			</div>
 			<div className={styles.body}>
 				{isSuccess ? (

@@ -119,11 +119,11 @@ fn migration_01(db: &DbInstance) -> Result<()> {
       { :create node_refers_to { node_id: String => other_node_id: String } }
 
       # Create journal type
-      { :create journal { node_id: String => content: String } }
-      { :create journal_days { day: String => node_id: String } }
+      { :create journal { node_id: String => content: Json } }
+      { :create journal_day { day: String => node_id: String } }
       {
         ::fts create journal:text_index {
-          extractor: content,
+          extractor: dump_json(content),
           extract_filter: !is_null(content),
           tokenizer: Simple,
           filters: [Lowercase, Stemmer('english'), Stopwords('en')],

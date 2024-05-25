@@ -7,3 +7,22 @@
 .mdEditor {
   flex-grow: 1;
 }
+
+.block {
+  padding: 12px;
+
+  &:not(.isEditing) {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  &.isEditing {
+    background-color: rgb(235, 243, 246);
+    outline: 2px solid skyblue;
+  }
+
+  &:hover {
+    background-color: rgb(235, 243, 246);
+    cursor: text;
+  }
+}

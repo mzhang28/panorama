@@ -14,7 +14,7 @@ pub async fn get_todays_journal_id(
 
   let result = state.db.run_script(
     "
-      ?[node_id] := *journal_days[day, node_id], day = $day
+      ?[node_id] := *journal_day[day, node_id], day = $day
     ",
     btmap! {
       "day".to_owned() => today.clone().into(),
@@ -29,27 +29,28 @@ pub async fn get_todays_journal_id(
     let uuid = Uuid::now_v7();
     let node_id = uuid.to_string();
 
-    let _result = state.db.run_script_fold_err(
+    state.db.run_script(
       "
       {
-        ?[id, type] <- [[$node_id, 'panorama/journal/page']]
-        :put node { id, type }
+        ?[id, title, type] <- [[$node_id, $title, 'panorama/journal/page']]
+        :put node { id, title, type }
       }
       {
-        ?[node_id, content] <- [[$node_id, 'Default **content**']]
+        ?[node_id, content] <- [[$node_id, {}]]
         :put journal { node_id => content }
       }
       {
         ?[day, node_id] <- [[$day, $node_id]]
-        :put journal_days { day => node_id }
+        :put journal_day { day => node_id }
       }
     ",
       btmap! {
         "node_id".to_owned() => node_id.clone().into(),
         "day".to_owned() => today.clone().into(),
+        "title".to_owned() => today.clone().into(),
       },
       ScriptMutability::Mutable,
-    );
+    )?;
 
     return Ok(Json(json!({
       "node_id": node_id
@@ -58,7 +59,8 @@ pub async fn get_todays_journal_id(
 
   let node_id = result.rows[0][0].get_str().unwrap();
   Ok(Json(json!({
-    "node_id": node_id
+    "node_id": node_id,
+    "day": today,
   })))
 }
 
