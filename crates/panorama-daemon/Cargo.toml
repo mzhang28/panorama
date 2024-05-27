@@ -22,3 +22,8 @@ tokio = { version = "1.37.0", features = ["full"] }
 tower = "0.4.13"
 tower-http = { version = "0.5.2", features = ["cors"] }
 uuid = { version = "1.8.0", features = ["v7"] }
+
+[dependencies.async-imap]
+version = "0.9.7"
+default-features = false
+features = ["runtime-tokio"]
