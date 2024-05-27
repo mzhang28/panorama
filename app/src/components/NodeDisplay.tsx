@@ -2,88 +2,44 @@ import { useQuery } from "@tanstack/react-query";
 import styles from "./NodeDisplay.module.scss";
 import ReactTimeAgo from "react-time-ago";
 import JournalPage from "./nodes/JournalPage";
-import { useCallback, useEffect, useState } from "react";
+import { getNode } from "../lib/getNode";
+import FirstPageIcon from "@mui/icons-material/FirstPage";
+import { useOpenNode } from "../App";
 
 export interface NodeDisplayProps {
 	id: string;
+	idx?: number | undefined;
 }
 
-export default function NodeDisplay({ id }: NodeDisplayProps) {
+export default function NodeDisplay({ id, idx }: NodeDisplayProps) {
 	const query = useQuery({
 		queryKey: ["fetchNode", id],
-		queryFn: async () => {
-			const resp = await fetch(`http://localhost:5195/node/${id}`);
-			const json = await resp.json();
-			return json;
-		},
+		queryFn: getNode,
 	});
 
-	const { isSuccess, status, data } = query;
+	const { isSuccess, status, data: nodeDescriptor } = query;
 
-	const [isEditingTitle, setIsEditingTitle] = useState(false);
-	const [title, setTitle] = useState(() =>
-		isSuccess && data ? data.title : undefined,
-	);
-
-	useEffect(() => {
-		if (data) {
-			setTitle(data.title);
-		}
-	}, [data]);
-
-	const saveChangedTitle = useCallback(() => {
-		(async () => {
-			const resp = await fetch(`http://localhost:5195/node/${id}`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({ title: title }),
-			});
-			setIsEditingTitle(false);
-		})();
-	}, [title, id]);
+	let Component = undefined;
+	let data = undefined;
+	if (isSuccess) {
+		Component = nodeDescriptor.render;
+		data = nodeDescriptor.data;
+	}
 
 	return (
 		<div className={styles.container}>
 			<div className={styles.header}>
 				{isSuccess ? (
-					<NodeDisplayHeaderLoaded id={id} data={data} />
+					<NodeDisplayHeaderLoaded idx={idx} id={id} data={data} />
 				) : (
-					<>ID {id}</>
+					<>
+						ID {id} ({status})
+					</>
 				)}
 			</div>
-			{isEditingTitle ? (
-				<form
-					onSubmit={(evt) => {
-						evt.preventDefault();
-						saveChangedTitle();
-					}}
-				>
-					<input
-						className={styles.title}
-						type="text"
-						value={title}
-						onChange={(evt) => setTitle(evt.target.value)}
-						onBlur={() => saveChangedTitle()}
-						// biome-ignore lint/a11y/noAutofocus: <explanation>
-						autoFocus
-					/>
-				</form>
-			) : (
-				<div
-					className={styles.title}
-					onDoubleClick={() => setIsEditingTitle(true)}
-				>
-					{title ?? <span className={styles.untitled}>(untitled)</span>}
-				</div>
-			)}
+
 			<div className={styles.body}>
-				{isSuccess ? (
-					<NodeDisplayLoaded id={id} data={data} />
-				) : (
-					<>Status: {status}</>
-				)}
+				{Component && <Component id={id} data={data} />}
 			</div>
 
 			<div className={styles.footer}>{id}</div>
@@ -91,25 +47,27 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 	);
 }
 
-function NodeDisplayHeaderLoaded({ id, data }) {
+function NodeDisplayHeaderLoaded({ idx, id, data }) {
+	const openNode = useOpenNode();
 	return (
 		<>
-			Type {data.type} &middot; Last updated{" "}
-			<ReactTimeAgo date={data.created_at * 1000} />
+			{idx === 0 || (
+				<button
+					type="button"
+					onClick={() => openNode(id)}
+					title="Move node to the left"
+				>
+					<FirstPageIcon fontSize="inherit" />
+				</button>
+			)}
+			<span>
+				Type {data.type}{" "}
+				{data.created_at && (
+					<>
+						&middot; Last updated <ReactTimeAgo date={data.updated_at * 1000} />
+					</>
+				)}
+			</span>
 		</>
 	);
-}
-
-function NodeDisplayLoaded({ id, data }) {
-	switch (data.type) {
-		case "panorama/journal/page":
-			return <JournalPage id={id} data={data} />;
-
-		default:
-			return (
-				<>
-					Don't know how to render node of type <code>{data.type}</code>
-				</>
-			);
-	}
 }

@@ -93,21 +93,23 @@ function SearchMenu({ results }) {
 
 	return (
 		<div className={styles.searchResults}>
-			{results.map((result) => (
-				<button
-					type="button"
-					key={result.node_id}
-					className={styles.searchResult}
-					onClick={() => {
-						setSearchQuery("");
-						setShowMenu(false);
-						openNode(result.node_id);
-					}}
-				>
-					<div className={styles.title}>{result.title}</div>
-					<div className={styles.subtitle}>{result.content}</div>
-				</button>
-			))}
+			{results.map((result) => {
+				return (
+					<button
+						type="button"
+						key={result.node_id}
+						className={styles.searchResult}
+						onClick={() => {
+							setSearchQuery("");
+							setShowMenu(false);
+							openNode(result.node_id);
+						}}
+					>
+						<div className={styles.title}>{result.title}</div>
+						<div className={styles.subtitle}>{result.content}</div>
+					</button>
+				);
+			})}
 		</div>
 	);
 }

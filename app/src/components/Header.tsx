@@ -5,13 +5,13 @@ import { getVersion } from "@tauri-apps/api/app";
 import ListIcon from "@mui/icons-material/List";
 import { useSetAtom } from "jotai";
 import { sidebarExpandedAtom } from "./Sidebar";
-import { nodesOpenedAtom } from "../App";
+import { nodesOpenedAtom, useOpenNode } from "../App";
 import { useCallback } from "react";
 
 const version = await getVersion();
 
 export default function Header() {
-	const setNodesOpened = useSetAtom(nodesOpenedAtom);
+	const openNode = useOpenNode();
 	const setSidebarExpanded = useSetAtom(sidebarExpandedAtom);
 
 	const createNewJournalPage = useCallback(() => {
@@ -29,9 +29,9 @@ export default function Header() {
 				}),
 			});
 			const data = await resp.json();
-			setNodesOpened((prev) => [data.node_id, ...prev]);
+			openNode(data.node_id);
 		})();
-	}, [setNodesOpened]);
+	}, [openNode]);
 
 	return (
 		<>

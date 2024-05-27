@@ -1,0 +1,25 @@
+.container {
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  padding: 2px 12px;
+
+  .title {
+    font-size: 1rem;
+  }
+}
+
+.settings {
+  h2 {
+    margin: 0;
+  }
+}
+
+.mailList {
+  flex-grow: 1;
+  border-top: 1px solid lightgray;
+}

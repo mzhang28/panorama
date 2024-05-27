@@ -22,6 +22,7 @@
 		"@uiw/react-md-editor": "^4.0.4",
 		"classnames": "^2.5.1",
 		"date-fns": "^3.6.0",
+		"formik": "^2.4.6",
 		"hast-util-to-jsx-runtime": "^2.3.0",
 		"hast-util-to-mdast": "^10.1.0",
 		"immutable": "^4.3.6",

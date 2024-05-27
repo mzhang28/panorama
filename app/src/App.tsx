@@ -40,9 +40,9 @@ function App() {
 		})();
 	}, [nodesOpened, openNode]);
 
-	const nodes = nodesOpened
-		.reverse()
-		.map((nodeId) => <NodeDisplay key={nodeId} id={nodeId} />);
+	const nodes = [...nodesOpened.reverse().values()].map((nodeId, idx) => (
+		<NodeDisplay idx={idx} key={nodeId} id={nodeId} />
+	));
 
 	return (
 		<QueryClientProvider client={queryClient}>

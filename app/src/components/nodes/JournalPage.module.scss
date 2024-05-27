@@ -4,6 +4,18 @@
   flex-direction: column;
 }
 
+.title {
+  padding: 12px;
+  border: none;
+  border-bottom: 1px solid lightgray;
+  outline: none;
+  font-size: 1.2em;
+}
+
+.untitled {
+  color: gray;
+}
+
 .mdContent {
   flex-grow: 1;
   display: flex;

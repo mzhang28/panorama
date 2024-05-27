@@ -10,7 +10,6 @@ pub async fn get_todays_journal_id(
   State(state): State<AppState>,
 ) -> AppResult<Json<Value>> {
   let today = todays_date();
-  println!("Getting journal id for {today}!");
 
   let result = state.db.run_script(
     "
@@ -21,8 +20,6 @@ pub async fn get_todays_journal_id(
     },
     ScriptMutability::Immutable,
   )?;
-
-  println!("Result: {:?}", result);
 
   // TODO: Do this check on the server side
   if result.rows.len() == 0 {

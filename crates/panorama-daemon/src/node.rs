@@ -70,7 +70,6 @@ pub async fn update_node(
   Path(node_id): Path<String>,
   Json(update_data): Json<UpdateData>,
 ) -> AppResult<Json<Value>> {
-  println!("Update data: {:?}", update_data);
   let node_id_data = DataValue::from(node_id.clone());
 
   // TODO: Combine these into the same script
@@ -158,7 +157,6 @@ pub async fn create_node(
 ) -> AppResult<Json<Value>> {
   let node_id = Uuid::now_v7();
   let node_id = node_id.to_string();
-  println!("Opts: {opts:?}");
 
   let tx = state.db.multi_transaction(true);
 
@@ -179,15 +177,17 @@ pub async fn create_node(
     let result_by_relation = result
       .iter()
       .into_group_map_by(|(key, (relation, field_name, ty))| relation);
-    println!("Result by relation: {result_by_relation:?}");
 
     for (relation, fields) in result_by_relation.iter() {
       let fields_mapping = fields
         .into_iter()
-        .map(|(key, (_, field_name, _))| {
+        .map(|(key, (_, field_name, ty))| {
           let new_value = extra_data.get(*key).unwrap();
           // TODO: Make this more generic
-          let new_value = DataValue::from(new_value.as_str().unwrap());
+          let new_value = match ty.as_str() {
+            "int" => DataValue::from(new_value.as_i64().unwrap()),
+            _ => DataValue::from(new_value.as_str().unwrap()),
+          };
           (field_name.to_owned(), new_value)
         })
         .collect::<BTreeMap<_, _>>();

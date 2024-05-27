@@ -51,6 +51,7 @@ pub async fn run_migrations(db: &DbInstance) -> Result<()> {
       &format!("{{\"version\":{}}}", idx),
       false,
     );
+
     ensure_ok(&result)?;
 
     println!("succeeded migration {idx}!");
@@ -128,7 +129,11 @@ fn migration_01(db: &DbInstance) -> Result<()> {
       }
       {
         ?[key, relation, field_name, type] <- [
-          ['panorama/journal/page/content', 'journal', 'content', 'string']
+          ['panorama/journal/page/content', 'journal', 'content', 'string'],
+          ['panorama/mail/config/imap_hostname', 'mail_config', 'imap_hostname', 'string'],
+          ['panorama/mail/config/imap_port', 'mail_config', 'imap_port', 'int'],
+          ['panorama/mail/config/imap_username', 'mail_config', 'imap_username', 'string'],
+          ['panorama/mail/config/imap_password', 'mail_config', 'imap_password', 'string'],
         ]
         :put fqkey_to_dbkey { key, relation, field_name, type }
       }
@@ -144,6 +149,20 @@ fn migration_01(db: &DbInstance) -> Result<()> {
           filters: [Lowercase, Stemmer('english'), Stopwords('en')],
         }
       }
+
+      # Mail
+      {
+        :create mail_config {
+          node_id: String
+          =>
+          imap_hostname: String,
+          imap_port: Int,
+          imap_username: String,
+          imap_password: String,
+        }
+      }
+
+      # Calendar
     ",
     "",
     false,

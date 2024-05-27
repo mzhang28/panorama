@@ -10,6 +10,7 @@ extern crate sugars;
 mod error;
 mod export;
 mod journal;
+mod mail;
 mod migrations;
 mod node;
 mod query_builder;
@@ -31,6 +32,7 @@ use tower_http::cors::{self, CorsLayer};
 use crate::{
   export::export,
   journal::get_todays_journal_id,
+  mail::{get_mail_config, mail_loop},
   migrations::run_migrations,
   node::{create_node, get_node, node_types, search_nodes, update_node},
 };
@@ -56,6 +58,8 @@ async fn main() -> Result<()> {
 
   run_migrations(&db).await?;
 
+  tokio::spawn(mail_loop(db.clone()));
+
   let state = AppState { db };
 
   let cors = CorsLayer::new()
@@ -73,6 +77,7 @@ async fn main() -> Result<()> {
     .route("/node/:id", post(update_node))
     .route("/node/types", get(node_types))
     .route("/journal/get_todays_journal_id", get(get_todays_journal_id))
+    .route("/mail/config", get(get_mail_config))
     .layer(ServiceBuilder::new().layer(cors))
     .with_state(state);
 
@@ -88,7 +93,8 @@ pub fn ensure_ok(s: &str) -> Result<()> {
   let status = status.as_object().unwrap();
   let ok = status.get("ok").unwrap().as_bool().unwrap_or(false);
   if !ok {
-    bail!("shit (error: {s})")
+    let display = status.get("display").unwrap().as_str().unwrap();
+    bail!("shit (error: {display})")
   }
   Ok(())
 }

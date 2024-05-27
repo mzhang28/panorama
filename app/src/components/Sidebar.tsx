@@ -3,11 +3,13 @@ import styles from "./Sidebar.module.scss";
 import classNames from "classnames";
 import EmailIcon from "@mui/icons-material/Email";
 import SettingsIcon from "@mui/icons-material/Settings";
+import { useOpenNode } from "../App";
 
 export const sidebarExpandedAtom = atom(false);
 
 export default function Sidebar() {
 	const sidebarExpanded = useAtomValue(sidebarExpandedAtom);
+	const openNode = useOpenNode();
 
 	return (
 		<div
@@ -16,10 +18,14 @@ export default function Sidebar() {
 				sidebarExpanded ? styles.expanded : styles.collapsed,
 			)}
 		>
-			<div className={styles.item}>
+			<button
+				type="button"
+				className={styles.item}
+				onClick={() => openNode("panorama/mail")}
+			>
 				<EmailIcon />
 				<span className={styles.label}>Email</span>
-			</div>
+			</button>
 
 			<div className="spacer" />
 

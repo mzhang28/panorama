@@ -47,8 +47,6 @@ pub async fn export(State(state): State<AppState>) -> AppResult<()> {
     relation_columns.insert(relation_name.clone(), columns);
   }
 
-  println!("columns: {relation_columns:?}");
-
   let base_dir = PathBuf::from("export");
   fs::create_dir_all(&base_dir);
 
@@ -68,7 +66,6 @@ pub async fn export(State(state): State<AppState>) -> AppResult<()> {
       .join(", ");
 
     let query = format!("?[{columns}] := *{relation_name} {{ {columns} }}");
-    println!("Query: {query}");
     let result = tx.run_script(&query, Default::default())?;
 
     writer.write_record(result.headers).unwrap();
