@@ -1,4 +1,6 @@
 .container {
+  flex-shrink: 0;
+
   width: 500px;
   overflow-wrap: break-word;
   overflow-y: auto;
