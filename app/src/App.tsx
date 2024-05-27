@@ -11,36 +11,38 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TimeAgo from "javascript-time-ago";
 import en from "javascript-time-ago/locale/en";
 import Sidebar from "./components/Sidebar";
-import { atom, useAtom } from "jotai";
+import { atom, useAtom, useAtomValue } from "jotai";
+import { OrderedMap, OrderedSet } from "immutable";
 
 const queryClient = new QueryClient();
 
 TimeAgo.addDefaultLocale(en);
 
-export const nodesOpenedAtom = atom<string[]>([]);
+export const nodesOpenedAtom = atom<OrderedSet<string>>(OrderedSet<string>());
 
 function App() {
-	const [nodesOpened, setNodesOpened] = useAtom(nodesOpenedAtom);
+	const nodesOpened = useAtomValue(nodesOpenedAtom);
+	const openNode = useOpenNode();
 
 	// Open today's journal entry if it's not already opened
 	useEffect(() => {
 		(async () => {
 			console.log("ndoes", nodesOpened);
-			if (nodesOpened.length === 0) {
+			if (nodesOpened.size === 0) {
 				console.log("Opening today's entry.");
 				const resp = await fetch(
 					"http://localhost:5195/journal/get_todays_journal_id",
 				);
 				const data = await resp.json();
 				console.log("resp", data);
-				setNodesOpened([data.node_id]);
+				openNode(data.node_id);
 			}
 		})();
-	}, [nodesOpened]);
+	}, [nodesOpened, openNode]);
 
-	const nodes = nodesOpened.map((nodeId) => (
-		<NodeDisplay key={nodeId} id={nodeId} />
-	));
+	const nodes = nodesOpened
+		.reverse()
+		.map((nodeId) => <NodeDisplay key={nodeId} id={nodeId} />);
 
 	return (
 		<QueryClientProvider client={queryClient}>
@@ -57,3 +59,10 @@ function App() {
 }
 
 export default App;
+
+export function useOpenNode() {
+	const [nodesOpened, setNodesOpened] = useAtom(nodesOpenedAtom);
+	return (node_id: string) => {
+		setNodesOpened(nodesOpened.remove(node_id).add(node_id));
+	};
+}

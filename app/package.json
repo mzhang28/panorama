@@ -24,6 +24,7 @@
 		"date-fns": "^3.6.0",
 		"hast-util-to-jsx-runtime": "^2.3.0",
 		"hast-util-to-mdast": "^10.1.0",
+		"immutable": "^4.3.6",
 		"javascript-time-ago": "^2.5.10",
 		"jotai": "^2.8.1",
 		"katex": "^0.16.10",

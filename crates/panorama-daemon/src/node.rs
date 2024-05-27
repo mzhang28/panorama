@@ -233,6 +233,10 @@ pub async fn search_nodes(
   State(state): State<AppState>,
   Query(query): Query<SearchQuery>,
 ) -> AppResult<Json<Value>> {
+  // TODO: This is temporary, there may be more ways to search so tacking on *
+  // at the end may destroy some queries
+  let query = format!("{}*", query.query);
+
   let results = state.db.run_script(
     "
       results[node_id, content, score] := ~journal:text_index {node_id, content, |
@@ -249,7 +253,7 @@ pub async fn search_nodes(
       :order -score
       ",
     btmap! {
-      "q".to_owned() => DataValue::from(query.query),
+      "q".to_owned() => DataValue::from(query),
     },
     ScriptMutability::Immutable,
   )?;

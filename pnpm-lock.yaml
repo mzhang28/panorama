@@ -53,6 +53,9 @@ importers:
       hast-util-to-mdast:
         specifier: ^10.1.0
         version: 10.1.0
+      immutable:
+        specifier: ^4.3.6
+        version: 4.3.6
       javascript-time-ago:
         specifier: ^2.5.10
         version: 2.5.10
@@ -1975,7 +1978,6 @@ packages:
 
   /immutable@4.3.6:
     resolution: {integrity: sha512-Ju0+lEMyzMVZarkTn/gqRpdqd5dOPaz1mCZ0SH3JV6iFw81PldE/PEB1hWVEA288HPt4WXW8O7AWxB10M+03QQ==}
-    dev: true
 
   /import-fresh@3.3.0:
     resolution: {integrity: sha512-veYYhQa+D1QBKznvhUHxb8faxlrwUnxseDAbAp457E0wLNio2bOSKnjYDhMj+YiAq61xrMGhQk9iXVk5FzgQMw==}

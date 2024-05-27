@@ -14,7 +14,7 @@ import {
 import { useDebounce } from "use-debounce";
 import { useEffect, useState } from "react";
 import { atom, useAtom, useSetAtom } from "jotai";
-import { nodesOpenedAtom } from "../App";
+import { nodesOpenedAtom, useOpenNode } from "../App";
 
 const searchQueryAtom = atom("");
 const showMenuAtom = atom(false);
@@ -87,25 +87,25 @@ export default function SearchBar() {
 }
 
 function SearchMenu({ results }) {
-	const setNodesOpened = useSetAtom(nodesOpenedAtom);
 	const setSearchQuery = useSetAtom(searchQueryAtom);
 	const setShowMenu = useSetAtom(showMenuAtom);
+	const openNode = useOpenNode();
 
 	return (
 		<div className={styles.searchResults}>
 			{results.map((result) => (
 				<button
 					type="button"
-					key={result.score.toString()}
+					key={result.node_id}
 					className={styles.searchResult}
 					onClick={() => {
 						setSearchQuery("");
 						setShowMenu(false);
-						setNodesOpened((prev) => [result.node_id, ...prev]);
+						openNode(result.node_id);
 					}}
 				>
 					<div className={styles.title}>{result.title}</div>
-					<div className={styles.subtitle}>{result.score}</div>
+					<div className={styles.subtitle}>{result.content}</div>
 				</button>
 			))}
 		</div>
