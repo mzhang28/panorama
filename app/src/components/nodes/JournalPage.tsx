@@ -3,6 +3,8 @@ import MDEditor from "@uiw/react-md-editor";
 import { usePrevious, useDebounce } from "@uidotdev/usehooks";
 import { useQueryClient } from "@tanstack/react-query";
 import styles from "./JournalPage.module.scss";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 
 export interface JournalPageProps {
 	id: string;
@@ -43,16 +45,16 @@ export default function JournalPage({ id, data }: JournalPageProps) {
 
 	return (
 		<div data-color-mode="light" className={styles.container}>
-			<details>
-				<summary>JSON</summary>
-				<pre>{JSON.stringify(data, null, 2)}</pre>
-			</details>
-
 			<MDEditor
 				value={value}
 				className={styles.mdEditor}
 				onChange={(newValue) => newValue && setValue(newValue)}
 				preview="preview"
+				visibleDragbar={false}
+				previewOptions={{
+					remarkPlugins: [remarkMath],
+					rehypePlugins: [rehypeKatex],
+				}}
 			/>
 		</div>
 	);

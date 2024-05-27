@@ -3,6 +3,7 @@ import styles from "./App.module.scss";
 
 import "@fontsource/inter";
 import "./global.scss";
+import "katex/dist/katex.min.css";
 import { useEffect, useState } from "react";
 import NodeDisplay from "./components/NodeDisplay";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

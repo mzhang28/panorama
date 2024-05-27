@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import styles from "./NodeDisplay.module.scss";
 import ReactTimeAgo from "react-time-ago";
 import JournalPage from "./nodes/JournalPage";
+import { useCallback, useEffect, useState } from "react";
 
 export interface NodeDisplayProps {
 	id: string;
@@ -19,6 +20,28 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 
 	const { isSuccess, status, data } = query;
 
+	const [isEditingTitle, setIsEditingTitle] = useState(false);
+	const [title, setTitle] = useState(() =>
+		isSuccess && data ? data.title : undefined,
+	);
+
+	useEffect(() => {
+		setTitle(data.title);
+	}, [data]);
+
+	const saveChangedTitle = useCallback(() => {
+		(async () => {
+			const resp = await fetch(`http://localhost:5195/node/${id}`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ title: title }),
+			});
+			setIsEditingTitle(false);
+		})();
+	}, [title, id]);
+
 	return (
 		<div className={styles.container}>
 			<div className={styles.header}>
@@ -28,9 +51,31 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 					<>ID {id}</>
 				)}
 			</div>
-			<div className={styles.title}>
-				{data?.title ?? <span className={styles.untitled}>(untitled)</span>}
-			</div>
+			{isEditingTitle ? (
+				<form
+					onSubmit={(evt) => {
+						evt.preventDefault();
+						saveChangedTitle();
+					}}
+				>
+					<input
+						className={styles.title}
+						type="text"
+						value={title}
+						onChange={(evt) => setTitle(evt.target.value)}
+						onBlur={() => saveChangedTitle()}
+						// biome-ignore lint/a11y/noAutofocus: <explanation>
+						autoFocus
+					/>
+				</form>
+			) : (
+				<div
+					className={styles.title}
+					onDoubleClick={() => setIsEditingTitle(true)}
+				>
+					{title ?? <span className={styles.untitled}>(untitled)</span>}
+				</div>
+			)}
 			<div className={styles.body}>
 				{isSuccess ? (
 					<NodeDisplayLoaded id={id} data={data} />

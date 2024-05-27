@@ -23,7 +23,7 @@
 .body {
   flex-grow: 1;
 
-  padding: 12px;
+  // padding: 12px;
 
   display: flex;
   flex-direction: column;
@@ -31,7 +31,10 @@
 
 .title {
   padding: 12px;
+  border: none;
   border-bottom: 1px solid lightgray;
+  outline: none;
+  font-size: 1.2em;
 }
 
 .untitled {

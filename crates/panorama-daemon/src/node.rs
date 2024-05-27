@@ -75,6 +75,22 @@ pub async fn update_node(
 
   let tx = state.db.multi_transaction(true);
 
+  if let Some(title) = update_data.title {
+    let title = DataValue::from(title);
+
+    tx.run_script(
+      "
+    # Always update the time
+    ?[ id, title ] <- [[ $node_id, $title ]]
+    :update node { id, title }
+  ",
+      btmap! {
+        "node_id".to_owned() => node_id_data.clone(),
+        "title".to_owned() => title,
+      },
+    )?;
+  }
+
   if let Some(extra_data) = update_data.extra_data {
     let result = tx.run_script(
       "
@@ -133,7 +149,7 @@ pub async fn update_node(
     btmap! {
       "node_id".to_owned() => node_id_data,
     },
-  );
+  )?;
 
   tx.commit()?;
 
