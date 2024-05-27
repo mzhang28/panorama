@@ -7,9 +7,12 @@ use std::{
 
 use axum::extract::State;
 use cozo::ScriptMutability;
+use csv::WriterBuilder;
 
 use crate::{error::AppResult, AppState};
 
+// This code is really bad but gives me a quick way to look at all of the data
+// in the data at once. Rip this out once there's any Real Security Mechanism.
 pub async fn export(State(state): State<AppState>) -> AppResult<()> {
   let result = state.db.run_script(
     "::relations",
@@ -52,8 +55,12 @@ pub async fn export(State(state): State<AppState>) -> AppResult<()> {
   let tx = state.db.multi_transaction(false);
 
   for relation_name in relation_names.iter() {
-    let relation_path = base_dir.join(format!("{relation_name}.ndjson"));
-    let mut file = File::create(&relation_path).unwrap();
+    let relation_path = base_dir.join(format!("{relation_name}.csv"));
+    let mut writer = WriterBuilder::new()
+      .has_headers(true)
+      .from_path(relation_path)
+      .unwrap();
+    // let mut file = File::create(&relation_path).unwrap();
 
     let columns = relation_columns
       .get(relation_name.as_str())
@@ -64,18 +71,19 @@ pub async fn export(State(state): State<AppState>) -> AppResult<()> {
     println!("Query: {query}");
     let result = tx.run_script(&query, Default::default())?;
 
+    writer.write_record(result.headers).unwrap();
+
     for row in result.rows.into_iter() {
-      let mut object = HashMap::new();
-
-      for (idx, col) in row.into_iter().enumerate() {
-        let row_name = result.headers[idx].clone();
-        object.insert(row_name, col);
-      }
-
-      let serialized = serde_json::to_string(&object).unwrap();
-      file.write(serialized.as_bytes());
-      file.write(b"\n");
+      // let serialized = serde_json::to_string(&object).unwrap();
+      writer
+        .write_record(
+          row.iter().map(|col| serde_json::to_string(&col).unwrap()),
+        )
+        .unwrap();
+      // file.write(b"\n");
     }
+
+    writer.flush().unwrap();
   }
 
   Ok(())

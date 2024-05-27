@@ -126,13 +126,19 @@ fn migration_01(db: &DbInstance) -> Result<()> {
           type: String,
         }
       }
+      {
+        ?[key, relation, field_name, type] <- [
+          ['panorama/journal/page/content', 'journal', 'content', 'string']
+        ]
+        :put fqkey_to_dbkey { key, relation, field_name, type }
+      }
 
       # Create journal type
-      { :create journal { node_id: String => content: Json } }
+      { :create journal { node_id: String => content: String } }
       { :create journal_day { day: String => node_id: String } }
       {
         ::fts create journal:text_index {
-          extractor: dump_json(content),
+          extractor: content,
           extract_filter: !is_null(content),
           tokenizer: Simple,
           filters: [Lowercase, Stemmer('english'), Stopwords('en')],

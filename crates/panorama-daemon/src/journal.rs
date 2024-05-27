@@ -24,6 +24,7 @@ pub async fn get_todays_journal_id(
 
   println!("Result: {:?}", result);
 
+  // TODO: Do this check on the server side
   if result.rows.len() == 0 {
     // Insert a new one
     let uuid = Uuid::now_v7();
@@ -36,7 +37,7 @@ pub async fn get_todays_journal_id(
         :put node { id, title, type }
       }
       {
-        ?[node_id, content] <- [[$node_id, {}]]
+        ?[node_id, content] <- [[$node_id, '']]
         :put journal { node_id => content }
       }
       {

@@ -5,7 +5,7 @@ use axum::{
   http::StatusCode,
   Json,
 };
-use cozo::{DataValue, ScriptMutability};
+use cozo::{DataValue, ScriptMutability, Vector};
 use serde_json::Value;
 
 use crate::{error::AppResult, AppState};
@@ -69,18 +69,21 @@ pub async fn update_node(
   Json(update_data): Json<UpdateData>,
 ) -> AppResult<Json<Value>> {
   println!("Update data: {:?}", update_data);
+  let node_id_data = DataValue::from(node_id.clone());
+
+  // TODO: Combine these into the same script
 
   let tx = state.db.multi_transaction(true);
 
   if let Some(extra_data) = update_data.extra_data {
     let result = tx.run_script(
       "
-      ?[relation, field_name, type] :=
+      ?[key, relation, field_name, type] :=
         *fqkey_to_dbkey{key, relation, field_name, type},
-        key = $key
+        is_in(key, $keys)
     ",
       btmap! {
-        "key".to_owned() => DataValue::List(
+        "keys".to_owned() => DataValue::List(
           extra_data
             .keys()
             .map(|s| DataValue::from(s.as_str()))
@@ -89,8 +92,48 @@ pub async fn update_node(
       },
     )?;
 
-    println!("Result: {result:?}");
+    let s = |s: &DataValue| s.get_str().unwrap().to_owned();
+    let result = result
+      .rows
+      .into_iter()
+      .map(|row| (s(&row[0]), (s(&row[1]), s(&row[2]), s(&row[3]))))
+      .collect::<HashMap<_, _>>();
+
+    for (key, (relation, field_name, ty)) in result.iter() {
+      let new_value = extra_data.get(key).unwrap();
+
+      // TODO: Make this more generic
+      let new_value = DataValue::from(new_value.as_str().unwrap());
+
+      let query = format!(
+        "
+          ?[ node_id, {field_name} ] <- [[$node_id, $input_data]]
+          :update {relation} {{ node_id, {field_name} }}
+        "
+      );
+      println!("QUERY: {query:?}");
+      let result = tx.run_script(
+        &query,
+        btmap! {
+          "node_id".to_owned() => node_id_data.clone(),
+          "input_data".to_owned() => new_value,
+        },
+      )?;
+
+      println!("RESULT: {result:?}");
+    }
   }
+
+  tx.run_script(
+    "
+    # Always update the time
+    ?[ id, updated_at ] <- [[ $node_id, now() ]]
+    :update node { id, updated_at }
+  ",
+    btmap! {
+      "node_id".to_owned() => node_id_data,
+    },
+  );
 
   tx.commit()?;
 

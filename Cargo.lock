@@ -2778,6 +2778,7 @@ dependencies = [
  "axum",
  "chrono",
  "cozo",
+ "csv",
  "dirs",
  "futures",
  "miette",
