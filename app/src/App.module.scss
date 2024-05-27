@@ -8,9 +8,12 @@
   height: 100%;
 }
 
-.nodeContainer {
+.main {
   flex-grow: 1;
+  display: flex;
+}
 
+.nodeContainer {
   display: flex;
   justify-items: stretch;
 

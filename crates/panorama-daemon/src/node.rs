@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use axum::{
-  extract::{Path, State},
+  extract::{Path, Query, State},
   http::StatusCode,
   Json,
 };
@@ -161,5 +161,52 @@ pub async fn node_types() -> AppResult<Json<Value>> {
     "types": [
       { "id": "panorama/journal/page", "display": "Journal Entry" },
     ]
+  })))
+}
+
+pub async fn create_node() -> AppResult<()> {
+  Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct SearchQuery {
+  query: String,
+}
+
+pub async fn search_nodes(
+  State(state): State<AppState>,
+  Query(query): Query<SearchQuery>,
+) -> AppResult<Json<Value>> {
+  let results = state.db.run_script(
+    "
+        ?[node_id, content, score] := ~journal:text_index {node_id, content, |
+          query: $q,
+          k: 10,
+          score_kind: 'tf_idf',
+          bind_score: score
+        }
+
+        :order -score
+      ",
+    btmap! {
+      "q".to_owned() => DataValue::from(query.query),
+    },
+    ScriptMutability::Immutable,
+  )?;
+
+  let results = results
+    .rows
+    .into_iter()
+    .map(|row| {
+      json!({
+        "node_id": row[0].get_str().unwrap(),
+        "content": row[1].get_str().unwrap(),
+        "score": row[2].get_float().unwrap(),
+      })
+    })
+    .collect::<Vec<_>>();
+
+  Ok(Json(json!({
+    "results": results
   })))
 }

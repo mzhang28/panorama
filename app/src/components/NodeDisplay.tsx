@@ -26,7 +26,9 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 	);
 
 	useEffect(() => {
-		setTitle(data.title);
+		if (data) {
+			setTitle(data.title);
+		}
 	}, [data]);
 
 	const saveChangedTitle = useCallback(() => {

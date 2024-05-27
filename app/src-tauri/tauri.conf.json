@@ -7,11 +7,16 @@
 	},
 	"package": {
 		"productName": "panorama",
-		"version": "0.0.0"
+		"version": "0.1.0"
 	},
 	"tauri": {
 		"allowlist": {
 			"all": false,
+			"app": {
+				"all": true,
+				"hide": true,
+				"show": true
+			},
 			"shell": {
 				"all": false,
 				"open": true

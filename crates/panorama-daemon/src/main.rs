@@ -19,7 +19,7 @@ use std::fs;
 use anyhow::Result;
 use axum::{
   http::Method,
-  routing::{get, post},
+  routing::{get, post, put},
   Router,
 };
 use cozo::DbInstance;
@@ -32,7 +32,7 @@ use crate::{
   export::export,
   journal::get_todays_journal_id,
   migrations::run_migrations,
-  node::{get_node, node_types, update_node},
+  node::{create_node, get_node, node_types, search_nodes, update_node},
 };
 
 #[derive(Clone)]
@@ -67,6 +67,8 @@ async fn main() -> Result<()> {
   let app = Router::new()
     .route("/", get(|| async { "Hello, World!" }))
     .route("/export", get(export))
+    .route("/node", put(create_node))
+    .route("/node/search", get(search_nodes))
     .route("/node/:id", get(get_node))
     .route("/node/:id", post(update_node))
     .route("/node/types", get(node_types))

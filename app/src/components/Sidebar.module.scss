@@ -1,0 +1,29 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  background-color: rgba(204, 201, 255);
+  padding: 6px;
+
+  .item {
+    display: flex;
+    align-items: center;
+    padding: 6px;
+    font-size: 0.95em;
+    border-radius: 4px;
+
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+    }
+  }
+
+  &.expanded .item {
+    gap: 6px;
+  }
+
+  &.collapsed .item .label {
+    display: none;
+  }
+}

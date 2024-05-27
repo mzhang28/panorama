@@ -2,6 +2,7 @@ import Header from "./components/Header";
 import styles from "./App.module.scss";
 
 import "@fontsource/inter";
+import "@fontsource/inter/700.css";
 import "./global.scss";
 import "katex/dist/katex.min.css";
 import { useEffect, useState } from "react";
@@ -9,6 +10,7 @@ import NodeDisplay from "./components/NodeDisplay";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TimeAgo from "javascript-time-ago";
 import en from "javascript-time-ago/locale/en";
+import Sidebar from "./components/Sidebar";
 
 const queryClient = new QueryClient();
 
@@ -41,7 +43,10 @@ function App() {
 			<div className={styles.container}>
 				<Header />
 
-				<div className={styles.nodeContainer}>{nodes}</div>
+				<div className={styles.main}>
+					<Sidebar />
+					<div className={styles.nodeContainer}>{nodes}</div>
+				</div>
 			</div>
 		</QueryClientProvider>
 	);

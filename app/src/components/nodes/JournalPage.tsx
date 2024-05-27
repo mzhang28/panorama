@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
-import MDEditor from "@uiw/react-md-editor";
+import { useEffect, useRef, useState } from "react";
+import MDEditor, { PreviewType } from "@uiw/react-md-editor";
 import { usePrevious, useDebounce } from "@uidotdev/usehooks";
 import { useQueryClient } from "@tanstack/react-query";
 import styles from "./JournalPage.module.scss";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import remarkEmbedder from "@remark-embedder/core";
+import { parse as parseDate, format as formatDate } from "date-fns";
 
 export interface JournalPageProps {
 	id: string;
@@ -14,11 +16,13 @@ export interface JournalPageProps {
 }
 
 export default function JournalPage({ id, data }: JournalPageProps) {
+	const { day } = data;
 	const queryClient = useQueryClient();
 	const [value, setValue] = useState(() => data.content);
 	const valueToSave = useDebounce(value, 1000);
 	const previous = usePrevious(valueToSave);
 	const changed = valueToSave !== previous;
+	const [mode, setMode] = useState<PreviewType>("preview");
 
 	useEffect(() => {
 		if (changed) {
@@ -45,17 +49,30 @@ export default function JournalPage({ id, data }: JournalPageProps) {
 
 	return (
 		<div data-color-mode="light" className={styles.container}>
+			{day && <DayIndicator day={day} />}
+
 			<MDEditor
 				value={value}
 				className={styles.mdEditor}
-				onChange={(newValue) => newValue && setValue(newValue)}
-				preview="preview"
+				onChange={(newValue) => newValue !== undefined && setValue(newValue)}
+				preview={mode}
 				visibleDragbar={false}
+				onDoubleClick={() => setMode("live")}
 				previewOptions={{
 					remarkPlugins: [remarkMath],
 					rehypePlugins: [rehypeKatex],
 				}}
 			/>
+		</div>
+	);
+}
+
+function DayIndicator({ day }) {
+	const parsedDate = parseDate(day, "yyyy-MM-dd", new Date());
+	const formattedDate = formatDate(parsedDate, "PPPP");
+	return (
+		<div className={styles.dayIndicator}>
+			Journal entry for <b>{formattedDate}</b>
 		</div>
 	);
 }

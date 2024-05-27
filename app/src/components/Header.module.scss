@@ -8,3 +8,25 @@
   background: rgb(204, 201, 255);
   background: linear-gradient(90deg, rgba(204, 201, 255, 1) 0%, rgba(255, 255, 255, 1) 100%);
 }
+
+.headerBorder {
+  height: 1px;
+  background: rgb(170, 166, 255);
+  background: linear-gradient(90deg, rgba(170, 166, 255, 1) 0%, rgba(255, 255, 255, 1) 100%);
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+
+  .title {
+    font-size: 1.2em;
+    margin: 0;
+  }
+
+  .version {
+    font-size: .6em;
+    color: rgb(0, 0, 0, 0.5);
+    margin: 0;
+  }
+}
