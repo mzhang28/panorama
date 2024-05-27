@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
   let state = AppState { db };
 
   let cors = CorsLayer::new()
-    .allow_methods([Method::GET, Method::POST])
+    .allow_methods([Method::GET, Method::POST, Method::PUT])
     .allow_headers(cors::Any)
     .allow_origin(cors::Any);
 

@@ -11,14 +11,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TimeAgo from "javascript-time-ago";
 import en from "javascript-time-ago/locale/en";
 import Sidebar from "./components/Sidebar";
+import { atom, useAtom } from "jotai";
 
 const queryClient = new QueryClient();
 
 TimeAgo.addDefaultLocale(en);
 
-function App() {
-	const [nodesOpened, setNodesOpened] = useState<string[]>(() => []);
+export const nodesOpenedAtom = atom<string[]>([]);
 
+function App() {
+	const [nodesOpened, setNodesOpened] = useAtom(nodesOpenedAtom);
+
+	// Open today's journal entry if it's not already opened
 	useEffect(() => {
 		(async () => {
 			console.log("ndoes", nodesOpened);

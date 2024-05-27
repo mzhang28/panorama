@@ -85,6 +85,8 @@ export default function NodeDisplay({ id }: NodeDisplayProps) {
 					<>Status: {status}</>
 				)}
 			</div>
+
+			<div className={styles.footer}>{id}</div>
 		</div>
 	);
 }
@@ -93,7 +95,7 @@ function NodeDisplayHeaderLoaded({ id, data }) {
 	return (
 		<>
 			Type {data.type} &middot; Last updated{" "}
-			<ReactTimeAgo date={data.created_at * 1000} /> &middot; {id}
+			<ReactTimeAgo date={data.created_at * 1000} />
 		</>
 	);
 }

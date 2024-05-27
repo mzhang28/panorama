@@ -1,12 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use axum::{
   extract::{Path, Query, State},
   http::StatusCode,
   Json,
 };
-use cozo::{DataValue, ScriptMutability, Vector};
+use cozo::{DataValue, DbInstance, MultiTransaction, ScriptMutability, Vector};
+use itertools::Itertools;
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::{error::AppResult, AppState};
 
@@ -60,7 +62,7 @@ pub async fn get_node(
 #[derive(Deserialize, Debug)]
 pub struct UpdateData {
   title: Option<String>,
-  extra_data: Option<HashMap<String, Value>>,
+  extra_data: Option<ExtraData>,
 }
 
 pub async fn update_node(
@@ -92,28 +94,7 @@ pub async fn update_node(
   }
 
   if let Some(extra_data) = update_data.extra_data {
-    let result = tx.run_script(
-      "
-      ?[key, relation, field_name, type] :=
-        *fqkey_to_dbkey{key, relation, field_name, type},
-        is_in(key, $keys)
-    ",
-      btmap! {
-        "keys".to_owned() => DataValue::List(
-          extra_data
-            .keys()
-            .map(|s| DataValue::from(s.as_str()))
-            .collect::<Vec<_>>()
-        ),
-      },
-    )?;
-
-    let s = |s: &DataValue| s.get_str().unwrap().to_owned();
-    let result = result
-      .rows
-      .into_iter()
-      .map(|row| (s(&row[0]), (s(&row[1]), s(&row[2]), s(&row[3]))))
-      .collect::<HashMap<_, _>>();
+    let result = get_rows_for_extra_keys(&tx, &extra_data)?;
 
     for (key, (relation, field_name, ty)) in result.iter() {
       let new_value = extra_data.get(key).unwrap();
@@ -127,7 +108,7 @@ pub async fn update_node(
           :update {relation} {{ node_id, {field_name} }}
         "
       );
-      println!("QUERY: {query:?}");
+
       let result = tx.run_script(
         &query,
         btmap! {
@@ -135,8 +116,6 @@ pub async fn update_node(
           "input_data".to_owned() => new_value,
         },
       )?;
-
-      println!("RESULT: {result:?}");
     }
   }
 
@@ -164,8 +143,85 @@ pub async fn node_types() -> AppResult<Json<Value>> {
   })))
 }
 
-pub async fn create_node() -> AppResult<()> {
-  Ok(())
+#[derive(Debug, Deserialize)]
+pub struct CreateNodeOpts {
+  // TODO: Allow submitting a string
+  // id: Option<String>,
+  #[serde(rename = "type")]
+  ty: String,
+  extra_data: Option<ExtraData>,
+}
+
+pub async fn create_node(
+  State(state): State<AppState>,
+  Json(opts): Json<CreateNodeOpts>,
+) -> AppResult<Json<Value>> {
+  let node_id = Uuid::now_v7();
+  let node_id = node_id.to_string();
+  println!("Opts: {opts:?}");
+
+  let tx = state.db.multi_transaction(true);
+
+  let result = tx.run_script(
+    "
+    ?[id, type] <- [[$node_id, $type]]
+    :put node { id, type }
+  ",
+    btmap! {
+      "node_id".to_owned() => DataValue::from(node_id.clone()),
+      "type".to_owned() => DataValue::from(opts.ty),
+    },
+  );
+
+  if let Some(extra_data) = opts.extra_data {
+    let result = get_rows_for_extra_keys(&tx, &extra_data)?;
+
+    let result_by_relation = result
+      .iter()
+      .into_group_map_by(|(key, (relation, field_name, ty))| relation);
+    println!("Result by relation: {result_by_relation:?}");
+
+    for (relation, fields) in result_by_relation.iter() {
+      let fields_mapping = fields
+        .into_iter()
+        .map(|(key, (_, field_name, _))| {
+          let new_value = extra_data.get(*key).unwrap();
+          // TODO: Make this more generic
+          let new_value = DataValue::from(new_value.as_str().unwrap());
+          (field_name.to_owned(), new_value)
+        })
+        .collect::<BTreeMap<_, _>>();
+
+      let keys = fields_mapping.keys().collect::<Vec<_>>();
+      let keys_joined = keys.iter().join(", ");
+
+      let query = format!(
+        "
+          ?[ node_id, {keys_joined} ] <- [$input_data]
+          :insert {relation} {{ node_id, {keys_joined} }}
+        "
+      );
+
+      let mut params = vec![];
+      params.push(DataValue::from(node_id.clone()));
+      for key in keys {
+        params.push(fields_mapping[key].clone());
+      }
+
+      let result = tx.run_script(
+        &query,
+        btmap! {
+          "input_data".to_owned() => DataValue::List(params),
+        },
+      )?;
+    }
+  }
+
+  tx.commit()?;
+
+  Ok(Json(json!({
+    "node_id": node_id,
+  })))
 }
 
 #[derive(Deserialize)]
@@ -179,14 +235,18 @@ pub async fn search_nodes(
 ) -> AppResult<Json<Value>> {
   let results = state.db.run_script(
     "
-        ?[node_id, content, score] := ~journal:text_index {node_id, content, |
-          query: $q,
-          k: 10,
-          score_kind: 'tf_idf',
-          bind_score: score
-        }
+      results[node_id, content, score] := ~journal:text_index {node_id, content, |
+        query: $q,
+        k: 10,
+        score_kind: 'tf_idf',
+        bind_score: score
+      }
 
-        :order -score
+      ?[node_id, content, title, score] :=
+        results[node_id, content, score],
+        *node{ id: node_id, title }
+
+      :order -score
       ",
     btmap! {
       "q".to_owned() => DataValue::from(query.query),
@@ -201,7 +261,8 @@ pub async fn search_nodes(
       json!({
         "node_id": row[0].get_str().unwrap(),
         "content": row[1].get_str().unwrap(),
-        "score": row[2].get_float().unwrap(),
+        "title": row[2].get_str().unwrap(),
+        "score": row[3].get_float().unwrap(),
       })
     })
     .collect::<Vec<_>>();
@@ -209,4 +270,37 @@ pub async fn search_nodes(
   Ok(Json(json!({
     "results": results
   })))
+}
+
+type ExtraData = HashMap<String, Value>;
+
+fn get_rows_for_extra_keys(
+  tx: &MultiTransaction,
+  extra_data: &ExtraData,
+) -> AppResult<HashMap<String, (String, String, String)>> {
+  let result = tx.run_script(
+    "
+      ?[key, relation, field_name, type] :=
+        *fqkey_to_dbkey{key, relation, field_name, type},
+        is_in(key, $keys)
+    ",
+    btmap! {
+      "keys".to_owned() => DataValue::List(
+        extra_data
+          .keys()
+          .map(|s| DataValue::from(s.as_str()))
+          .collect::<Vec<_>>()
+      ),
+    },
+  )?;
+
+  let s = |s: &DataValue| s.get_str().unwrap().to_owned();
+
+  Ok(
+    result
+      .rows
+      .into_iter()
+      .map(|row| (s(&row[0]), (s(&row[1]), s(&row[2]), s(&row[3]))))
+      .collect::<HashMap<_, _>>(),
+  )
 }
