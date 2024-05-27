@@ -117,6 +117,15 @@ fn migration_01(db: &DbInstance) -> Result<()> {
       { :create node_has_key { key: String => id: String } }
       { :create node_managed_by_app { node_id: String => app: String } }
       { :create node_refers_to { node_id: String => other_node_id: String } }
+      {
+        :create fqkey_to_dbkey {
+          key: String
+          =>
+          relation: String,
+          field_name: String,
+          type: String,
+        }
+      }
 
       # Create journal type
       { :create journal { node_id: String => content: Json } }

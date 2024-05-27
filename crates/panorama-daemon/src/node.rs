@@ -5,7 +5,7 @@ use axum::{
   http::StatusCode,
   Json,
 };
-use cozo::ScriptMutability;
+use cozo::{DataValue, ScriptMutability};
 use serde_json::Value;
 
 use crate::{error::AppResult, AppState};
@@ -69,6 +69,30 @@ pub async fn update_node(
   Json(update_data): Json<UpdateData>,
 ) -> AppResult<Json<Value>> {
   println!("Update data: {:?}", update_data);
+
+  let tx = state.db.multi_transaction(true);
+
+  if let Some(extra_data) = update_data.extra_data {
+    let result = tx.run_script(
+      "
+      ?[relation, field_name, type] :=
+        *fqkey_to_dbkey{key, relation, field_name, type},
+        key = $key
+    ",
+      btmap! {
+        "key".to_owned() => DataValue::List(
+          extra_data
+            .keys()
+            .map(|s| DataValue::from(s.as_str()))
+            .collect::<Vec<_>>()
+        ),
+      },
+    )?;
+
+    println!("Result: {result:?}");
+  }
+
+  tx.commit()?;
 
   Ok(Json(json!({})))
 }

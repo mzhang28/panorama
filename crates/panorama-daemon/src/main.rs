@@ -8,9 +8,11 @@ extern crate serde_json;
 extern crate sugars;
 
 mod error;
+mod export;
 mod journal;
 mod migrations;
 mod node;
+mod query_builder;
 
 use std::fs;
 
@@ -27,6 +29,7 @@ use tower::ServiceBuilder;
 use tower_http::cors::{self, CorsLayer};
 
 use crate::{
+  export::export,
   journal::get_todays_journal_id,
   migrations::run_migrations,
   node::{get_node, node_types, update_node},
@@ -64,6 +67,7 @@ async fn main() -> Result<()> {
   // build our application with a single route
   let app = Router::new()
     .route("/", get(|| async { "Hello, World!" }))
+    .route("/export", get(export))
     .route("/node/:id", get(get_node))
     .route("/node/:id", post(update_node))
     .route("/node/types", get(node_types))
