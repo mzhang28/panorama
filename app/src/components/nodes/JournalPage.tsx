@@ -33,7 +33,6 @@ export default function JournalPage({ id, data }: JournalPageProps) {
 
 	useEffect(() => {
 		if (changed) {
-			// console.log("OLD", previous, "NEW", valueToSave);
 			(async () => {
 				console.log("Saving...");
 				const resp = await fetch(`http://localhost:5195/node/${id}`, {
@@ -72,27 +71,34 @@ export default function JournalPage({ id, data }: JournalPageProps) {
 		<>
 			{isEditingTitle ? (
 				<form
+					className={styles.titleEditorForm}
 					onSubmit={(evt) => {
 						evt.preventDefault();
 						saveChangedTitle();
 					}}
 				>
 					<input
-						className={styles.title}
+						className={styles.titleEditor}
 						type="text"
 						value={title}
-						onChange={(evt) => setTitle(evt.target.value)}
+						onChange={(evt) => {
+							let newTitle = evt.target.value;
+							if (newTitle.trim().length === 0) newTitle = null;
+							setTitle(newTitle);
+						}}
 						onBlur={() => saveChangedTitle()}
 						// biome-ignore lint/a11y/noAutofocus: <explanation>
 						autoFocus
 					/>
 				</form>
 			) : (
-				<div
-					className={styles.title}
-					onDoubleClick={() => setIsEditingTitle(true)}
-				>
-					{title ?? <span className={styles.untitled}>(untitled)</span>}
+				<div className={styles.titleContainer}>
+					<div
+						className={styles.title}
+						onDoubleClick={() => setIsEditingTitle(true)}
+					>
+						{title ?? <span className={styles.untitled}>(untitled)</span>}
+					</div>
 				</div>
 			)}
 			<div data-color-mode="light" className={styles.container}>
