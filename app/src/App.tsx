@@ -22,7 +22,7 @@ export const nodesOpenedAtom = atom<OrderedSet<string>>(OrderedSet<string>());
 
 function App() {
 	const nodesOpened = useAtomValue(nodesOpenedAtom);
-	const openNode = useOpenNode();
+	const { openNode } = useNodeControls();
 
 	// Open today's journal entry if it's not already opened
 	useEffect(() => {
@@ -60,9 +60,14 @@ function App() {
 
 export default App;
 
-export function useOpenNode() {
+export function useNodeControls() {
 	const [nodesOpened, setNodesOpened] = useAtom(nodesOpenedAtom);
-	return (node_id: string) => {
-		setNodesOpened(nodesOpened.remove(node_id).add(node_id));
+	return {
+		openNode: (node_id: string) => {
+			setNodesOpened(nodesOpened.remove(node_id).add(node_id));
+		},
+		closeNode: (node_id: string) => {
+			setNodesOpened(nodesOpened.remove(node_id));
+		},
 	};
 }

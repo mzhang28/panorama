@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import styles from "./NodeDisplay.module.scss";
 import ReactTimeAgo from "react-time-ago";
-import JournalPage from "./nodes/JournalPage";
 import { getNode } from "../lib/getNode";
 import FirstPageIcon from "@mui/icons-material/FirstPage";
-import { useOpenNode } from "../App";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
+import CloseIcon from "@mui/icons-material/Close";
+import { useNodeControls } from "../App";
 
 export interface NodeDisplayProps {
 	id: string;
@@ -48,7 +49,8 @@ export default function NodeDisplay({ id, idx }: NodeDisplayProps) {
 }
 
 function NodeDisplayHeaderLoaded({ idx, id, data }) {
-	const openNode = useOpenNode();
+	const { openNode, closeNode } = useNodeControls();
+
 	return (
 		<>
 			{idx === 0 || (
@@ -68,6 +70,19 @@ function NodeDisplayHeaderLoaded({ idx, id, data }) {
 					</>
 				)}
 			</span>
+			<div className="spacer" />
+
+			<button type="button">
+				<MoreVertIcon fontSize="inherit" />
+			</button>
+
+			<button
+				type="button"
+				className={styles.closeButton}
+				onClick={() => closeNode(id)}
+			>
+				<CloseIcon fontSize="inherit" />
+			</button>
 		</>
 	);
 }

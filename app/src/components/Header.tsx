@@ -5,13 +5,13 @@ import { getVersion } from "@tauri-apps/api/app";
 import ListIcon from "@mui/icons-material/List";
 import { useSetAtom } from "jotai";
 import { sidebarExpandedAtom } from "./Sidebar";
-import { nodesOpenedAtom, useOpenNode } from "../App";
+import { useNodeControls } from "../App";
 import { useCallback } from "react";
 
 const version = await getVersion();
 
 export default function Header() {
-	const openNode = useOpenNode();
+	const { openNode } = useNodeControls();
 	const setSidebarExpanded = useSetAtom(sidebarExpandedAtom);
 
 	const createNewJournalPage = useCallback(() => {
@@ -40,14 +40,14 @@ export default function Header() {
 					type="button"
 					onClick={() => setSidebarExpanded((prev) => !prev)}
 				>
-					<ListIcon />
+					<ListIcon fontSize="inherit" />
 				</button>
 				<div className={styles.brand}>
 					<span className={styles.title}>Panorama</span>
 					<span className={styles.version}>v{version}</span>
 				</div>
 				<button type="button" onClick={createNewJournalPage}>
-					<NoteAddIcon />
+					<NoteAddIcon fontSize="inherit" />
 				</button>
 				<SearchBar />
 			</div>

@@ -3,13 +3,13 @@ import styles from "./Sidebar.module.scss";
 import classNames from "classnames";
 import EmailIcon from "@mui/icons-material/Email";
 import SettingsIcon from "@mui/icons-material/Settings";
-import { useOpenNode } from "../App";
+import { useNodeControls } from "../App";
 
 export const sidebarExpandedAtom = atom(false);
 
 export default function Sidebar() {
 	const sidebarExpanded = useAtomValue(sidebarExpandedAtom);
-	const openNode = useOpenNode();
+	const { openNode } = useNodeControls();
 
 	return (
 		<div

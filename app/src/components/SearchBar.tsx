@@ -14,7 +14,7 @@ import {
 import { useDebounce } from "use-debounce";
 import { useEffect, useState } from "react";
 import { atom, useAtom, useSetAtom } from "jotai";
-import { nodesOpenedAtom, useOpenNode } from "../App";
+import { useNodeControls } from "../App";
 
 const searchQueryAtom = atom("");
 const showMenuAtom = atom(false);
@@ -89,7 +89,7 @@ export default function SearchBar() {
 function SearchMenu({ results }) {
 	const setSearchQuery = useSetAtom(searchQueryAtom);
 	const setShowMenu = useSetAtom(showMenuAtom);
-	const openNode = useOpenNode();
+	const { openNode } = useNodeControls();
 
 	return (
 		<div className={styles.searchResults}>

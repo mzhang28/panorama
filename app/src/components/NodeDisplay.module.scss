@@ -26,8 +26,7 @@
 
   font-size: 0.6rem;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: stretch;
   padding: 0 6px;
 
   button {
@@ -41,10 +40,15 @@
     &:hover {
       background-color: rgba(0, 0, 0, 0.25);
     }
+
+    &.closeButton:hover {
+      background-color: red;
+      color: white;
+    }
   }
 
   span {
-    padding: 2px 0;
+    padding: 6px;
   }
 }
 
