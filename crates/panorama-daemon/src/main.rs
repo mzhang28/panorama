@@ -32,7 +32,7 @@ use tower_http::cors::{self, CorsLayer};
 use crate::{
   export::export,
   journal::get_todays_journal_id,
-  mail::{get_mail_config, mail_loop},
+  mail::{get_mail, get_mail_config, mail_loop},
   migrations::run_migrations,
   node::{create_node, get_node, node_types, search_nodes, update_node},
 };
@@ -78,6 +78,7 @@ async fn main() -> Result<()> {
     .route("/node/types", get(node_types))
     .route("/journal/get_todays_journal_id", get(get_todays_journal_id))
     .route("/mail/config", get(get_mail_config))
+    .route("/mail", get(get_mail))
     .layer(ServiceBuilder::new().layer(cors))
     .with_state(state);
 

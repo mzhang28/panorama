@@ -3,9 +3,18 @@ import styles from "./Mail.module.scss";
 import { Formik } from "formik";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import ReactTimeAgo from "react-time-ago";
+import { parseISO } from "date-fns";
 
 export default function Mail() {
 	const [showSettings, setShowSettings] = useState(false);
+	const fetchedMail = useQuery({
+		queryKey: ["mail"],
+		queryFn: fetchMail,
+		staleTime: 10000,
+	});
+
+	const { isSuccess, data } = fetchedMail;
 
 	return (
 		<div className={styles.container}>
@@ -25,7 +34,26 @@ export default function Mail() {
 				</div>
 			)}
 
-			<div className={styles.mailList}></div>
+			<div className={styles.mailList}>
+				{isSuccess && (
+					<ul>
+						{data.messages.map((message) => {
+							const date = parseISO(message.internal_date);
+							return (
+								<li key={message.node_id}>
+									<details>
+										<summary>
+											{message.subject} (<ReactTimeAgo date={date} />)
+										</summary>
+
+										<small>{message.body}</small>
+									</details>
+								</li>
+							);
+						})}
+					</ul>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -131,4 +159,10 @@ async function fetchMailConfig() {
 	const resp = await fetch("http://localhost:5195/mail/config");
 	const data = await resp.json();
 	return data.configs;
+}
+
+async function fetchMail() {
+	const resp = await fetch("http://localhost:5195/mail");
+	const data = await resp.json();
+	return data;
 }

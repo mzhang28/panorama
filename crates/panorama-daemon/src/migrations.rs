@@ -161,6 +161,27 @@ fn migration_01(db: &DbInstance) -> Result<()> {
           imap_password: String,
         }
       }
+      {
+        :create mailbox {
+          node_id: String
+          =>
+          account_node_id: String,
+          mailbox_name: String,
+        }
+      }
+      { ::index create mailbox:by_account_id_and_name { account_node_id, mailbox_name } }
+      {
+        :create message {
+          node_id: String
+          =>
+          account_node_id: String,
+          mailbox_node_id: String,
+          subject: String,
+          headers: Json?,
+          body: Bytes,
+          internal_date: String,
+        }
+      }
 
       # Calendar
     ",
