@@ -7,12 +7,16 @@ import { useSetAtom } from "jotai";
 import { sidebarExpandedAtom } from "./Sidebar";
 import { useNodeControls } from "../App";
 import { useCallback } from "react";
-
-const version = await getVersion();
+import { useQuery } from "@tanstack/react-query";
 
 export default function Header() {
 	const { openNode } = useNodeControls();
 	const setSidebarExpanded = useSetAtom(sidebarExpandedAtom);
+	const versionData = useQuery({
+		queryKey: ["appVersion"],
+		queryFn: getVersion,
+	});
+	const { data: version } = versionData;
 
 	const createNewJournalPage = useCallback(() => {
 		(async () => {

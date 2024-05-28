@@ -9,7 +9,7 @@ export const sidebarExpandedAtom = atom(false);
 
 export default function Sidebar() {
 	const sidebarExpanded = useAtomValue(sidebarExpandedAtom);
-	const { openNode } = useNodeControls();
+	const { toggleNode, isOpen } = useNodeControls();
 
 	return (
 		<div
@@ -20,8 +20,11 @@ export default function Sidebar() {
 		>
 			<button
 				type="button"
-				className={styles.item}
-				onClick={() => openNode("panorama/mail")}
+				className={classNames(
+					styles.item,
+					isOpen("panorama/mail") && styles.active,
+				)}
+				onClick={() => toggleNode("panorama/mail")}
 			>
 				<EmailIcon />
 				<span className={styles.label}>Email</span>

@@ -63,6 +63,11 @@ export default App;
 export function useNodeControls() {
 	const [nodesOpened, setNodesOpened] = useAtom(nodesOpenedAtom);
 	return {
+		isOpen: (node_id: string) => nodesOpened.has(node_id),
+		toggleNode: (node_id: string) => {
+			if (nodesOpened.has(node_id)) setNodesOpened(nodesOpened.remove(node_id));
+			else setNodesOpened(nodesOpened.remove(node_id).add(node_id));
+		},
 		openNode: (node_id: string) => {
 			setNodesOpened(nodesOpened.remove(node_id).add(node_id));
 		},
