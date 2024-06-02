@@ -5,14 +5,14 @@ import "@fontsource/inter";
 import "@fontsource/inter/700.css";
 import "./global.scss";
 import "katex/dist/katex.min.css";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import NodeDisplay from "./components/NodeDisplay";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TimeAgo from "javascript-time-ago";
 import en from "javascript-time-ago/locale/en";
 import Sidebar from "./components/Sidebar";
 import { atom, useAtom, useAtomValue } from "jotai";
-import { OrderedMap, OrderedSet } from "immutable";
+import { OrderedSet } from "immutable";
 
 const queryClient = new QueryClient();
 

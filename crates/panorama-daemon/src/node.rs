@@ -8,10 +8,34 @@ use axum::{
 use cozo::{DataValue, DbInstance, MultiTransaction, ScriptMutability, Vector};
 use itertools::Itertools;
 use serde_json::Value;
+use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
 use crate::{error::AppResult, AppState};
 
+#[derive(OpenApi)]
+#[openapi(paths(get_node), components(schemas(GetNodeResult)))]
+pub(super) struct NodeApi;
+
+#[derive(Serialize, Deserialize, ToSchema, Clone)]
+struct GetNodeResult {
+  node: String,
+  extra_data: Value,
+  content: String,
+  day: Option<String>,
+  created_at: f64,
+  updated_at: f64,
+  r#type: String,
+  title: String,
+}
+
+#[utoipa::path(
+  get,
+  path = "/{id}",
+  responses(
+    (status = 200, description = "Get all info about a single node", body = [GetNodeResult])
+  )
+)]
 pub async fn get_node(
   State(state): State<AppState>,
   Path(node_id): Path<String>,

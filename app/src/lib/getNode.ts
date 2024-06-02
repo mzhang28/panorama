@@ -3,21 +3,21 @@ import JournalPage from "../components/nodes/JournalPage";
 import Mail from "../components/nodes/Mail";
 import { QueryFunctionContext } from "@tanstack/react-query";
 
-export interface RenderProps {
+export interface RenderProps<D> {
 	id: string;
-	data: any;
+	data: D;
 }
 
-export interface NodeDescriptor {
-	render: FC<RenderProps>;
+export interface NodeDescriptor<D> {
+	render: FC<RenderProps<D>>;
 	data: {
 		type: string;
-	} & any;
+	} & D;
 }
 
 export async function getNode({
 	queryKey,
-}: QueryFunctionContext): Promise<NodeDescriptor> {
+}: QueryFunctionContext): Promise<NodeDescriptor<unknown>> {
 	const [, node_id] = queryKey;
 	switch (node_id) {
 		case "panorama/mail":

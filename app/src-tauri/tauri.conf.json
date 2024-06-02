@@ -1,53 +1,35 @@
 {
-	"build": {
-		"beforeDevCommand": "pnpm dev",
-		"beforeBuildCommand": "pnpm build",
-		"devPath": "http://localhost:1420",
-		"distDir": "../dist"
-	},
-	"package": {
-		"productName": "panorama",
-		"version": "0.1.0"
-	},
-	"tauri": {
-		"allowlist": {
-			"all": false,
-			"app": {
-				"all": true,
-				"hide": true,
-				"show": true
-			},
-			"shell": {
-				"all": false,
-				"open": true
-			},
-			"http": {
-				"all": false,
-				"request": true,
-				"scope": ["http://localhost:5195/*"]
-			}
-		},
-		"windows": [
-			{
-				"title": "panorama",
-				"width": 800,
-				"height": 600
-			}
-		],
-		"security": {
-			"csp": null
-		},
-		"bundle": {
-			"active": true,
-			"targets": "all",
-			"identifier": "com.tauri.dev",
-			"icon": [
-				"icons/32x32.png",
-				"icons/128x128.png",
-				"icons/128x128@2x.png",
-				"icons/icon.icns",
-				"icons/icon.ico"
-			]
-		}
-	}
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "productName": "panorama",
+  "version": "0.1.0",
+  "identifier": "io.mzhang.panorama",
+  "plugins": {},
+  "app": {
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "title": "panorama",
+        "width": 800,
+        "height": 600
+      }
+    ]
+  }
 }

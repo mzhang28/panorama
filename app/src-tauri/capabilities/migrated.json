@@ -1,0 +1,30 @@
+{
+  "identifier": "migrated",
+  "description": "permissions that were migrated from v1",
+  "local": true,
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "path:default",
+    "event:default",
+    "window:default",
+    "app:default",
+    "resources:default",
+    "menu:default",
+    "tray:default",
+    "shell:allow-open",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "http://localhost:5195/*"
+        }
+      ]
+    },
+    "app:allow-app-show",
+    "app:allow-app-hide",
+    "shell:default",
+    "http:default"
+  ]
+}

@@ -155,10 +155,7 @@ async fn mail_loop_inner(db: &DbInstance) -> AppResult<()> {
     .into_diagnostic()?;
   println!(
     "messages {:?}",
-    messages
-      .iter()
-      .map(|f| f.internal_date())
-      .collect::<Vec<_>>()
+    messages.iter().map(|f| f.body()).collect::<Vec<_>>()
   );
 
   let input_data = DataValue::List(

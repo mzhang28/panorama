@@ -28,6 +28,9 @@ use serde_json::Value;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::cors::{self, CorsLayer};
+use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
   export::export,
@@ -44,6 +47,13 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+  #[derive(OpenApi)]
+  #[openapi(
+    modifiers(),
+    nest((path = "/node", api = crate::node::NodeApi)),
+  )]
+  struct ApiDoc;
+
   let data_dir = dirs::data_dir().unwrap();
   let panorama_dir = data_dir.join("panorama");
   let db_path = panorama_dir.join("db.sqlite");
@@ -69,6 +79,11 @@ async fn main() -> Result<()> {
 
   // build our application with a single route
   let app = Router::new()
+    // .merge(
+    //   SwaggerUi::new("/swagger-ui")
+    //     .url("/api-docs/openapi.json", ApiDoc::openapi()),
+    // )
+    .merge(Scalar::with_url("/api/docs", ApiDoc::openapi()))
     .route("/", get(|| async { "Hello, World!" }))
     .route("/export", get(export))
     .route("/node", put(create_node))

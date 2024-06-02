@@ -23,6 +23,19 @@ tower = "0.4.13"
 tower-http = { version = "0.5.2", features = ["cors"] }
 uuid = { version = "1.8.0", features = ["v7"] }
 
+[dependencies.utoipa]
+git = "https://github.com/juhaku/utoipa"
+features = ["axum_extras", "time", "uuid", "chrono", "yaml"]
+
+[dependencies.utoipa-scalar]
+git = "https://github.com/juhaku/utoipa"
+features = ["axum"]
+
+[dependencies.utoipa-swagger-ui]
+git = "https://github.com/juhaku/utoipa"
+features = ["axum"]
+
+
 [dependencies.async-imap]
 version = "0.9.7"
 default-features = false
