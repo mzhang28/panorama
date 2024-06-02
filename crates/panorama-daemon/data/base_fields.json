@@ -1,0 +1,36 @@
+{
+	"$schema": "./base_fields_schema.json",
+	"fields": [
+		{
+			"fq_field_name": "/journal/page/content",
+			"relation_name": "content",
+			"relation_field_name": "string",
+			"type": "string",
+			"is_fts_enabled": true
+		},
+		{
+			"fq_field_name": "/mail/config/imap_hostname",
+			"relation_name": "mail_config",
+			"relation_field_name": "imap_hostname",
+			"type": "string"
+		},
+		{
+			"fq_field_name": "/mail/config/imap_port",
+			"relation_name": "mail_config",
+			"relation_field_name": "imap_port",
+			"type": "int"
+		},
+		{
+			"fq_field_name": "/mail/config/imap_username",
+			"relation_name": "mail_config",
+			"relation_field_name": "imap_username",
+			"type": "string"
+		},
+		{
+			"fq_field_name": "/mail/config/imap_password",
+			"relation_name": "mail_config",
+			"relation_field_name": "imap_password",
+			"type": "string"
+		}
+	]
+}

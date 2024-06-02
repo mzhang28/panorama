@@ -14,6 +14,7 @@ mod mail;
 mod migrations;
 mod node;
 mod query_builder;
+pub mod state;
 
 use std::fs;
 
@@ -23,27 +24,20 @@ use axum::{
   routing::{get, post, put},
   Router,
 };
-use cozo::DbInstance;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::cors::{self, CorsLayer};
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
-use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
   export::export,
   journal::get_todays_journal_id,
-  mail::{get_mail, get_mail_config, mail_loop},
-  migrations::run_migrations,
-  node::{create_node, get_node, node_types, search_nodes, update_node},
+  mail::{get_mail, get_mail_config},
+  node::{create_node, node_types, search_nodes, update_node},
+  state::AppState,
 };
-
-#[derive(Clone)]
-pub struct AppState {
-  db: DbInstance,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -56,21 +50,9 @@ async fn main() -> Result<()> {
 
   let data_dir = dirs::data_dir().unwrap();
   let panorama_dir = data_dir.join("panorama");
-  let db_path = panorama_dir.join("db.sqlite");
-  fs::create_dir_all(panorama_dir)?;
+  fs::create_dir_all(&panorama_dir)?;
 
-  let db = DbInstance::new(
-    "sqlite",
-    db_path.display().to_string(),
-    Default::default(),
-  )
-  .unwrap();
-
-  run_migrations(&db).await?;
-
-  tokio::spawn(mail_loop(db.clone()));
-
-  let state = AppState { db };
+  let state = AppState::new(&panorama_dir).await?;
 
   let cors = CorsLayer::new()
     .allow_methods([Method::GET, Method::POST, Method::PUT])
@@ -88,14 +70,15 @@ async fn main() -> Result<()> {
     .route("/export", get(export))
     .route("/node", put(create_node))
     .route("/node/search", get(search_nodes))
-    .route("/node/:id", get(get_node))
-    .route("/node/:id", post(update_node))
+    // .route("/node/:id", get(get_node))
+    // .route("/node/:id", post(update_node))
     .route("/node/types", get(node_types))
+    .nest("/node", node::router().with_state(state.clone()))
     .route("/journal/get_todays_journal_id", get(get_todays_journal_id))
     .route("/mail/config", get(get_mail_config))
     .route("/mail", get(get_mail))
     .layer(ServiceBuilder::new().layer(cors))
-    .with_state(state);
+    .with_state(state.clone());
 
   let listener = TcpListener::bind("0.0.0.0:5195").await?;
   println!("Listening... {:?}", listener);

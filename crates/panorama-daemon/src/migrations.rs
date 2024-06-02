@@ -125,17 +125,18 @@ fn migration_01(db: &DbInstance) -> Result<()> {
           relation: String,
           field_name: String,
           type: String,
+          fts_enabled: Bool,
         }
       }
       {
-        ?[key, relation, field_name, type] <- [
-          ['panorama/journal/page/content', 'journal', 'content', 'string'],
-          ['panorama/mail/config/imap_hostname', 'mail_config', 'imap_hostname', 'string'],
-          ['panorama/mail/config/imap_port', 'mail_config', 'imap_port', 'int'],
-          ['panorama/mail/config/imap_username', 'mail_config', 'imap_username', 'string'],
-          ['panorama/mail/config/imap_password', 'mail_config', 'imap_password', 'string'],
+        ?[key, relation, field_name, type, fts_enabled] <- [
+          ['panorama/journal/page/content', 'journal', 'content', 'string', true],
+          ['panorama/mail/config/imap_hostname', 'mail_config', 'imap_hostname', 'string', false],
+          ['panorama/mail/config/imap_port', 'mail_config', 'imap_port', 'int', false],
+          ['panorama/mail/config/imap_username', 'mail_config', 'imap_username', 'string', false],
+          ['panorama/mail/config/imap_password', 'mail_config', 'imap_password', 'string', false],
         ]
-        :put fqkey_to_dbkey { key, relation, field_name, type }
+        :put fqkey_to_dbkey { key, relation, field_name, type, fts_enabled }
       }
 
       # Create journal type

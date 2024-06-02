@@ -1,9 +1,13 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+  collections::{BTreeMap, HashMap},
+  result,
+};
 
 use axum::{
   extract::{Path, Query, State},
   http::StatusCode,
-  Json,
+  routing::get,
+  Json, Router,
 };
 use cozo::{DataValue, DbInstance, MultiTransaction, ScriptMutability, Vector};
 use itertools::Itertools;
@@ -13,9 +17,14 @@ use uuid::Uuid;
 
 use crate::{error::AppResult, AppState};
 
+/// Node API
 #[derive(OpenApi)]
 #[openapi(paths(get_node), components(schemas(GetNodeResult)))]
 pub(super) struct NodeApi;
+
+pub(super) fn router() -> Router<AppState> {
+  Router::new().route("/:id", get(get_node))
+}
 
 #[derive(Serialize, Deserialize, ToSchema, Clone)]
 struct GetNodeResult {
@@ -29,17 +38,34 @@ struct GetNodeResult {
   title: String,
 }
 
+/// Get all info about a single node
 #[utoipa::path(
   get,
   path = "/{id}",
   responses(
-    (status = 200, description = "Get all info about a single node", body = [GetNodeResult])
-  )
+    (status = 200, body = [GetNodeResult])
+  ),
+  params(
+    ("id" = String, Path, description = "Node ID"),
+  ),
 )]
 pub async fn get_node(
   State(state): State<AppState>,
   Path(node_id): Path<String>,
 ) -> AppResult<(StatusCode, Json<Value>)> {
+  let result = state.db.run_script(
+    "
+      ?[relation, field_name, type, fts_enabled] :=
+        *node_has_key { key, id },
+        *fqkey_to_dbkey { key, relation, field_name, type, fts_enabled },
+        id = $node_id
+  ",
+    btmap! {"node_id".to_owned() => node_id.clone().into()},
+    ScriptMutability::Immutable,
+  )?;
+
+  println!("FIRST RESULT: {:?}", result);
+
   let result = state.db.run_script(
     "
     j[content] := *journal{ node_id, content }, node_id = $node_id
@@ -89,6 +115,16 @@ pub struct UpdateData {
   extra_data: Option<ExtraData>,
 }
 
+#[utoipa::path(
+  post,
+  path = "/{id}",
+  responses(
+    (status = 200)
+  ),
+  params(
+    ("id" = String, Path, description = "Node ID"),
+  )
+)]
 pub async fn update_node(
   State(state): State<AppState>,
   Path(node_id): Path<String>,
