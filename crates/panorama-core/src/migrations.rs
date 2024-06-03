@@ -116,6 +116,7 @@ fn migration_01(db: &DbInstance) -> Result<()> {
 
       # Inverse mappings for easy querying
       { :create node_has_key { key: String => id: String } }
+      { ::index create node_has_key:inverse { id } }
       { :create node_managed_by_app { node_id: String => app: String } }
       { :create node_refers_to { node_id: String => other_node_id: String } }
       {
@@ -125,18 +126,18 @@ fn migration_01(db: &DbInstance) -> Result<()> {
           relation: String,
           field_name: String,
           type: String,
-          fts_enabled: Bool,
+          is_fts_enabled: Bool,
         }
       }
       {
-        ?[key, relation, field_name, type, fts_enabled] <- [
+        ?[key, relation, field_name, type, is_fts_enabled] <- [
           ['panorama/journal/page/content', 'journal', 'content', 'string', true],
           ['panorama/mail/config/imap_hostname', 'mail_config', 'imap_hostname', 'string', false],
           ['panorama/mail/config/imap_port', 'mail_config', 'imap_port', 'int', false],
           ['panorama/mail/config/imap_username', 'mail_config', 'imap_username', 'string', false],
           ['panorama/mail/config/imap_password', 'mail_config', 'imap_password', 'string', false],
         ]
-        :put fqkey_to_dbkey { key, relation, field_name, type, fts_enabled }
+        :put fqkey_to_dbkey { key, relation, field_name, type, is_fts_enabled }
       }
 
       # Create journal type

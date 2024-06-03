@@ -1,3 +1,4 @@
+pub mod export;
 pub mod mail;
 pub mod node;
 
@@ -7,7 +8,7 @@ use cozo::DbInstance;
 use miette::{IntoDiagnostic, Result};
 use tantivy::{
   directory::MmapDirectory,
-  schema::{self, Schema, STORED, STRING, TEXT},
+  schema::{Schema, STORED, STRING, TEXT},
   Index,
 };
 

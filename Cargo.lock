@@ -3516,6 +3516,7 @@ dependencies = [
  "chrono",
  "cozo",
  "futures",
+ "itertools 0.13.0",
  "miette",
  "serde",
  "serde_json",

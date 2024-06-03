@@ -1,16 +1,14 @@
-use std::{
-  collections::{BTreeMap, HashMap},
-  result,
-};
+use std::collections::{BTreeMap, HashMap};
 
 use axum::{
   extract::{Path, Query, State},
   http::StatusCode,
-  routing::get,
+  routing::{get, post, put},
   Json, Router,
 };
-use cozo::{DataValue, DbInstance, MultiTransaction, ScriptMutability, Vector};
+use cozo::{DataValue, MultiTransaction, ScriptMutability};
 use itertools::Itertools;
+use panorama_core::state::node::ExtraData;
 use serde_json::Value;
 use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
@@ -19,11 +17,17 @@ use crate::{error::AppResult, AppState};
 
 /// Node API
 #[derive(OpenApi)]
-#[openapi(paths(get_node), components(schemas(GetNodeResult)))]
+#[openapi(
+  paths(get_node, update_node, create_node),
+  components(schemas(GetNodeResult))
+)]
 pub(super) struct NodeApi;
 
 pub(super) fn router() -> Router<AppState> {
-  Router::new().route("/:id", get(get_node))
+  Router::new()
+    .route("/:id", get(get_node))
+    .route("/:id", post(update_node))
+    .route("/", put(create_node))
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Clone)]
@@ -38,12 +42,15 @@ struct GetNodeResult {
   title: String,
 }
 
-/// Get all info about a single node
+/// Get node info
+///
+/// This endpoint retrieves all the fields for a particular node
 #[utoipa::path(
   get,
   path = "/{id}",
   responses(
-    (status = 200, body = [GetNodeResult])
+    (status = 200, body = [GetNodeResult]),
+    (status = 404, description = "the node ID provided was not found")
   ),
   params(
     ("id" = String, Path, description = "Node ID"),
@@ -102,6 +109,7 @@ pub struct UpdateData {
   extra_data: Option<ExtraData>,
 }
 
+/// Update node info
 #[utoipa::path(
   post,
   path = "/{id}",
@@ -181,14 +189,6 @@ pub async fn update_node(
   Ok(Json(json!({})))
 }
 
-pub async fn node_types() -> AppResult<Json<Value>> {
-  Ok(Json(json!({
-    "types": [
-      { "id": "panorama/journal/page", "display": "Journal Entry" },
-    ]
-  })))
-}
-
 #[derive(Debug, Deserialize)]
 pub struct CreateNodeOpts {
   // TODO: Allow submitting a string
@@ -198,6 +198,16 @@ pub struct CreateNodeOpts {
   extra_data: Option<ExtraData>,
 }
 
+#[utoipa::path(
+  put,
+  path = "/",
+  responses(
+    (status = 200)
+  ),
+  params(
+    ("id" = String, Path, description = "Node ID"),
+  )
+)]
 pub async fn create_node(
   State(state): State<AppState>,
   Json(opts): Json<CreateNodeOpts>,
@@ -322,8 +332,6 @@ pub async fn search_nodes(
     "results": results
   })))
 }
-
-type ExtraData = HashMap<String, Value>;
 
 fn get_rows_for_extra_keys(
   tx: &MultiTransaction,

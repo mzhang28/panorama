@@ -1,7 +1,7 @@
 use std::{
   collections::HashMap,
-  fs::{self, File},
-  io::{BufWriter, Write},
+  fs::{self},
+  io::{Write},
   path::PathBuf,
 };
 

@@ -1,9 +1,8 @@
-use std::{collections::HashMap, default, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
-use cozo::{DataValue, DbInstance, JsonData, ScriptMutability};
+use cozo::{DataValue, JsonData, ScriptMutability};
 use futures::TryStreamExt;
 use miette::{IntoDiagnostic, Result};
-use serde_json::Value;
 use tokio::{net::TcpStream, time::sleep};
 use uuid::Uuid;
 

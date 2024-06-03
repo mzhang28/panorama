@@ -1,11 +1,29 @@
-use axum::{extract::State, Json};
+use axum::{extract::State, routing::get, Json, Router};
 use chrono::Local;
 use cozo::ScriptMutability;
 use serde_json::Value;
+use utoipa::OpenApi;
 use uuid::Uuid;
 
 use crate::{error::AppResult, AppState};
 
+/// Node API
+#[derive(OpenApi)]
+#[openapi(paths(get_todays_journal_id), components(schemas()))]
+pub(super) struct JournalApi;
+
+pub(super) fn router() -> Router<AppState> {
+  Router::new()
+    .route("/journal/get_todays_journal_id", get(get_todays_journal_id))
+}
+
+#[utoipa::path(
+  get,
+  path = "/get_todays_journal_id",
+  responses(
+    (status = 200),
+  ),
+)]
 pub async fn get_todays_journal_id(
   State(state): State<AppState>,
 ) -> AppResult<Json<Value>> {
