@@ -55,19 +55,6 @@ pub async fn get_node(
 ) -> AppResult<(StatusCode, Json<Value>)> {
   let result = state.db.run_script(
     "
-      ?[relation, field_name, type, fts_enabled] :=
-        *node_has_key { key, id },
-        *fqkey_to_dbkey { key, relation, field_name, type, fts_enabled },
-        id = $node_id
-  ",
-    btmap! {"node_id".to_owned() => node_id.clone().into()},
-    ScriptMutability::Immutable,
-  )?;
-
-  println!("FIRST RESULT: {:?}", result);
-
-  let result = state.db.run_script(
-    "
     j[content] := *journal{ node_id, content }, node_id = $node_id
     j[content] := not *journal{ node_id }, node_id = $node_id, content = null
 

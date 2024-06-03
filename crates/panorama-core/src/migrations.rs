@@ -1,5 +1,5 @@
-use anyhow::Result;
 use cozo::DbInstance;
+use miette::{IntoDiagnostic, Result};
 
 use serde_json::Value;
 
@@ -76,7 +76,7 @@ async fn check_migration_status(db: &DbInstance) -> Result<MigrationStatus> {
   );
   println!("Status: {}", status);
 
-  let status: Value = serde_json::from_str(&status)?;
+  let status: Value = serde_json::from_str(&status).into_diagnostic()?;
   let status = status.as_object().unwrap();
   let ok = status.get("ok").unwrap().as_bool().unwrap_or(false);
   if !ok {

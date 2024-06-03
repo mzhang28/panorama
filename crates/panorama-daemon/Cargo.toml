@@ -15,6 +15,7 @@ dirs = "5.0.1"
 futures = "0.3.30"
 itertools = "0.13.0"
 miette = "5.5.0"
+panorama-core = { path = "../panorama-core" }
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
 sugars = "3.0.1"
@@ -35,7 +36,6 @@ features = ["axum"]
 [dependencies.utoipa-swagger-ui]
 git = "https://github.com/juhaku/utoipa"
 features = ["axum"]
-
 
 [dependencies.async-imap]
 version = "0.9.7"

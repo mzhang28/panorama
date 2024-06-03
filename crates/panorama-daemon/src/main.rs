@@ -10,20 +10,19 @@ extern crate sugars;
 mod error;
 mod export;
 mod journal;
-mod mail;
-mod migrations;
+pub mod mail;
 mod node;
 mod query_builder;
-pub mod state;
 
 use std::fs;
 
-use anyhow::Result;
 use axum::{
   http::Method,
   routing::{get, post, put},
   Router,
 };
+use miette::{IntoDiagnostic, Result};
+use panorama_core::AppState;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
@@ -36,7 +35,6 @@ use crate::{
   journal::get_todays_journal_id,
   mail::{get_mail, get_mail_config},
   node::{create_node, node_types, search_nodes, update_node},
-  state::AppState,
 };
 
 #[tokio::main]
@@ -50,7 +48,7 @@ async fn main() -> Result<()> {
 
   let data_dir = dirs::data_dir().unwrap();
   let panorama_dir = data_dir.join("panorama");
-  fs::create_dir_all(&panorama_dir)?;
+  fs::create_dir_all(&panorama_dir).into_diagnostic()?;
 
   let state = AppState::new(&panorama_dir).await?;
 
@@ -80,20 +78,9 @@ async fn main() -> Result<()> {
     .layer(ServiceBuilder::new().layer(cors))
     .with_state(state.clone());
 
-  let listener = TcpListener::bind("0.0.0.0:5195").await?;
+  let listener = TcpListener::bind("0.0.0.0:5195").await.into_diagnostic()?;
   println!("Listening... {:?}", listener);
-  axum::serve(listener, app).await?;
+  axum::serve(listener, app).await.into_diagnostic()?;
 
-  Ok(())
-}
-
-pub fn ensure_ok(s: &str) -> Result<()> {
-  let status: Value = serde_json::from_str(&s)?;
-  let status = status.as_object().unwrap();
-  let ok = status.get("ok").unwrap().as_bool().unwrap_or(false);
-  if !ok {
-    let display = status.get("display").unwrap().as_str().unwrap();
-    bail!("shit (error: {display})")
-  }
   Ok(())
 }
