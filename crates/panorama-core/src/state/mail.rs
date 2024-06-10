@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 
 use cozo::{DataValue, JsonData, ScriptMutability};
 use futures::TryStreamExt;
@@ -6,11 +6,11 @@ use miette::{IntoDiagnostic, Result};
 use tokio::{net::TcpStream, time::sleep};
 use uuid::Uuid;
 
-use crate::AppState;
+use crate::{AppState, NodeId};
 
 #[derive(Debug, Serialize)]
 pub struct MailConfig {
-  node_id: String,
+  node_id: NodeId,
   imap_hostname: String,
   imap_port: u16,
   imap_username: String,
@@ -34,7 +34,7 @@ impl AppState {
       .rows
       .into_iter()
       .map(|row| MailConfig {
-        node_id: row[0].get_str().unwrap().to_owned(),
+        node_id: NodeId(Uuid::from_str(row[0].get_str().unwrap()).unwrap()),
         imap_hostname: row[1].get_str().unwrap().to_owned(),
         imap_port: row[2].get_int().unwrap() as u16,
         imap_username: row[3].get_str().unwrap().to_owned(),
@@ -105,7 +105,7 @@ impl AppState {
         *mailbox{node_id, account_node_id, mailbox_name},
         account_node_id = $account_node_id,
         mailbox_name = 'INBOX'
-      ", btmap! {"account_node_id".to_owned()=>DataValue::from(config.node_id.to_owned())}, ScriptMutability::Immutable)?;
+      ", btmap! {"account_node_id".to_owned()=>DataValue::from(config.node_id.to_string())}, ScriptMutability::Immutable)?;
 
       if result.rows.len() == 0 {
         let new_node_id = Uuid::now_v7();
@@ -117,7 +117,7 @@ impl AppState {
   ", 
   btmap! {
     "new_node_id".to_owned() => DataValue::from(new_node_id.clone()),
-    "account_node_id".to_owned() => DataValue::from(config.node_id.to_owned()),
+    "account_node_id".to_owned() => DataValue::from(config.node_id.to_string()),
   },
  ScriptMutability::Mutable)?;
         new_node_id
@@ -165,7 +165,7 @@ impl AppState {
             .collect::<HashMap<_, _>>();
           DataValue::List(vec![
             DataValue::from(message_id.to_string()),
-            DataValue::from(config.node_id.clone()),
+            DataValue::from(config.node_id.to_string()),
             DataValue::from(inbox_node_id.clone()),
             DataValue::from(
               headers

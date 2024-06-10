@@ -1,19 +1,22 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+  collections::{BTreeMap, HashMap},
+  str::FromStr,
+};
 
 use chrono::{DateTime, Utc};
-use cozo::{DataValue, MultiTransaction, ScriptMutability};
+use cozo::{DataValue, MultiTransaction, NamedRows, ScriptMutability};
 use itertools::Itertools;
 use miette::Result;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::AppState;
+use crate::{AppState, NodeId};
 
 pub type ExtraData = BTreeMap<String, Value>;
 
 #[derive(Debug)]
 pub struct NodeInfo {
-  pub node_id: String,
+  pub node_id: NodeId,
   pub created_at: DateTime<Utc>,
   pub updated_at: DateTime<Utc>,
   pub fields: Option<HashMap<String, DataValue>>,
@@ -30,23 +33,119 @@ pub type FieldMapping = HashMap<String, FieldInfo>;
 
 impl AppState {
   /// Get all properties of a node
-  pub async fn get_node(&self, node_id: impl AsRef<str>) -> Result<NodeInfo> {
-    let node_id = node_id.as_ref().to_owned();
+  pub async fn get_node(&self, node_id: &NodeId) -> Result<NodeInfo> {
+    let tx = self.db.multi_transaction(false);
 
-    let result = self.db.run_script(
+    let result = tx.run_script(
       "
-        ?[relation, field_name, type, is_fts_enabled] :=
+        ?[key, relation, field_name, type, is_fts_enabled] :=
           *node_has_key { key, id },
           *fqkey_to_dbkey { key, relation, field_name, type, is_fts_enabled },
           id = $node_id
       ",
-      btmap! {"node_id".to_owned() => node_id.clone().into()},
-      ScriptMutability::Immutable,
+      btmap! {"node_id".to_owned() => node_id.to_string().into()},
     )?;
 
     println!("FIELDS: {:?}", result);
 
-    todo!()
+    let field_mapping = AppState::rows_to_field_mapping(result)?;
+
+    // Group the keys by which relation they're in
+    let result_by_relation = field_mapping
+      .iter()
+      .into_group_map_by(|(_, FieldInfo { relation_name, .. })| relation_name);
+
+    let mut all_relation_queries = vec![];
+    let mut all_relation_constraints = vec![];
+    let mut all_fields = vec![];
+    let mut field_counter = 0;
+    for (i, (relation, fields)) in result_by_relation.iter().enumerate() {
+      let constraint_name = format!("c{i}");
+
+      let mut keys = vec![];
+      let mut constraints = vec![];
+      for (key, field_info) in fields.iter() {
+        let counted_field_name = format!("f{field_counter}");
+        field_counter += 1;
+
+        keys.push(counted_field_name.clone());
+        constraints.push(format!(
+          "{}: {}",
+          field_info.relation_field.to_owned(),
+          counted_field_name,
+        ));
+        all_fields.push((
+          counted_field_name,
+          field_info.relation_field.to_owned(),
+          key,
+        ))
+      }
+
+      let keys = keys.join(", ");
+      let constraints = constraints.join(", ");
+      all_relation_queries.push(format!(
+        "
+        {constraint_name}[{keys}] :=
+          *{relation}{{ node_id, {constraints} }},
+          node_id = $node_id
+        "
+      ));
+      all_relation_constraints.push(format!("{constraint_name}[{keys}],"))
+    }
+
+    let all_relation_constraints = all_relation_constraints.join("\n");
+    let all_relation_queries = all_relation_queries.join("\n\n");
+    let all_field_names = all_fields
+      .iter()
+      .map(|(field_name, _, _)| field_name)
+      .join(", ");
+    let query = format!(
+      "
+      {all_relation_queries}
+
+      ?[type, extra_data, created_at, updated_at, {all_field_names}] :=
+        *node {{ id, type, created_at, updated_at, extra_data }},
+        {all_relation_constraints}
+        id = $node_id
+      "
+    );
+    println!("QUERY: {query}");
+
+    let result = tx.run_script(
+      &query,
+      btmap! { "node_id".to_owned() => node_id.to_string().into(), },
+    )?;
+
+    println!("RESULT: {result:?}");
+
+    let created_at = DateTime::from_timestamp_millis(
+      (result.rows[0][2].get_float().unwrap() * 1000.0) as i64,
+    )
+    .unwrap();
+    let updated_at = DateTime::from_timestamp_millis(
+      (result.rows[0][3].get_float().unwrap() * 1000.0) as i64,
+    )
+    .unwrap();
+
+    let mut fields = HashMap::new();
+
+    for row in result
+      .rows
+      .into_iter()
+      .map(|row| row.into_iter().skip(4).zip(all_fields.iter()))
+    {
+      for (value, (_, _, field_name)) in row {
+        fields.insert(field_name.to_string(), value);
+      }
+    }
+    println!("FIELDS: {:?}", fields);
+
+    Ok(NodeInfo {
+      node_id: node_id.clone(),
+      created_at,
+      updated_at,
+      fields: Some(fields),
+    })
   }
 
   pub async fn create_node(
@@ -81,7 +180,7 @@ impl AppState {
 
         // Group the keys by which relation they're in
         let result_by_relation = field_mapping.iter().into_group_map_by(
-          |(key, FieldInfo { relation_name, .. })| relation_name,
+          |(_, FieldInfo { relation_name, .. })| relation_name,
         );
 
         for (relation, fields) in result_by_relation.iter() {
@@ -166,14 +265,14 @@ impl AppState {
     .unwrap();
 
     Ok(NodeInfo {
-      node_id,
+      node_id: NodeId(Uuid::from_str(&node_id).unwrap()),
       created_at,
       updated_at,
       fields: None,
     })
   }
 
-  pub fn get_rows_for_extra_keys(
+  fn get_rows_for_extra_keys(
     &self,
     tx: &MultiTransaction,
     keys: &[String],
@@ -193,6 +292,10 @@ impl AppState {
       },
     )?;
 
+    AppState::rows_to_field_mapping(result)
+  }
+
+  fn rows_to_field_mapping(result: NamedRows) -> Result<FieldMapping> {
     let s = |s: &DataValue| s.get_str().unwrap().to_owned();
 
     Ok(
@@ -200,6 +303,7 @@ impl AppState {
         .rows
         .into_iter()
         .map(|row| {
+          println!("ROW {:?}", row);
           (
             s(&row[0]),
             FieldInfo {

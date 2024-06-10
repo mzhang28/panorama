@@ -11,10 +11,22 @@ pub mod state;
 #[cfg(test)]
 mod tests;
 
+use std::fmt;
+
 pub use crate::state::AppState;
 
 use miette::{bail, IntoDiagnostic, Result};
 use serde_json::Value;
+use uuid::Uuid;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodeId(Uuid);
+
+impl fmt::Display for NodeId {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.0.to_string())
+  }
+}
 
 pub fn ensure_ok(s: &str) -> Result<()> {
   let status: Value = serde_json::from_str(&s).into_diagnostic()?;

@@ -1,3 +1,5 @@
+use core::panic;
+
 use cozo::DbInstance;
 use miette::Result;
 use tantivy::Index;
@@ -33,9 +35,15 @@ pub async fn test_create_node() -> Result<()> {
     serde_json::to_string_pretty(&state.export().await.unwrap()).unwrap()
   );
 
-  let node = state.get_node(node_info.node_id).await?;
+  let mut node = state.get_node(&node_info.node_id).await?;
 
   println!("node: {:?}", node);
+
+  assert!(node.fields.is_some());
+
+  let fields = node.fields.take().unwrap();
+
+  assert!(fields.contains_key("panorama/journal/page/content"));
 
   Ok(())
 }

@@ -1,4 +1,5 @@
 pub mod export;
+pub mod journal;
 pub mod mail;
 pub mod node;
 

@@ -12,7 +12,6 @@ mod export;
 mod journal;
 pub mod mail;
 mod node;
-mod query_builder;
 
 use std::fs;
 
