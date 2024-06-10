@@ -7,7 +7,6 @@ use std::{collections::HashMap, fs, path::Path};
 
 use cozo::DbInstance;
 use miette::{IntoDiagnostic, Result};
-use node::FieldMapping;
 use tantivy::{
   directory::MmapDirectory,
   schema::{Field, Schema, STORED, STRING, TEXT},

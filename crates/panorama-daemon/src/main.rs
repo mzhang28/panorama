@@ -15,11 +15,7 @@ mod node;
 
 use std::fs;
 
-use axum::{
-  http::Method,
-  routing::{get, put},
-  Router,
-};
+use axum::{http::Method, routing::get, Router};
 use miette::{IntoDiagnostic, Result};
 use panorama_core::AppState;
 use tokio::net::TcpListener;
@@ -62,7 +58,6 @@ async fn main() -> Result<()> {
     .merge(Scalar::with_url("/api/docs", ApiDoc::openapi()))
     .route("/", get(|| async { "Hello, World!" }))
     .route("/export", get(export))
-    .route("/node/search", get(search_nodes))
     .nest("/node", node::router().with_state(state.clone()))
     .nest("/journal", journal::router().with_state(state.clone()))
     .route("/mail/config", get(get_mail_config))

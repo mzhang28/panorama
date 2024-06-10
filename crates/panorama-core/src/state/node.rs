@@ -1,17 +1,15 @@
 use std::{
   collections::{BTreeMap, HashMap},
-  fmt::write,
   str::FromStr,
 };
 
 use chrono::{DateTime, Utc};
-use cozo::{DataValue, MultiTransaction, NamedRows, ScriptMutability};
+use cozo::{DataValue, MultiTransaction, NamedRows};
 use itertools::Itertools;
-use miette::{IntoDiagnostic, Result};
+use miette::{bail, IntoDiagnostic, Result};
 use serde_json::Value;
 use tantivy::{
   collector::TopDocs,
-  doc,
   query::QueryParser,
   schema::{OwnedValue, Value as _},
   Document, TantivyDocument,
@@ -121,6 +119,10 @@ impl AppState {
       &query,
       btmap! { "node_id".to_owned() => node_id.to_string().into(), },
     )?;
+
+    if result.rows.is_empty() {
+      bail!("Not found")
+    }
 
     let created_at = DateTime::from_timestamp_millis(
       (result.rows[0][2].get_float().unwrap() * 1000.0) as i64,
@@ -248,6 +250,8 @@ impl AppState {
             params.push(fields_mapping[key].clone());
           }
 
+          println!("Query: {:?} \n {:?}", query, params);
+
           let result = tx.run_script(
             &query,
             btmap! {
@@ -334,11 +338,22 @@ impl AppState {
             .unwrap()
             .as_str()
             .unwrap();
+          let all_fields = retrieved_doc.get_sorted_field_values();
           let node_id = NodeId(Uuid::from_str(node_id).unwrap());
+          let fields = all_fields
+            .into_iter()
+            .map(|(field, value)| {
+              (
+                serde_json::to_string(&field).unwrap(),
+                serde_json::to_string(&value).unwrap(),
+              )
+            })
+            .collect::<HashMap<_, _>>();
           (
             node_id,
             json!({
               "score": score,
+              "fields": fields,
             }),
           )
         })

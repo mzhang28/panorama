@@ -182,15 +182,15 @@ impl AppState {
     );
 
     self.db.run_script(
-    "
-    ?[node_id, account_node_id, mailbox_node_id, subject, headers, body, internal_date] <- $input_data
-    :put message { node_id, account_node_id, mailbox_node_id, subject, headers, body, internal_date }
-  ",
-    btmap! {
-      "input_data".to_owned() => input_data,
-    },
-    ScriptMutability::Mutable,
-  )?;
+      "
+        ?[node_id, account_node_id, mailbox_node_id, subject, headers, body, internal_date] <- $input_data
+        :put message { node_id, account_node_id, mailbox_node_id, subject, headers, body, internal_date }
+      ",
+      btmap! {
+        "input_data".to_owned() => input_data,
+      },
+      ScriptMutability::Mutable,
+    )?;
 
     session.logout().await.into_diagnostic()?;
 
