@@ -6,6 +6,7 @@ use axum::{
   routing::{get, post, put},
   Json, Router,
 };
+use chrono::{DateTime, Utc};
 use cozo::{DataValue, MultiTransaction, ScriptMutability};
 use itertools::Itertools;
 use panorama_core::state::node::ExtraData;
@@ -32,14 +33,10 @@ pub(super) fn router() -> Router<AppState> {
 
 #[derive(Serialize, Deserialize, ToSchema, Clone)]
 struct GetNodeResult {
-  node: String,
-  extra_data: Value,
-  content: String,
-  day: Option<String>,
-  created_at: f64,
-  updated_at: f64,
-  r#type: String,
-  title: String,
+  node_id: String,
+  fields: HashMap<String, Value>,
+  created_at: DateTime<Utc>,
+  updated_at: DateTime<Utc>,
 }
 
 /// Get node info
@@ -60,45 +57,15 @@ pub async fn get_node(
   State(state): State<AppState>,
   Path(node_id): Path<String>,
 ) -> AppResult<(StatusCode, Json<Value>)> {
-  let result = state.db.run_script(
-    "
-    j[content] := *journal{ node_id, content }, node_id = $node_id
-    j[content] := not *journal{ node_id }, node_id = $node_id, content = null
-
-    jd[day] := *journal_day{ node_id, day }, node_id = $node_id
-    jd[day] := not *journal_day{ node_id }, node_id = $node_id, day = null
-
-    ?[
-      extra_data, content, day, created_at, updated_at, type, title
-    ] := *node{ id, type, title, created_at, updated_at, extra_data },
-      j[content],
-      jd[day],
-      id = $node_id
-    :limit 1
-  ",
-    btmap! {"node_id".to_owned() => node_id.clone().into()},
-    ScriptMutability::Immutable,
-  )?;
-
-  if result.rows.len() == 0 {
-    return Ok((StatusCode::NOT_FOUND, Json(json!(null))));
-  }
-
-  let row = &result.rows[0];
-  let extra_data = row[0].get_str();
-  let day = row[2].get_str();
+  let node_info = state.get_node(&node_id).await?;
 
   Ok((
     StatusCode::OK,
     Json(json!({
-      "node": node_id,
-      "extra_data": extra_data,
-      "content": row[1].get_str(),
-      "day": day,
-      "created_at": row[3].get_float(),
-      "updated_at": row[4].get_float(),
-      "type": row[5].get_str(),
-      "title": row[6].get_str(),
+      "node_id": node_id,
+      "fields": node_info.fields,
+      "created_at": node_info.created_at,
+      "updated_at": node_info.updated_at,
     })),
   ))
 }

@@ -3,30 +3,38 @@ pub mod journal;
 pub mod mail;
 pub mod node;
 
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 use cozo::DbInstance;
 use miette::{IntoDiagnostic, Result};
+use node::FieldMapping;
 use tantivy::{
   directory::MmapDirectory,
-  schema::{Schema, STORED, STRING, TEXT},
+  schema::{Field, Schema, STORED, STRING, TEXT},
   Index,
 };
 
 use crate::migrations::run_migrations;
 
-pub fn tantivy_schema() -> Schema {
+pub fn tantivy_schema() -> (Schema, HashMap<String, Field>) {
   let mut schema_builder = Schema::builder();
+
+  let mut field_map = HashMap::new();
+
   let node_id = schema_builder.add_text_field("node_id", STRING | STORED);
-  let title = schema_builder.add_text_field("title", TEXT | STORED);
-  let body = schema_builder.add_text_field("body", TEXT);
-  schema_builder.build()
+  field_map.insert("node_id".to_owned(), node_id);
+
+  let journal_content = schema_builder.add_text_field("title", TEXT | STORED);
+  field_map.insert("panorama/journal/page/content".to_owned(), journal_content);
+
+  (schema_builder.build(), field_map)
 }
 
 #[derive(Clone)]
 pub struct AppState {
   pub db: DbInstance,
   pub tantivy_index: Index,
+  pub tantivy_field_map: HashMap<String, Field>,
 }
 
 impl AppState {
@@ -34,15 +42,16 @@ impl AppState {
     let panorama_dir = panorama_dir.as_ref().to_path_buf();
     println!("Panorama dir: {}", panorama_dir.display());
 
-    let tantivy_index = {
-      let schema = tantivy_schema();
+    let (tantivy_index, tantivy_field_map) = {
+      let (schema, field_map) = tantivy_schema();
       let tantivy_path = panorama_dir.join("tantivy-index");
       fs::create_dir_all(&tantivy_path).into_diagnostic()?;
       let dir = MmapDirectory::open(&tantivy_path).into_diagnostic()?;
-      Index::builder()
+      let index = Index::builder()
         .schema(schema)
         .open_or_create(dir)
-        .into_diagnostic()?
+        .into_diagnostic()?;
+      (index, field_map)
     };
 
     let db_path = panorama_dir.join("db.sqlite");
@@ -53,7 +62,11 @@ impl AppState {
     )
     .unwrap();
 
-    let state = AppState { db, tantivy_index };
+    let state = AppState {
+      db,
+      tantivy_index,
+      tantivy_field_map,
+    };
     state.init().await?;
 
     Ok(state)

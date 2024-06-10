@@ -19,7 +19,7 @@ use miette::{bail, IntoDiagnostic, Result};
 use serde_json::Value;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct NodeId(Uuid);
 
 impl fmt::Display for NodeId {

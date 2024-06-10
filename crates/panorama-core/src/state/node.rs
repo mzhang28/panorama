@@ -1,13 +1,21 @@
 use std::{
   collections::{BTreeMap, HashMap},
+  fmt::write,
   str::FromStr,
 };
 
 use chrono::{DateTime, Utc};
 use cozo::{DataValue, MultiTransaction, NamedRows, ScriptMutability};
 use itertools::Itertools;
-use miette::Result;
+use miette::{IntoDiagnostic, Result};
 use serde_json::Value;
+use tantivy::{
+  collector::TopDocs,
+  doc,
+  query::QueryParser,
+  schema::{OwnedValue, Value as _},
+  Document, TantivyDocument,
+};
 use uuid::Uuid;
 
 use crate::{AppState, NodeId};
@@ -33,7 +41,8 @@ pub type FieldMapping = HashMap<String, FieldInfo>;
 
 impl AppState {
   /// Get all properties of a node
-  pub async fn get_node(&self, node_id: &NodeId) -> Result<NodeInfo> {
+  pub async fn get_node(&self, node_id: impl AsRef<str>) -> Result<NodeInfo> {
+    let node_id = node_id.as_ref().to_owned();
     let tx = self.db.multi_transaction(false);
 
     let result = tx.run_script(
@@ -45,8 +54,6 @@ impl AppState {
       ",
       btmap! {"node_id".to_owned() => node_id.to_string().into()},
     )?;
-
-    println!("FIELDS: {:?}", result);
 
     let field_mapping = AppState::rows_to_field_mapping(result)?;
 
@@ -109,19 +116,17 @@ impl AppState {
         id = $node_id
       "
     );
-    println!("QUERY: {query}");
 
     let result = tx.run_script(
       &query,
       btmap! { "node_id".to_owned() => node_id.to_string().into(), },
     )?;
 
-    println!("RESULT: {result:?}");
-
     let created_at = DateTime::from_timestamp_millis(
       (result.rows[0][2].get_float().unwrap() * 1000.0) as i64,
     )
     .unwrap();
+
     let updated_at = DateTime::from_timestamp_millis(
       (result.rows[0][3].get_float().unwrap() * 1000.0) as i64,
     )
@@ -138,17 +143,17 @@ impl AppState {
         fields.insert(field_name.to_string(), value);
       }
     }
-    println!("FIELDS: {:?}", fields);
 
     Ok(NodeInfo {
-      node_id: node_id.clone(),
+      node_id: NodeId(Uuid::from_str(&node_id).unwrap()),
       created_at,
       updated_at,
       fields: Some(fields),
     })
   }
 
-  pub async fn create_node(
+  // TODO: Split this out into create and update
+  pub async fn create_or_update_node(
     &self,
     r#type: impl AsRef<str>,
     extra_data: Option<ExtraData>,
@@ -173,6 +178,8 @@ impl AppState {
     )?;
 
     if let Some(extra_data) = extra_data {
+      let node_id_field =
+        self.tantivy_field_map.get("node_id").unwrap().clone();
       if !extra_data.is_empty() {
         let keys = extra_data.keys().map(|s| s.to_owned()).collect::<Vec<_>>();
         let field_mapping =
@@ -184,6 +191,7 @@ impl AppState {
         );
 
         for (relation, fields) in result_by_relation.iter() {
+          let mut doc = btmap! { node_id_field.clone() => OwnedValue::Str(node_id.to_owned()) };
           let fields_mapping = fields
             .into_iter()
             .map(
@@ -192,19 +200,37 @@ impl AppState {
                 FieldInfo {
                   relation_field,
                   r#type,
+                  is_fts_enabled,
                   ..
                 },
               )| {
                 let new_value = extra_data.get(*key).unwrap();
+
                 // TODO: Make this more generic
                 let new_value = match r#type.as_str() {
                   "int" => DataValue::from(new_value.as_i64().unwrap()),
                   _ => DataValue::from(new_value.as_str().unwrap()),
                 };
+
+                if *is_fts_enabled {
+                  if let Some(field) = self.tantivy_field_map.get(*key) {
+                    doc.insert(
+                      field.clone(),
+                      OwnedValue::Str(new_value.get_str().unwrap().to_owned()),
+                    );
+                  }
+                }
+
                 (relation_field.to_owned(), new_value)
               },
             )
             .collect::<BTreeMap<_, _>>();
+
+          let mut writer =
+            self.tantivy_index.writer(15_000_000).into_diagnostic()?;
+          writer.add_document(doc).into_diagnostic()?;
+          writer.commit().into_diagnostic()?;
+          drop(writer);
 
           let keys = fields_mapping.keys().collect::<Vec<_>>();
           let keys_joined = keys.iter().join(", ");
@@ -213,7 +239,7 @@ impl AppState {
             "
             ?[ node_id, {keys_joined} ] <- [$input_data]
             :insert {relation} {{ node_id, {keys_joined} }}
-          "
+            "
           );
 
           let mut params = vec![];
@@ -272,6 +298,54 @@ impl AppState {
     })
   }
 
+  pub async fn update_node() {}
+
+  pub async fn search_nodes(
+    &self,
+    query: impl AsRef<str>,
+  ) -> Result<Vec<(NodeId, Value)>> {
+    let query = query.as_ref();
+
+    let reader = self.tantivy_index.reader().into_diagnostic()?;
+    let searcher = reader.searcher();
+
+    let node_id_field = self.tantivy_field_map.get("node_id").unwrap().clone();
+    let journal_page_field = self
+      .tantivy_field_map
+      .get("panorama/journal/page/content")
+      .unwrap()
+      .clone();
+    let query_parser =
+      QueryParser::for_index(&self.tantivy_index, vec![journal_page_field]);
+    let query = query_parser.parse_query(query).into_diagnostic()?;
+
+    let top_docs = searcher
+      .search(&query, &TopDocs::with_limit(10))
+      .into_diagnostic()?;
+
+    Ok(
+      top_docs
+        .into_iter()
+        .map(|(score, doc_address)| {
+          let retrieved_doc =
+            searcher.doc::<TantivyDocument>(doc_address).unwrap();
+          let node_id = retrieved_doc
+            .get_first(node_id_field.clone())
+            .unwrap()
+            .as_str()
+            .unwrap();
+          let node_id = NodeId(Uuid::from_str(node_id).unwrap());
+          (
+            node_id,
+            json!({
+              "score": score,
+            }),
+          )
+        })
+        .collect::<Vec<_>>(),
+    )
+  }
+
   fn get_rows_for_extra_keys(
     &self,
     tx: &MultiTransaction,
@@ -303,7 +377,6 @@ impl AppState {
         .rows
         .into_iter()
         .map(|row| {
-          println!("ROW {:?}", row);
           (
             s(&row[0]),
             FieldInfo {
