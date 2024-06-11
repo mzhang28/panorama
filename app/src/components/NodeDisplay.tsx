@@ -50,6 +50,7 @@ export default function NodeDisplay({ id, idx }: NodeDisplayProps) {
 
 function NodeDisplayHeaderLoaded({ idx, id, data }) {
 	const { openNode, closeNode } = useNodeControls();
+	const updatedAt = data.updated_at && Date.parse(data.updated_at);
 
 	return (
 		<>
@@ -64,9 +65,9 @@ function NodeDisplayHeaderLoaded({ idx, id, data }) {
 			)}
 			<span>
 				Type {data.type}{" "}
-				{data.created_at && (
+				{updatedAt && (
 					<>
-						&middot; Last updated <ReactTimeAgo date={data.updated_at * 1000} />
+						&middot; Last updated <ReactTimeAgo date={updatedAt} />
 					</>
 				)}
 			</span>

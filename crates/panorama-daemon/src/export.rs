@@ -3,14 +3,15 @@ use std::{
   path::PathBuf,
 };
 
-use axum::extract::State;
+use axum::{extract::State, Json};
 use miette::IntoDiagnostic;
+use serde_json::Value;
 
 use crate::{error::AppResult, AppState};
 
 // This code is really bad but gives me a quick way to look at all of the data
 // in the data at once. Rip this out once there's any Real Security Mechanism.
-pub async fn export(State(state): State<AppState>) -> AppResult<()> {
+pub async fn export(State(state): State<AppState>) -> AppResult<Json<Value>> {
   let export = state.export().await?;
 
   let base_dir = PathBuf::from("export");
@@ -20,5 +21,5 @@ pub async fn export(State(state): State<AppState>) -> AppResult<()> {
 
   serde_json::to_writer_pretty(file, &export).into_diagnostic()?;
 
-  Ok(())
+  Ok(Json(export))
 }

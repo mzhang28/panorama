@@ -29,19 +29,19 @@ impl AppState {
 
       self.db.run_script(
         "
-      {
-        ?[id, title, type] <- [[$node_id, $title, 'panorama/journal/page']]
-        :put node { id, title, type }
-      }
-      {
-        ?[node_id, content] <- [[$node_id, '']]
-        :put journal { node_id => content }
-      }
-      {
-        ?[day, node_id] <- [[$day, $node_id]]
-        :put journal_day { day => node_id }
-      }
-    ",
+          {
+            ?[id, title, type] <- [[$node_id, $title, 'panorama/journal/page']]
+            :put node { id, title, type }
+          }
+          {
+            ?[node_id, content] <- [[$node_id, '']]
+            :put journal { node_id => content }
+          }
+          {
+            ?[day, node_id] <- [[$day, $node_id]]
+            :put journal_day { day => node_id }
+          }
+        ",
         btmap! {
           "node_id".to_owned() => node_id.clone().into(),
           "day".to_owned() => today.clone().into(),

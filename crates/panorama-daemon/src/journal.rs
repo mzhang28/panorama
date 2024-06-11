@@ -13,8 +13,7 @@ use crate::{error::AppResult, AppState};
 pub(super) struct JournalApi;
 
 pub(super) fn router() -> Router<AppState> {
-  Router::new()
-    .route("/journal/get_todays_journal_id", get(get_todays_journal_id))
+  Router::new().route("/get_todays_journal_id", get(get_todays_journal_id))
 }
 
 #[utoipa::path(
