@@ -3630,6 +3630,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-window-state",
  "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3674,6 +3675,7 @@ dependencies = [
  "tokio",
  "tower",
  "tower-http",
+ "tracing-subscriber",
  "utoipa",
  "utoipa-scalar",
  "utoipa-swagger-ui",
@@ -6038,6 +6040,7 @@ dependencies = [
  "pin-project-lite",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

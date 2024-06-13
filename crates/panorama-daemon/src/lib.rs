@@ -20,7 +20,10 @@ use miette::{IntoDiagnostic, Result};
 use panorama_core::AppState;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
-use tower_http::cors::{self, CorsLayer};
+use tower_http::{
+  cors::{self, CorsLayer},
+  trace::TraceLayer,
+};
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
 
@@ -47,10 +50,12 @@ pub async fn run() -> Result<()> {
 
   let state = AppState::new(&panorama_dir).await?;
 
-  let cors = CorsLayer::new()
+  let cors_layer = CorsLayer::new()
     .allow_methods([Method::GET, Method::POST, Method::PUT])
     .allow_headers(cors::Any)
     .allow_origin(cors::Any);
+
+  let trace_layer = TraceLayer::new_for_http();
 
   // build our application with a single route
   let app = Router::new()
@@ -61,7 +66,8 @@ pub async fn run() -> Result<()> {
     .nest("/journal", journal::router().with_state(state.clone()))
     .route("/mail/config", get(get_mail_config))
     .route("/mail", get(get_mail))
-    .layer(ServiceBuilder::new().layer(cors))
+    .layer(ServiceBuilder::new().layer(cors_layer))
+    .layer(ServiceBuilder::new().layer(trace_layer))
     .with_state(state.clone());
 
   let listener = TcpListener::bind("0.0.0.0:5195").await.into_diagnostic()?;

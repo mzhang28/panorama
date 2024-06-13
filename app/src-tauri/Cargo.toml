@@ -29,6 +29,7 @@ tauri-plugin-shell = "2.0.0-beta.7"
 tauri-plugin-single-instance = "2.0.0-beta.9"
 tauri-plugin-window-state = "2.0.0-beta"
 tokio = { version = "1.38.0", features = ["full"] }
+tracing-subscriber = "0.3.18"
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!

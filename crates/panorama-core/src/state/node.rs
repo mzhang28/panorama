@@ -12,7 +12,7 @@ use tantivy::{
   collector::TopDocs,
   query::QueryParser,
   schema::{OwnedValue, Value as _},
-  Document, TantivyDocument,
+  Document, TantivyDocument, Term,
 };
 use uuid::Uuid;
 
@@ -30,6 +30,7 @@ pub struct NodeInfo {
   pub fields: Option<HashMap<String, Value>>,
 }
 
+#[derive(Debug)]
 pub struct FieldInfo {
   pub relation_name: String,
   pub relation_field: String,
@@ -157,6 +158,7 @@ impl AppState {
   }
 }
 
+#[derive(Debug)]
 pub enum CreateOrUpdate {
   Create { r#type: String },
   Update { node_id: NodeId },
@@ -175,10 +177,17 @@ impl AppState {
     };
     let node_id = node_id.to_string();
 
+    let action = match opts {
+      CreateOrUpdate::Create { .. } => "put",
+      CreateOrUpdate::Update { .. } => "update",
+    };
+
+    println!("Request: {opts:?} {extra_data:?}");
+
     let tx = self.db.multi_transaction(true);
 
     let (created_at, updated_at) = match opts {
-      CreateOrUpdate::Create { r#type } => {
+      CreateOrUpdate::Create { ref r#type } => {
         let node_result = tx.run_script(
           "
         ?[id, type] <- [[$node_id, $type]]
@@ -187,16 +196,15 @@ impl AppState {
       ",
           btmap! {
             "node_id".to_owned() => DataValue::from(node_id.clone()),
-            "type".to_owned() => DataValue::from(r#type),
+            "type".to_owned() => DataValue::from(r#type.to_owned()),
           },
         )?;
-        println!("ROWS(1): {:?}", node_result);
         let created_at = DateTime::from_timestamp_millis(
-          (node_result.rows[0][4].get_float().unwrap() * 1000.0) as i64,
+          (node_result.rows[0][3].get_float().unwrap() * 1000.0) as i64,
         )
         .unwrap();
         let updated_at = DateTime::from_timestamp_millis(
-          (node_result.rows[0][5].get_float().unwrap() * 1000.0) as i64,
+          (node_result.rows[0][4].get_float().unwrap() * 1000.0) as i64,
         )
         .unwrap();
         (created_at, updated_at)
@@ -211,7 +219,6 @@ impl AppState {
           "node_id".to_owned() => DataValue::from(node_id.clone()),
         },
       )?;
-        println!("ROWS(2): {:?}", node_result);
         let created_at = DateTime::from_timestamp_millis(
           (node_result.rows[0][2].get_float().unwrap() * 1000.0) as i64,
         )
@@ -230,6 +237,7 @@ impl AppState {
         .get_by_left("node_id")
         .unwrap()
         .clone();
+
       if !extra_data.is_empty() {
         let keys = extra_data.keys().map(|s| s.to_owned()).collect::<Vec<_>>();
         let field_mapping =
@@ -279,6 +287,11 @@ impl AppState {
 
           let mut writer =
             self.tantivy_index.writer(15_000_000).into_diagnostic()?;
+
+          let delete_term =
+            Term::from_field_text(node_id_field.clone(), &node_id);
+          writer.delete_term(delete_term);
+
           writer.add_document(doc).into_diagnostic()?;
           writer.commit().into_diagnostic()?;
           drop(writer);
@@ -286,27 +299,27 @@ impl AppState {
           let keys = fields_mapping.keys().collect::<Vec<_>>();
           let keys_joined = keys.iter().join(", ");
 
-          let query = format!(
-            "
+          if !keys.is_empty() {
+            let query = format!(
+              "
             ?[ node_id, {keys_joined} ] <- [$input_data]
-            :put {relation} {{ node_id, {keys_joined} }}
+            :{action} {relation} {{ node_id, {keys_joined} }}
             "
-          );
+            );
 
-          let mut params = vec![];
-          params.push(DataValue::from(node_id.clone()));
-          for key in keys {
-            params.push(fields_mapping[key].clone());
+            let mut params = vec![];
+            params.push(DataValue::from(node_id.clone()));
+            for key in keys {
+              params.push(fields_mapping[key].clone());
+            }
+
+            let result = tx.run_script(
+              &query,
+              btmap! {
+                "input_data".to_owned() => DataValue::List(params),
+              },
+            );
           }
-
-          println!("Query: {:?} \n {:?}", query, params);
-
-          let result = tx.run_script(
-            &query,
-            btmap! {
-              "input_data".to_owned() => DataValue::List(params),
-            },
-          )?;
         }
 
         let input = DataValue::List(
@@ -320,11 +333,12 @@ impl AppState {
             })
             .collect_vec(),
         );
+
         tx.run_script(
           "
-          ?[key, id] <- $input_data
-          :put node_has_key { key, id }
-        ",
+            ?[key, id] <- $input_data
+            :put node_has_key { key, id }
+          ",
           btmap! {
             "input_data".to_owned() => input
           },

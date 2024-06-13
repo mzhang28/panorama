@@ -107,7 +107,6 @@ fn migration_01(db: &DbInstance) -> Result<()> {
           id: String
           =>
           type: String,
-          title: String? default null,
           created_at: Float default now(),
           updated_at: Float default now(),
           extra_data: Json default {},
@@ -131,6 +130,8 @@ fn migration_01(db: &DbInstance) -> Result<()> {
       }
       {
         ?[key, relation, field_name, type, is_fts_enabled] <- [
+          ['panorama/journal/page/day', 'journal_day', 'day', 'string', false],
+          ['panorama/journal/page/title', 'journal', 'title', 'string', true],
           ['panorama/journal/page/content', 'journal', 'content', 'string', true],
           ['panorama/mail/config/imap_hostname', 'mail_config', 'imap_hostname', 'string', false],
           ['panorama/mail/config/imap_port', 'mail_config', 'imap_port', 'int', false],
@@ -138,13 +139,13 @@ fn migration_01(db: &DbInstance) -> Result<()> {
           ['panorama/mail/config/imap_password', 'mail_config', 'imap_password', 'string', false],
           ['panorama/mail/message/body', 'message', 'body', 'string', true],
           ['panorama/mail/message/subject', 'message', 'subject', 'string', true],
-          ['panorama/mail/message/message_id', 'message', 'message_id', 'string', true],
+          ['panorama/mail/message/message_id', 'message', 'message_id', 'string', false],
         ]
         :put fqkey_to_dbkey { key, relation, field_name, type, is_fts_enabled }
       }
 
       # Create journal type
-      { :create journal { node_id: String => content: String } }
+      { :create journal { node_id: String => title: String default '', content: String } }
       { :create journal_day { day: String => node_id: String } }
 
       # Mail

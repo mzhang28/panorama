@@ -80,7 +80,6 @@ pub async fn get_node(
 
 #[derive(Deserialize, Debug)]
 pub struct UpdateData {
-  title: Option<String>,
   extra_data: Option<ExtraData>,
 }
 

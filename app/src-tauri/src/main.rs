@@ -18,6 +18,7 @@ enum Command {
 
 #[tokio::main]
 async fn main() {
+  tracing_subscriber::fmt::init();
   let opt = Opt::parse();
 
   match opt.command {

@@ -9,6 +9,7 @@ import { parse as parseDate, format as formatDate } from "date-fns";
 import { useDebounce } from "use-debounce";
 
 const JOURNAL_PAGE_CONTENT_FIELD_NAME = "panorama/journal/page/content";
+const JOURNAL_PAGE_TITLE_FIELD_NAME = "panorama/journal/page/title";
 
 export interface JournalPageProps {
 	id: string;
@@ -33,44 +34,41 @@ export default function JournalPage({ id, data }: JournalPageProps) {
 	const previous = usePrevious(valueToSave);
 	const changed = valueToSave !== previous;
 	const [mode, setMode] = useState<PreviewType>("preview");
-	const [title, setTitle] = useState(() => data.title);
+	const [title, setTitle] = useState(
+		() => data?.fields?.[JOURNAL_PAGE_TITLE_FIELD_NAME],
+	);
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
+
+	const saveData = useCallback(async () => {
+		const extra_data = {
+			[JOURNAL_PAGE_TITLE_FIELD_NAME]: title,
+			[JOURNAL_PAGE_CONTENT_FIELD_NAME]: valueToSave,
+		};
+		console.log("extra Data", extra_data);
+		const resp = await fetch(`http://localhost:5195/node/${id}`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ extra_data }),
+		});
+		const data = await resp.text();
+		console.log("result", data);
+	}, [title, valueToSave, id]);
 
 	useEffect(() => {
 		if (changed) {
 			(async () => {
-				console.log("Saving...");
-				const resp = await fetch(`http://localhost:5195/node/${id}`, {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						extra_data: {
-							"panorama/journal/page/content": valueToSave,
-						},
-					}),
-				});
-				const data = await resp.text();
-				console.log("result", data);
-
+				await saveData();
 				queryClient.invalidateQueries({ queryKey: ["fetchNode", id] });
 			})();
 		}
-	}, [id, changed, valueToSave, queryClient]);
+	}, [changed, queryClient, saveData]);
 
 	const saveChangedTitle = useCallback(() => {
 		(async () => {
-			const resp = await fetch(`http://localhost:5195/node/${id}`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({ title: title }),
-			});
+			await saveData();
 			setIsEditingTitle(false);
 		})();
-	}, [title, id]);
+	}, [saveData]);
 
 	return (
 		<>
