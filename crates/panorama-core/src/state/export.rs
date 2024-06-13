@@ -6,6 +6,8 @@ use serde_json::Value;
 
 use crate::AppState;
 
+use super::utils::data_value_to_json_value;
+
 impl AppState {
   pub async fn export(&self) -> Result<Value> {
     let result = self.db.run_script(
@@ -57,7 +59,8 @@ impl AppState {
       for row in result.rows.into_iter() {
         let mut object = hmap! {};
         row.into_iter().enumerate().for_each(|(idx, col)| {
-          object.insert(columns[idx].to_owned(), col);
+          object
+            .insert(columns[idx].to_owned(), data_value_to_json_value(&col));
         });
         relation_info.push(object);
       }

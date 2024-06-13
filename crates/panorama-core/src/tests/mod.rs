@@ -26,6 +26,7 @@ pub async fn test_create_node() -> Result<()> {
 
   let node_info = state
     .create_or_update_node(
+      None,
       "panorama/journal/page",
       Some(btmap! {
         "panorama/journal/page/content".to_owned() => json!("helloge"),

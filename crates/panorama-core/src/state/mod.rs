@@ -2,9 +2,11 @@ pub mod export;
 pub mod journal;
 pub mod mail;
 pub mod node;
+pub mod utils;
 
 use std::{collections::HashMap, fs, path::Path};
 
+use bimap::BiMap;
 use cozo::DbInstance;
 use miette::{IntoDiagnostic, Result};
 use tantivy::{
@@ -13,12 +15,12 @@ use tantivy::{
   Index,
 };
 
-use crate::migrations::run_migrations;
+use crate::{mail::mail_loop, migrations::run_migrations};
 
-pub fn tantivy_schema() -> (Schema, HashMap<String, Field>) {
+pub fn tantivy_schema() -> (Schema, BiMap<String, Field>) {
   let mut schema_builder = Schema::builder();
 
-  let mut field_map = HashMap::new();
+  let mut field_map = BiMap::new();
 
   let node_id = schema_builder.add_text_field("node_id", STRING | STORED);
   field_map.insert("node_id".to_owned(), node_id);
@@ -33,7 +35,7 @@ pub fn tantivy_schema() -> (Schema, HashMap<String, Field>) {
 pub struct AppState {
   pub db: DbInstance,
   pub tantivy_index: Index,
-  pub tantivy_field_map: HashMap<String, Field>,
+  pub tantivy_field_map: BiMap<String, Field>,
 }
 
 impl AppState {
@@ -75,7 +77,7 @@ impl AppState {
     run_migrations(&self.db).await?;
 
     let state = self.clone();
-    tokio::spawn(async move { state.mail_loop().await });
+    tokio::spawn(async move { mail_loop(state).await });
 
     Ok(())
   }

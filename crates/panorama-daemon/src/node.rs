@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+  collections::{BTreeMap, HashMap},
+  str::FromStr,
+};
 
 use axum::{
   extract::{Path, Query, State},
@@ -8,9 +11,15 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use cozo::{DataValue, MultiTransaction};
-use panorama_core::state::node::ExtraData;
+use itertools::Itertools;
+use miette::IntoDiagnostic;
+use panorama_core::{
+  state::node::{CreateOrUpdate, ExtraData},
+  NodeId,
+};
 use serde_json::Value;
 use utoipa::{OpenApi, ToSchema};
+use uuid::Uuid;
 
 use crate::{error::AppResult, AppState};
 
@@ -89,70 +98,16 @@ pub struct UpdateData {
 pub async fn update_node(
   State(state): State<AppState>,
   Path(node_id): Path<String>,
-  Json(update_data): Json<UpdateData>,
+  Json(opts): Json<UpdateData>,
 ) -> AppResult<Json<Value>> {
-  let node_id_data = DataValue::from(node_id.clone());
+  let node_id = NodeId(Uuid::from_str(&node_id).into_diagnostic()?);
+  let node_info = state
+    .create_or_update_node(CreateOrUpdate::Update { node_id }, opts.extra_data)
+    .await?;
 
-  // TODO: Combine these into the same script
-
-  let tx = state.db.multi_transaction(true);
-
-  if let Some(title) = update_data.title {
-    let title = DataValue::from(title);
-
-    tx.run_script(
-      "
-        # Always update the time
-        ?[ id, title ] <- [[ $node_id, $title ]]
-        :update node { id, title }
-      ",
-      btmap! {
-        "node_id".to_owned() => node_id_data.clone(),
-        "title".to_owned() => title,
-      },
-    )?;
-  }
-
-  if let Some(extra_data) = update_data.extra_data {
-    let result = get_rows_for_extra_keys(&tx, &extra_data)?;
-
-    for (key, (relation, field_name, ty)) in result.iter() {
-      let new_value = extra_data.get(key).unwrap();
-
-      // TODO: Make this more generic
-      let new_value = DataValue::from(new_value.as_str().unwrap());
-
-      let query = format!(
-        "
-          ?[ node_id, {field_name} ] <- [[$node_id, $input_data]]
-          :update {relation} {{ node_id, {field_name} }}
-        "
-      );
-
-      let result = tx.run_script(
-        &query,
-        btmap! {
-          "node_id".to_owned() => node_id_data.clone(),
-          "input_data".to_owned() => new_value,
-        },
-      )?;
-    }
-  }
-
-  tx.run_script(
-    "
-    # Always update the time
-    ?[ id, updated_at ] <- [[ $node_id, now() ]]
-    :update node { id, updated_at }
-  ",
-    btmap! {
-      "node_id".to_owned() => node_id_data,
-    },
-  )?;
-
-  tx.commit()?;
-
-  Ok(Json(json!({})))
+  Ok(Json(json!({
+    "node_id": node_info.node_id.to_string(),
+  })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,7 +129,10 @@ pub async fn create_node(
   Json(opts): Json<CreateNodeOpts>,
 ) -> AppResult<Json<Value>> {
   let node_info = state
-    .create_or_update_node(opts.ty, opts.extra_data)
+    .create_or_update_node(
+      CreateOrUpdate::Create { r#type: opts.ty },
+      opts.extra_data,
+    )
     .await?;
 
   Ok(Json(json!({
@@ -197,9 +155,13 @@ pub async fn search_nodes(
   Query(query): Query<SearchQuery>,
 ) -> AppResult<Json<Value>> {
   let search_result = state.search_nodes(query.query).await?;
+  let search_result = search_result
+    .into_iter()
+    .map(|(id, value)| value["fields"].clone())
+    .collect_vec();
 
   Ok(Json(json!({
-    "results": search_result
+    "results": search_result,
   })))
 }
 

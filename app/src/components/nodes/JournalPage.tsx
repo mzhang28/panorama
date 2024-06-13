@@ -8,19 +8,24 @@ import rehypeKatex from "rehype-katex";
 import { parse as parseDate, format as formatDate } from "date-fns";
 import { useDebounce } from "use-debounce";
 
+const JOURNAL_PAGE_CONTENT_FIELD_NAME = "panorama/journal/page/content";
+
 export interface JournalPageProps {
 	id: string;
 	data: {
 		day?: string;
 		title?: string;
 		content: string;
+		fields: object;
 	};
 }
 
 export default function JournalPage({ id, data }: JournalPageProps) {
 	const { day } = data;
 	const queryClient = useQueryClient();
-	const [value, setValue] = useState(() => data.content);
+	const [value, setValue] = useState(
+		() => data?.fields?.[JOURNAL_PAGE_CONTENT_FIELD_NAME],
+	);
 	const [valueToSave] = useDebounce(value, 1000, {
 		leading: true,
 		trailing: true,

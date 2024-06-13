@@ -8,6 +8,7 @@ extern crate sugars;
 pub mod migrations;
 pub mod state;
 
+pub mod mail;
 #[cfg(test)]
 mod tests;
 
@@ -20,7 +21,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct NodeId(Uuid);
+pub struct NodeId(pub Uuid);
 
 impl fmt::Display for NodeId {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

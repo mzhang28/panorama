@@ -136,6 +136,9 @@ fn migration_01(db: &DbInstance) -> Result<()> {
           ['panorama/mail/config/imap_port', 'mail_config', 'imap_port', 'int', false],
           ['panorama/mail/config/imap_username', 'mail_config', 'imap_username', 'string', false],
           ['panorama/mail/config/imap_password', 'mail_config', 'imap_password', 'string', false],
+          ['panorama/mail/message/body', 'message', 'body', 'string', true],
+          ['panorama/mail/message/subject', 'message', 'subject', 'string', true],
+          ['panorama/mail/message/message_id', 'message', 'message_id', 'string', true],
         ]
         :put fqkey_to_dbkey { key, relation, field_name, type, is_fts_enabled }
       }
@@ -143,14 +146,6 @@ fn migration_01(db: &DbInstance) -> Result<()> {
       # Create journal type
       { :create journal { node_id: String => content: String } }
       { :create journal_day { day: String => node_id: String } }
-      {
-        ::fts create journal:text_index {
-          extractor: content,
-          extract_filter: !is_null(content),
-          tokenizer: Simple,
-          filters: [Lowercase, Stemmer('english'), Stopwords('en')],
-        }
-      }
 
       # Mail
       {
@@ -176,6 +171,7 @@ fn migration_01(db: &DbInstance) -> Result<()> {
         :create message {
           node_id: String
           =>
+          message_id: String,
           account_node_id: String,
           mailbox_node_id: String,
           subject: String,
@@ -184,6 +180,9 @@ fn migration_01(db: &DbInstance) -> Result<()> {
           internal_date: String,
         }
       }
+      { ::index create message:message_id { message_id } }
+      { ::index create message:date { internal_date } }
+      { ::index create message:by_mailbox_id { mailbox_node_id } }
 
       # Calendar
     ",

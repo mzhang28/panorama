@@ -18,6 +18,8 @@ use uuid::Uuid;
 
 use crate::{AppState, NodeId};
 
+use super::utils::{data_value_to_json_value, owned_value_to_json_value};
+
 pub type ExtraData = BTreeMap<String, Value>;
 
 #[derive(Debug)]
@@ -25,7 +27,7 @@ pub struct NodeInfo {
   pub node_id: NodeId,
   pub created_at: DateTime<Utc>,
   pub updated_at: DateTime<Utc>,
-  pub fields: Option<HashMap<String, DataValue>>,
+  pub fields: Option<HashMap<String, Value>>,
 }
 
 pub struct FieldInfo {
@@ -142,7 +144,7 @@ impl AppState {
       .map(|row| row.into_iter().skip(4).zip(all_fields.iter()))
     {
       for (value, (_, _, field_name)) in row {
-        fields.insert(field_name.to_string(), value);
+        fields.insert(field_name.to_string(), data_value_to_json_value(&value));
       }
     }
 
@@ -153,35 +155,81 @@ impl AppState {
       fields: Some(fields),
     })
   }
+}
 
+pub enum CreateOrUpdate {
+  Create { r#type: String },
+  Update { node_id: NodeId },
+}
+
+impl AppState {
   // TODO: Split this out into create and update
   pub async fn create_or_update_node(
     &self,
-    r#type: impl AsRef<str>,
+    opts: CreateOrUpdate,
     extra_data: Option<ExtraData>,
   ) -> Result<NodeInfo> {
-    let ty = r#type.as_ref();
-
-    let node_id = Uuid::now_v7();
+    let node_id = match opts {
+      CreateOrUpdate::Create { .. } => NodeId(Uuid::now_v7()),
+      CreateOrUpdate::Update { ref node_id } => node_id.clone(),
+    };
     let node_id = node_id.to_string();
 
     let tx = self.db.multi_transaction(true);
 
-    let node_result = tx.run_script(
-      "
+    let (created_at, updated_at) = match opts {
+      CreateOrUpdate::Create { r#type } => {
+        let node_result = tx.run_script(
+          "
         ?[id, type] <- [[$node_id, $type]]
         :put node { id, type }
         :returning
       ",
-      btmap! {
-        "node_id".to_owned() => DataValue::from(node_id.clone()),
-        "type".to_owned() => DataValue::from(ty),
-      },
-    )?;
+          btmap! {
+            "node_id".to_owned() => DataValue::from(node_id.clone()),
+            "type".to_owned() => DataValue::from(r#type),
+          },
+        )?;
+        println!("ROWS(1): {:?}", node_result);
+        let created_at = DateTime::from_timestamp_millis(
+          (node_result.rows[0][4].get_float().unwrap() * 1000.0) as i64,
+        )
+        .unwrap();
+        let updated_at = DateTime::from_timestamp_millis(
+          (node_result.rows[0][5].get_float().unwrap() * 1000.0) as i64,
+        )
+        .unwrap();
+        (created_at, updated_at)
+      }
+      CreateOrUpdate::Update { .. } => {
+        let node_result = tx.run_script(
+        "
+        ?[id, type, created_at, updated_at] := *node { id, type, created_at, updated_at },
+          id = $node_id
+      ",
+        btmap! {
+          "node_id".to_owned() => DataValue::from(node_id.clone()),
+        },
+      )?;
+        println!("ROWS(2): {:?}", node_result);
+        let created_at = DateTime::from_timestamp_millis(
+          (node_result.rows[0][2].get_float().unwrap() * 1000.0) as i64,
+        )
+        .unwrap();
+        let updated_at = DateTime::from_timestamp_millis(
+          (node_result.rows[0][3].get_float().unwrap() * 1000.0) as i64,
+        )
+        .unwrap();
+        (created_at, updated_at)
+      }
+    };
 
     if let Some(extra_data) = extra_data {
-      let node_id_field =
-        self.tantivy_field_map.get("node_id").unwrap().clone();
+      let node_id_field = self
+        .tantivy_field_map
+        .get_by_left("node_id")
+        .unwrap()
+        .clone();
       if !extra_data.is_empty() {
         let keys = extra_data.keys().map(|s| s.to_owned()).collect::<Vec<_>>();
         let field_mapping =
@@ -215,7 +263,8 @@ impl AppState {
                 };
 
                 if *is_fts_enabled {
-                  if let Some(field) = self.tantivy_field_map.get(*key) {
+                  if let Some(field) = self.tantivy_field_map.get_by_left(*key)
+                  {
                     doc.insert(
                       field.clone(),
                       OwnedValue::Str(new_value.get_str().unwrap().to_owned()),
@@ -240,7 +289,7 @@ impl AppState {
           let query = format!(
             "
             ?[ node_id, {keys_joined} ] <- [$input_data]
-            :insert {relation} {{ node_id, {keys_joined} }}
+            :put {relation} {{ node_id, {keys_joined} }}
             "
           );
 
@@ -285,15 +334,6 @@ impl AppState {
 
     tx.commit()?;
 
-    let created_at = DateTime::from_timestamp_millis(
-      (node_result.rows[0][4].get_float().unwrap() * 1000.0) as i64,
-    )
-    .unwrap();
-    let updated_at = DateTime::from_timestamp_millis(
-      (node_result.rows[0][5].get_float().unwrap() * 1000.0) as i64,
-    )
-    .unwrap();
-
     Ok(NodeInfo {
       node_id: NodeId(Uuid::from_str(&node_id).unwrap()),
       created_at,
@@ -313,10 +353,14 @@ impl AppState {
     let reader = self.tantivy_index.reader().into_diagnostic()?;
     let searcher = reader.searcher();
 
-    let node_id_field = self.tantivy_field_map.get("node_id").unwrap().clone();
+    let node_id_field = self
+      .tantivy_field_map
+      .get_by_left("node_id")
+      .unwrap()
+      .clone();
     let journal_page_field = self
       .tantivy_field_map
-      .get("panorama/journal/page/content")
+      .get_by_left("panorama/journal/page/content")
       .unwrap()
       .clone();
     let query_parser =
@@ -342,10 +386,19 @@ impl AppState {
           let node_id = NodeId(Uuid::from_str(node_id).unwrap());
           let fields = all_fields
             .into_iter()
-            .map(|(field, value)| {
+            .map(|(field, values)| {
               (
-                serde_json::to_string(&field).unwrap(),
-                serde_json::to_string(&value).unwrap(),
+                self.tantivy_field_map.get_by_right(&field).unwrap(),
+                if values.len() == 1 {
+                  owned_value_to_json_value(values[0])
+                } else {
+                  Value::Array(
+                    values
+                      .into_iter()
+                      .map(owned_value_to_json_value)
+                      .collect_vec(),
+                  )
+                },
               )
             })
             .collect::<HashMap<_, _>>();

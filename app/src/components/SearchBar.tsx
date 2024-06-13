@@ -105,8 +105,8 @@ function SearchMenu({ results }) {
 							openNode(result.node_id);
 						}}
 					>
-						<div className={styles.title}>{result.title}</div>
-						<div className={styles.subtitle}>{result.content}</div>
+						{/* <div className={styles.title}>{result.title}</div> */}
+						<div className={styles.subtitle}>{JSON.stringify(result)}</div>
 					</button>
 				);
 			})}
