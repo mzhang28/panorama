@@ -4,7 +4,6 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use cozo::{DataValue, MultiTransaction, NamedRows};
 use itertools::Itertools;
 use miette::{bail, IntoDiagnostic, Result};
 use serde_json::Value;
@@ -18,7 +17,7 @@ use uuid::Uuid;
 
 use crate::{AppState, NodeId};
 
-use super::utils::{data_value_to_json_value, owned_value_to_json_value};
+use super::utils::owned_value_to_json_value;
 
 pub type ExtraData = BTreeMap<String, Value>;
 
@@ -377,8 +376,9 @@ impl AppState {
       .get_by_left("panorama/journal/page/content")
       .unwrap()
       .clone();
-    let query_parser =
+    let mut query_parser =
       QueryParser::for_index(&self.tantivy_index, vec![journal_page_field]);
+    query_parser.set_field_fuzzy(journal_page_field, true, 2, true);
     let query = query_parser.parse_query(query).into_diagnostic()?;
 
     let top_docs = searcher

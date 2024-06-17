@@ -47,6 +47,10 @@ impl AppState {
 
     let mut all_relations = hmap! {};
     for relation_name in relation_names.iter() {
+      if relation_name.contains(":") {
+        continue;
+      }
+
       let mut relation_info = vec![];
 
       let columns = relation_columns.get(relation_name.as_str()).unwrap();

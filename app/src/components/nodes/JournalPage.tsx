@@ -7,18 +7,15 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { parse as parseDate, format as formatDate } from "date-fns";
 import { useDebounce } from "use-debounce";
-
-const JOURNAL_PAGE_CONTENT_FIELD_NAME = "panorama/journal/page/content";
-const JOURNAL_PAGE_TITLE_FIELD_NAME = "panorama/journal/page/title";
+import {
+	JOURNAL_PAGE_CONTENT_FIELD_NAME,
+	JOURNAL_PAGE_TITLE_FIELD_NAME,
+	NodeInfo,
+} from "../../lib/data";
 
 export interface JournalPageProps {
 	id: string;
-	data: {
-		day?: string;
-		title?: string;
-		content: string;
-		fields: object;
-	};
+	data: NodeInfo;
 }
 
 export default function JournalPage({ id, data }: JournalPageProps) {

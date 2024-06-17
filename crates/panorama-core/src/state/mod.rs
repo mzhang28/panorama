@@ -1,21 +1,28 @@
-pub mod export;
-pub mod journal;
-pub mod mail;
-pub mod node;
-pub mod utils;
+// pub mod codetrack;
+// pub mod export;
+// pub mod journal;
+// pub mod mail;
+// pub mod node;
+// pub mod utils;
 
 use std::{collections::HashMap, fs, path::Path};
 
 use bimap::BiMap;
-use cozo::DbInstance;
-use miette::{IntoDiagnostic, Result};
+use miette::{Context, IntoDiagnostic, Result};
+use sqlx::{
+  sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+  SqlitePool,
+};
 use tantivy::{
   directory::MmapDirectory,
   schema::{Field, Schema, STORED, STRING, TEXT},
   Index,
 };
 
-use crate::{mail::mail_loop, migrations::run_migrations};
+use crate::{
+  // mail::MailWorker,
+  migrations::{self, MIGRATOR},
+};
 
 pub fn tantivy_schema() -> (Schema, BiMap<String, Field>) {
   let mut schema_builder = Schema::builder();
@@ -33,7 +40,7 @@ pub fn tantivy_schema() -> (Schema, BiMap<String, Field>) {
 
 #[derive(Clone)]
 pub struct AppState {
-  pub db: DbInstance,
+  pub db: SqlitePool,
   pub tantivy_index: Index,
   pub tantivy_field_map: BiMap<String, Field>,
 }
@@ -41,6 +48,10 @@ pub struct AppState {
 impl AppState {
   pub async fn new(panorama_dir: impl AsRef<Path>) -> Result<Self> {
     let panorama_dir = panorama_dir.as_ref().to_path_buf();
+    fs::create_dir_all(&panorama_dir)
+      .into_diagnostic()
+      .context("Could not create panorama directory")?;
+
     println!("Panorama dir: {}", panorama_dir.display());
 
     let (tantivy_index, tantivy_field_map) = {
@@ -56,12 +67,14 @@ impl AppState {
     };
 
     let db_path = panorama_dir.join("db.sqlite");
-    let db = DbInstance::new(
-      "sqlite",
-      db_path.display().to_string(),
-      Default::default(),
-    )
-    .unwrap();
+    let sqlite_connect_options = SqliteConnectOptions::new()
+      .filename(db_path)
+      .journal_mode(SqliteJournalMode::Wal);
+    let db = SqlitePoolOptions::new()
+      .connect_with(sqlite_connect_options)
+      .await
+      .into_diagnostic()
+      .context("Could not connect to SQLite database")?;
 
     let state = AppState {
       db,
@@ -74,10 +87,16 @@ impl AppState {
   }
 
   async fn init(&self) -> Result<()> {
-    run_migrations(&self.db).await?;
+    // run_migrations(&self.db).await?;
+    MIGRATOR
+      .run(&self.db)
+      .await
+      .into_diagnostic()
+      .context("Could not migrate database")?;
 
-    let state = self.clone();
-    tokio::spawn(async move { mail_loop(state).await });
+    // let state = self.clone();
+    // let mail_worker = MailWorker::new(state);
+    // tokio::spawn(mail_worker.mail_loop());
 
     Ok(())
   }

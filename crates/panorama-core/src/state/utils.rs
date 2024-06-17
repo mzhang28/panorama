@@ -1,4 +1,3 @@
-use cozo::{DataValue, Num};
 use itertools::Itertools;
 use serde_json::{Number, Value};
 use tantivy::schema::OwnedValue;
@@ -30,28 +29,31 @@ pub fn owned_value_to_json_value(data_value: &OwnedValue) -> Value {
   }
 }
 
-pub fn data_value_to_json_value(data_value: &DataValue) -> Value {
-  match data_value {
-    DataValue::Null => Value::Null,
-    DataValue::Bool(b) => Value::Bool(*b),
-    DataValue::Num(n) => Value::Number(match n {
-      Num::Int(i) => Number::from(*i),
-      Num::Float(f) => Number::from_f64(*f).unwrap(),
-    }),
-    DataValue::Str(s) => Value::String(s.to_string()),
-    DataValue::List(v) => {
-      Value::Array(v.into_iter().map(data_value_to_json_value).collect_vec())
-    }
-    DataValue::Json(v) => v.0.clone(),
-    _ => {
-      println!("Converting unknown {:?}", data_value);
-      serde_json::to_value(data_value).unwrap()
-    } // DataValue::Bytes(s) => todo!(),
-      // DataValue::Uuid(_) => todo!(),
-      // DataValue::Regex(_) => todo!(),
-      // DataValue::Set(_) => todo!(),
-      // DataValue::Vec(_) => todo!(),
-      // DataValue::Validity(_) => todo!(),
-      // DataValue::Bot => todo!(),
-  }
-}
+// pub fn data_value_to_json_value(data_value: &DataValue) -> Value {
+//   match data_value {
+//     DataValue::Null => Value::Null,
+//     DataValue::Bool(b) => Value::Bool(*b),
+//     DataValue::Num(n) => Value::Number(match n {
+//       Num::Int(i) => Number::from(*i),
+//       Num::Float(f) => Number::from_f64(*f).unwrap(),
+//     }),
+//     DataValue::Str(s) => Value::String(s.to_string()),
+//     DataValue::List(v) => {
+//       Value::Array(v.into_iter().map(data_value_to_json_value).collect_vec())
+//     }
+//     DataValue::Json(v) => v.0.clone(),
+//     DataValue::Bytes(s) => {
+//       Value::String(String::from_utf8_lossy(s).to_string())
+//     }
+//     _ => {
+//       println!("Converting unknown {:?}", data_value);
+//       serde_json::to_value(data_value).unwrap()
+//     } // DataValue::Bytes(s) => todo!(),
+//       // DataValue::Uuid(_) => todo!(),
+//       // DataValue::Regex(_) => todo!(),
+//       // DataValue::Set(_) => todo!(),
+//       // DataValue::Vec(_) => todo!(),
+//       // DataValue::Validity(_) => todo!(),
+//       // DataValue::Bot => todo!(),
+//   }
+// }

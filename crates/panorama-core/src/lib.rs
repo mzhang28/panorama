@@ -8,7 +8,8 @@ extern crate sugars;
 pub mod migrations;
 pub mod state;
 
-pub mod mail;
+// pub mod mail;
+pub mod messaging;
 #[cfg(test)]
 mod tests;
 

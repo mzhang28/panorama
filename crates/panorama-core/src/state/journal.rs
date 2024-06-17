@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use chrono::Local;
-use cozo::ScriptMutability;
+// use cozo::ScriptMutability;
 use miette::{IntoDiagnostic, Result};
 use uuid::Uuid;
 

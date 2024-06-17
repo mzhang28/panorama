@@ -1,20 +1,18 @@
 import styles from "./SearchBar.module.scss";
 import {
-	FloatingFocusManager,
 	FloatingOverlay,
 	FloatingPortal,
 	autoUpdate,
 	offset,
-	useClick,
 	useDismiss,
 	useFloating,
 	useFocus,
 	useInteractions,
 } from "@floating-ui/react";
-import { useDebounce } from "use-debounce";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { atom, useAtom, useSetAtom } from "jotai";
 import { useNodeControls } from "../App";
+import { useDebounce, useDebouncedCallback } from "use-debounce";
 
 const searchQueryAtom = atom("");
 const showMenuAtom = atom(false);
@@ -37,8 +35,7 @@ export default function SearchBar() {
 		useDismiss(context),
 	]);
 
-	useEffect(() => {
-		setSearchResults([]);
+	const performSearch = useCallback(() => {
 		const trimmed = searchQuery.trim();
 		if (trimmed === "") return;
 
@@ -63,7 +60,11 @@ export default function SearchBar() {
 					onFocus={() => setShowMenu(true)}
 					ref={refs.setReference}
 					value={searchQuery}
-					onChange={(evt) => setSearchQuery(evt.target.value)}
+					onChange={(evt) => {
+						setSearchQuery(evt.target.value);
+						if (evt.target.value) performSearch();
+						else setSearchResults([]);
+					}}
 					{...getReferenceProps()}
 				/>
 			</div>
