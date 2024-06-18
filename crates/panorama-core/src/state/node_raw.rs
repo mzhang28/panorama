@@ -4,15 +4,15 @@ use crate::AppState;
 
 #[derive(FromRow)]
 pub struct FieldMappingRow {
-  pub(crate) full_key: String,
-  pub(crate) app_id: i64,
-  pub(crate) app_table_name: String,
-  pub(crate) app_table_field: String,
-  pub(crate) db_table_name: Option<String>,
+  pub full_key: String,
+  pub app_id: i64,
+  pub app_table_name: String,
+  pub app_table_field: String,
+  pub db_table_name: Option<String>,
 }
 
 impl AppState {
-  pub async fn get_related_field_list_for_node_id<'e, 'c: 'e, X>(
+  pub(crate) async fn get_related_field_list_for_node_id<'e, 'c: 'e, X>(
     x: X,
     node_id: &str,
   ) -> sqlx::Result<Vec<FieldMappingRow>>

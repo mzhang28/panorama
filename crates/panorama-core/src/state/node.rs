@@ -1,6 +1,9 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+  collections::{BTreeMap, HashMap},
+  str::FromStr,
+};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use itertools::Itertools;
 use miette::{bail, Context, Error, IntoDiagnostic, Report, Result};
 use serde_json::Value;
@@ -8,7 +11,11 @@ use sqlx::{
   query::Query, sqlite::SqliteArguments, Acquire, Connection, Executor,
   FromRow, QueryBuilder, Sqlite,
 };
-use tantivy::schema::{OwnedValue, Value as _};
+use tantivy::{
+  schema::{OwnedValue, Value as _},
+  time::Date,
+  Term,
+};
 use uuid::Uuid;
 
 use crate::{state::node_raw::FieldMappingRow, AppState, NodeId};
@@ -16,6 +23,8 @@ use crate::{state::node_raw::FieldMappingRow, AppState, NodeId};
 // use super::utils::owned_value_to_json_value;
 
 pub type ExtraData = BTreeMap<String, Value>;
+pub type FieldsByTable<'a> =
+  HashMap<(&'a i64, &'a String), Vec<&'a FieldMappingRow>>;
 
 #[derive(Debug)]
 pub struct NodeInfo {
@@ -99,7 +108,7 @@ impl AppState {
 
   async fn query_related_fields<'e, 'c: 'e, X>(
     x: X,
-    fields_by_table: &HashMap<(&i64, &String), Vec<&FieldMappingRow>>,
+    fields_by_table: &FieldsByTable<'_>,
   ) -> sqlx::Result<HashMap<String, Value>>
   where
     X: 'e + Executor<'c, Database = Sqlite>,
@@ -186,193 +195,215 @@ pub enum CreateOrUpdate {
 
 impl AppState {
   // TODO: Split this out into create and update
-  // pub async fn create_or_update_node(
-  //   &self,
-  //   opts: CreateOrUpdate,
-  //   extra_data: Option<ExtraData>,
-  // ) -> Result<NodeInfo> {
-  //   let node_id = match opts {
-  //     CreateOrUpdate::Create { .. } => NodeId(Uuid::now_v7()),
-  //     CreateOrUpdate::Update { ref node_id } => node_id.clone(),
-  //   };
-  //   let node_id = node_id.to_string();
+  pub async fn create_or_update_node(
+    &self,
+    opts: CreateOrUpdate,
+    extra_data: Option<ExtraData>,
+  ) -> Result<NodeInfo> {
+    let node_id = match opts {
+      CreateOrUpdate::Create { .. } => NodeId(Uuid::now_v7()),
+      CreateOrUpdate::Update { ref node_id } => node_id.clone(),
+    };
+    let node_id = node_id.to_string();
 
-  //   let action = match opts {
-  //     CreateOrUpdate::Create { .. } => "put",
-  //     CreateOrUpdate::Update { .. } => "update",
-  //   };
+    let action = match opts {
+      CreateOrUpdate::Create { .. } => "put",
+      CreateOrUpdate::Update { .. } => "update",
+    };
 
-  //   println!("Request: {opts:?} {extra_data:?}");
+    println!("Request: {opts:?} {extra_data:?}");
 
-  //   let (created_at, updated_at) = match opts {
-  //     CreateOrUpdate::Create { ref r#type } => {
-  //       let node_result = tx.run_script(
-  //         "
-  //       ?[id, type] <- [[$node_id, $type]]
-  //       :put node { id, type }
-  //       :returning
-  //     ",
-  //         btmap! {
-  //           "node_id".to_owned() => DataValue::from(node_id.clone()),
-  //           "type".to_owned() => DataValue::from(r#type.to_owned()),
-  //         },
-  //       )?;
-  //       let created_at = DateTime::from_timestamp_millis(
-  //         (node_result.rows[0][3].get_float().unwrap() * 1000.0) as i64,
-  //       )
-  //       .unwrap();
-  //       let updated_at = DateTime::from_timestamp_millis(
-  //         (node_result.rows[0][4].get_float().unwrap() * 1000.0) as i64,
-  //       )
-  //       .unwrap();
-  //       (created_at, updated_at)
-  //     }
-  //     CreateOrUpdate::Update { .. } => {
-  //       let node_result = tx.run_script(
-  //       "
-  //       ?[id, type, created_at, updated_at] := *node { id, type, created_at, updated_at },
-  //         id = $node_id
-  //     ",
-  //       btmap! {
-  //         "node_id".to_owned() => DataValue::from(node_id.clone()),
-  //       },
-  //     )?;
-  //       let created_at = DateTime::from_timestamp_millis(
-  //         (node_result.rows[0][2].get_float().unwrap() * 1000.0) as i64,
-  //       )
-  //       .unwrap();
-  //       let updated_at = DateTime::from_timestamp_millis(
-  //         (node_result.rows[0][3].get_float().unwrap() * 1000.0) as i64,
-  //       )
-  //       .unwrap();
-  //       (created_at, updated_at)
-  //     }
-  //   };
+    let mut conn = self.conn().await?;
 
-  //   if let Some(extra_data) = extra_data {
-  //     let node_id_field = self
-  //       .tantivy_field_map
-  //       .get_by_left("node_id")
-  //       .unwrap()
-  //       .clone();
+    conn
+      .transaction::<_, _, sqlx::Error>(|tx| {
+        Box::pin(async move {
+          let node_info = match opts {
+            CreateOrUpdate::Create { r#type } => {
+              AppState::create_node_raw(&mut **tx, &r#type).await?
+            }
+            CreateOrUpdate::Update { node_id } => todo!(),
+          };
 
-  //     if !extra_data.is_empty() {
-  //       let keys = extra_data.keys().map(|s| s.to_owned()).collect::<Vec<_>>();
-  //       let field_mapping =
-  //         self.get_rows_for_extra_keys(&tx, keys.as_slice())?;
+          if let Some(extra_data) = extra_data {
+            if !extra_data.is_empty() {
+              let node_id_str = node_id.to_string();
+              let field_mapping = AppState::get_related_field_list_for_node_id(
+                &mut **tx,
+                &node_id_str,
+              )
+              .await?;
 
-  //       // Group the keys by which relation they're in
-  //       let result_by_relation = field_mapping.iter().into_group_map_by(
-  //         |(_, FieldInfo { relation_name, .. })| relation_name,
-  //       );
+              // Group the keys by which relation they're in
+              let fields_by_table = field_mapping.iter().into_group_map_by(
+                |FieldMappingRow {
+                   app_id,
+                   app_table_name,
+                   ..
+                 }| (app_id, app_table_name),
+              );
 
-  //       for (relation, fields) in result_by_relation.iter() {
-  //         let mut doc = btmap! { node_id_field.clone() => OwnedValue::Str(node_id.to_owned()) };
-  //         let fields_mapping = fields
-  //           .into_iter()
-  //           .map(
-  //             |(
-  //               key,
-  //               FieldInfo {
-  //                 relation_field,
-  //                 r#type,
-  //                 is_fts_enabled,
-  //                 ..
-  //               },
-  //             )| {
-  //               let new_value = extra_data.get(*key).unwrap();
+              AppState::write_extra_data(
+                &mut **tx,
+                &node_id_str,
+                &fields_by_table,
+                extra_data,
+              )
+              .await?;
+            }
+          }
 
-  //               // TODO: Make this more generic
-  //               let new_value = match r#type.as_str() {
-  //                 "int" => DataValue::from(new_value.as_i64().unwrap()),
-  //                 _ => DataValue::from(new_value.as_str().unwrap()),
-  //               };
+          Ok(node_info)
+        })
+      })
+      .await
+      .into_diagnostic()
+  }
 
-  //               if *is_fts_enabled {
-  //                 if let Some(field) = self.tantivy_field_map.get_by_left(*key)
-  //                 {
-  //                   doc.insert(
-  //                     field.clone(),
-  //                     OwnedValue::Str(new_value.get_str().unwrap().to_owned()),
-  //                   );
-  //                 }
-  //               }
+  async fn create_node_raw<'e, 'c: 'e, X>(
+    x: X,
+    r#type: &str,
+  ) -> sqlx::Result<NodeInfo>
+  where
+    X: 'e + Executor<'c, Database = Sqlite>,
+  {
+    let node_id = Uuid::now_v7();
+    let node_id_str = node_id.to_string();
 
-  //               (relation_field.to_owned(), new_value)
-  //             },
-  //           )
-  //           .collect::<BTreeMap<_, _>>();
+    #[derive(FromRow)]
+    struct Result {
+      updated_at: i64,
+    }
 
-  //         let mut writer =
-  //           self.tantivy_index.writer(15_000_000).into_diagnostic()?;
+    let result = sqlx::query_as!(
+      Result,
+      r#"
+      INSERT INTO node (node_id, node_type, extra_data)
+      VALUES (?, ?, "{}")
+      RETURNING updated_at
+      "#,
+      node_id_str,
+      r#type,
+    )
+    .fetch_one(x)
+    .await?;
 
-  //         let delete_term =
-  //           Term::from_field_text(node_id_field.clone(), &node_id);
-  //         writer.delete_term(delete_term);
+    let updated_at =
+      DateTime::from_timestamp_millis(result.updated_at * 1000).unwrap();
+    let created_at = DateTime::from_timestamp_millis(
+      node_id.get_timestamp().unwrap().to_unix().0 as i64 * 1000,
+    )
+    .unwrap();
 
-  //         writer.add_document(doc).into_diagnostic()?;
-  //         writer.commit().into_diagnostic()?;
-  //         drop(writer);
+    Ok(NodeInfo {
+      node_id: NodeId(node_id),
+      created_at,
+      updated_at,
+      fields: None,
+    })
+  }
 
-  //         let keys = fields_mapping.keys().collect::<Vec<_>>();
-  //         let keys_joined = keys.iter().join(", ");
+  async fn write_extra_data<'e, 'c: 'e, X>(
+    x: X,
+    node_id: &str,
+    fields_by_table: &FieldsByTable<'_>,
+    extra_data: ExtraData,
+  ) -> sqlx::Result<()>
+  where
+    X: 'e + Executor<'c, Database = Sqlite>,
+  {
+    // Update Tantivy indexes
+    // for ((app_id, app_table_name), fields) in fields_by_table.iter() {
+    //   let mut writer =
+    //     self.tantivy_index.writer(15_000_000).into_diagnostic()?;
 
-  //         if !keys.is_empty() {
-  //           let query = format!(
-  //             "
-  //           ?[ node_id, {keys_joined} ] <- [$input_data]
-  //           :{action} {relation} {{ node_id, {keys_joined} }}
-  //           "
-  //           );
+    //   let delete_term = Term::from_field_text(node_id_field.clone(), &node_id);
+    //   writer.delete_term(delete_term);
 
-  //           let mut params = vec![];
-  //           params.push(DataValue::from(node_id.clone()));
-  //           for key in keys {
-  //             params.push(fields_mapping[key].clone());
-  //           }
+    //   writer.add_document(doc).into_diagnostic()?;
+    //   writer.commit().into_diagnostic()?;
+    //   drop(writer);
+    // }
 
-  //           let result = tx.run_script(
-  //             &query,
-  //             btmap! {
-  //               "input_data".to_owned() => DataValue::List(params),
-  //             },
-  //           );
-  //         }
-  //       }
+    // Update database
+    let mut node_has_keys = Vec::new();
+    for ((app_id, app_table_name), fields) in fields_by_table.iter() {
+      for field_info in fields {
+        node_has_keys.push(&field_info.full_key);
+      }
 
-  //       let input = DataValue::List(
-  //         keys
-  //           .iter()
-  //           .map(|s| {
-  //             DataValue::List(vec![
-  //               DataValue::from(s.to_owned()),
-  //               DataValue::from(node_id.clone()),
-  //             ])
-  //           })
-  //           .collect_vec(),
-  //       );
+      // let mut doc =
+      //   btmap! { node_id_field.clone() => OwnedValue::Str(node_id.to_owned()) };
+      // let fields_mapping = fields
+      //   .into_iter()
+      //   .map(
+      //     |(
+      //       key,
+      //       FieldInfo {
+      //         relation_field,
+      //         r#type,
+      //         is_fts_enabled,
+      //         ..
+      //       },
+      //     )| {
+      //       let new_value = extra_data.get(*key).unwrap();
 
-  //       tx.run_script(
-  //         "
-  //           ?[key, id] <- $input_data
-  //           :put node_has_key { key, id }
-  //         ",
-  //         btmap! {
-  //           "input_data".to_owned() => input
-  //         },
-  //       )?;
-  //     }
-  //   }
+      //       // TODO: Make this more generic
+      //       let new_value = match r#type.as_str() {
+      //         "int" => DataValue::from(new_value.as_i64().unwrap()),
+      //         _ => DataValue::from(new_value.as_str().unwrap()),
+      //       };
 
-  //   tx.commit()?;
+      //       if *is_fts_enabled {
+      //         if let Some(field) = self.tantivy_field_map.get_by_left(*key) {
+      //           doc.insert(
+      //             field.clone(),
+      //             OwnedValue::Str(new_value.get_str().unwrap().to_owned()),
+      //           );
+      //         }
+      //       }
 
-  //   Ok(NodeInfo {
-  //     node_id: NodeId(Uuid::from_str(&node_id).unwrap()),
-  //     created_at,
-  //     updated_at,
-  //     fields: None,
-  //   })
-  // }
+      //       (relation_field.to_owned(), new_value)
+      //     },
+      //   )
+      //   .collect::<BTreeMap<_, _>>();
+
+      // let keys = fields_mapping.keys().collect::<Vec<_>>();
+      // let keys_joined = keys.iter().join(", ");
+
+      // if !keys.is_empty() {
+      //   let query = format!(
+      //     "
+      //       ?[ node_id, {keys_joined} ] <- [$input_data]
+      //       :{action} {relation} {{ node_id, {keys_joined} }}
+      //       "
+      //   );
+
+      //   let mut params = vec![];
+      //   params.push(DataValue::from(node_id.clone()));
+      //   for key in keys {
+      //     params.push(fields_mapping[key].clone());
+      //   }
+
+      //   let result = tx.run_script(
+      //     &query,
+      //     btmap! {
+      //       "input_data".to_owned() => DataValue::List(params),
+      //     },
+      //   );
+      // }
+    }
+
+    let mut query =
+      QueryBuilder::new("INSERT INTO node_has_key (node_id, full_key) VALUES ");
+    query.push_values(node_has_keys, |mut b, key| {
+      b.push_bind(node_id).push_bind(key);
+    });
+    println!("Query: {:?}", query.sql());
+    query.build().execute(x).await?;
+
+    Ok(())
+  }
 }
 
 // impl AppState {
