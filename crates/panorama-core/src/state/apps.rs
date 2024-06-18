@@ -1,9 +1,16 @@
 use std::{
-  fs,
+  fs::{self, File},
+  io::Read,
   path::{Path, PathBuf},
+  sync::Arc,
 };
 
 use miette::{IntoDiagnostic, Result};
+use rune::{
+  prepare,
+  termcolor::{ColorChoice, StandardStream},
+  Context, Diagnostics, Hash, Module, Source, Sources, Vm,
+};
 
 use crate::AppState;
 
@@ -29,7 +36,7 @@ impl AppState {
     }
 
     for path in found {
-      self.install_app_from_path(path).await?;
+      self.install_app_from_path(path).await;
     }
 
     Ok(())
@@ -38,8 +45,48 @@ impl AppState {
   async fn install_app_from_path(&self, path: impl AsRef<Path>) -> Result<()> {
     let app_path = path.as_ref();
     let manifest_path = app_path.join("manifest.yml");
+    let register_path = app_path.join("register.rn");
 
-    // Install tables
+    let register_script = {
+      let mut file = File::open(register_path).into_diagnostic()?;
+      let mut string = String::new();
+      file.read_to_string(&mut string).into_diagnostic()?;
+      string
+    };
+
+    let mut sources = Sources::new();
+    sources
+      .insert(Source::new("register.rn", register_script).into_diagnostic()?)
+      .into_diagnostic()?;
+
+    let mut diagnostics = Diagnostics::new();
+    let register_script_unit = prepare(&mut sources)
+      .with_diagnostics(&mut diagnostics)
+      .build();
+    if !diagnostics.is_empty() {
+      let mut writer = StandardStream::stderr(ColorChoice::Always);
+      diagnostics.emit(&mut writer, &sources).into_diagnostic()?;
+    }
+    let register_script_unit =
+      Arc::new(register_script_unit.into_diagnostic()?);
+
+    let module = Module::new();
+    // let mut ctx = Context::new();
+    let mut ctx = Context::with_default_modules().into_diagnostic()?;
+    ctx.install(module).into_diagnostic()?;
+
+    let rt_ctx = ctx.runtime().into_diagnostic()?;
+    let ctx_arc = Arc::new(rt_ctx);
+    let mut vm = Vm::new(ctx_arc, register_script_unit);
+
+    let main = Hash::type_hash(["main"]);
+    let result = vm
+      .execute(main, ())
+      .into_diagnostic()?
+      .complete()
+      .into_result()
+      .into_diagnostic()?;
+    println!("Executed. {result:?}");
 
     Ok(())
   }

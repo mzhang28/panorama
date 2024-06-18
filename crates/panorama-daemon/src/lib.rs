@@ -43,6 +43,8 @@ pub async fn run() -> Result<()> {
 
   let state = AppState::new(&panorama_dir).await?;
 
+  state.install_apps_from_search_paths().await?;
+
   let cors_layer = CorsLayer::new()
     .allow_methods([Method::GET, Method::POST, Method::PUT])
     .allow_headers(cors::Any)

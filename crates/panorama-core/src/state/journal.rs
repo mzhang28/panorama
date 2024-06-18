@@ -42,29 +42,6 @@ impl AppState {
         )
         .await?;
 
-      // self.db.run_script(
-      //   "
-      //     {
-      //       ?[id, type] <- [[$node_id, 'panorama/journal/page']]
-      //       :put node { id, type }
-      //     }
-      //     {
-      //       ?[node_id, title, content] <- [[$node_id, $title, '']]
-      //       :put journal { node_id => title, content }
-      //     }
-      //     {
-      //       ?[day, node_id] <- [[$day, $node_id]]
-      //       :put journal_day { day => node_id }
-      //     }
-      //   ",
-      //   btmap! {
-      //     "node_id".to_owned() => node_id.clone().into(),
-      //     "day".to_owned() => today.clone().into(),
-      //     "title".to_owned() => today.clone().into(),
-      //   },
-      //   ScriptMutability::Mutable,
-      // )?;
-
       return Ok(node_info.node_id);
     }
 
