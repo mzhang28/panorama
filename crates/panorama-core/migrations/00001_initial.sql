@@ -25,13 +25,13 @@ CREATE TABLE app (
   app_license TEXT
 );
 
-CREATE TABLE app_table (
+CREATE TABLE app_table_mapping (
   app_id INTEGER NOT NULL,
   app_table_name TEXT NOT NULL,
   db_table_name TEXT NOT NULL
 );
 
-CREATE TABLE full_key_to_db_key (
+CREATE TABLE key_mapping (
   full_key TEXT NOT NULL,
   app_id INTEGER NOT NULL,
   app_table_name TEXT NOT NULL,

@@ -4,6 +4,7 @@ pub mod apps;
 // pub mod journal;
 // pub mod mail;
 pub mod node;
+pub mod node_raw;
 // pub mod utils;
 
 use std::{collections::HashMap, fs, path::Path};
