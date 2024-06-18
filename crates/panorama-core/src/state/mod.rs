@@ -1,8 +1,9 @@
+pub mod apps;
 // pub mod codetrack;
 // pub mod export;
 // pub mod journal;
 // pub mod mail;
-// pub mod node;
+pub mod node;
 // pub mod utils;
 
 use std::{collections::HashMap, fs, path::Path};
@@ -10,8 +11,9 @@ use std::{collections::HashMap, fs, path::Path};
 use bimap::BiMap;
 use miette::{Context, IntoDiagnostic, Result};
 use sqlx::{
+  pool::PoolConnection,
   sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
-  SqlitePool,
+  Sqlite, SqliteConnection, SqlitePool,
 };
 use tantivy::{
   directory::MmapDirectory,
@@ -69,7 +71,8 @@ impl AppState {
     let db_path = panorama_dir.join("db.sqlite");
     let sqlite_connect_options = SqliteConnectOptions::new()
       .filename(db_path)
-      .journal_mode(SqliteJournalMode::Wal);
+      .journal_mode(SqliteJournalMode::Wal)
+      .create_if_missing(true);
     let db = SqlitePoolOptions::new()
       .connect_with(sqlite_connect_options)
       .await
@@ -84,6 +87,10 @@ impl AppState {
     state.init().await?;
 
     Ok(state)
+  }
+
+  pub async fn conn(&self) -> Result<PoolConnection<Sqlite>> {
+    self.db.acquire().await.into_diagnostic()
   }
 
   async fn init(&self) -> Result<()> {

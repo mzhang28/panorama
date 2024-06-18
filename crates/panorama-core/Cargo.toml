@@ -17,6 +17,7 @@ sugars = "3.0.1"
 tantivy = { version = "0.22.0", features = ["zstd"] }
 tokio = { version = "1.38.0", features = ["full"] }
 uuid = { version = "1.8.0", features = ["v7"] }
+walkdir = "2.5.0"
 
 [dependencies.async-imap]
 version = "0.9.7"
