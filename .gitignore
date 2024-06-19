@@ -4,3 +4,4 @@ target
 .DS_Store
 **/export/export.json
 test.db*
+.env
