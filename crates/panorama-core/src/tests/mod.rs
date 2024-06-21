@@ -79,7 +79,7 @@ pub async fn test_install_apps() -> Result<()> {
 
   state.install_apps_from_search_paths().await?;
 
-  panic!();
+  todo!();
 
   Ok(())
 }

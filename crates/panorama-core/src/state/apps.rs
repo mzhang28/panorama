@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context as _, Result};
 use serde_yaml::Value;
-use wasmtime::Module;
+use wasmtime::{Config, Engine, Linker, Module, Store};
 
 use crate::AppState;
 
@@ -42,9 +42,16 @@ impl AppState {
       }
     }
 
-    let all_app_data = HashMap::new();
+    let mut all_app_data = HashMap::new();
     for path in found {
-      let app_data = self.install_app_from_path(path).await;
+      let app_data = self.install_app_from_path(&path).await?;
+      println!("App data: {:?}", app_data);
+      all_app_data.insert(
+        path.display().to_string(),
+        AppData {
+          name: "hello".to_string(),
+        },
+      );
     }
 
     Ok(all_app_data)
@@ -57,7 +64,7 @@ pub struct AppManifest {
   version: Option<String>,
   panorama_version: Option<String>,
   description: Option<String>,
-  installer_path: Option<String>,
+  installer_path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -73,23 +80,32 @@ impl AppState {
       let file = File::open(manifest_path)?;
       serde_yaml::from_reader(file)?
     };
-    println!("manifest: {:?}", manifest);
+    println!("Manifest: {:?}", manifest);
 
-    let register_path = app_path.join("register.rn");
+    let installer_path = app_path.join(manifest.installer_path);
 
-    let register_script = {
-      let mut file = File::open(register_path)?;
-      let mut string = String::new();
-      file.read_to_string(&mut string)?;
-      string
+    let installer_program = {
+      let mut file = File::open(&installer_path).with_context(|| {
+        format!(
+          "Could not open installer from path: {}",
+          installer_path.display()
+        )
+      })?;
+      let mut buf = Vec::new();
+      file.read_to_end(&mut buf)?;
+      buf
     };
 
-    {
-      use wasmtime::{Config, Engine};
+    println!("Installer program: {} bytes", installer_program.len());
 
-      let config = Config::new();
-      let engine = Engine::new(&config)?;
-    }
+    let config = Config::new();
+    let engine = Engine::new(&config)?;
+    let module = Module::new(&engine, &installer_program)?;
+    let linker = Linker::new(&engine);
+    let mut store: Store<u32> = Store::new(&engine, 4);
+    let instance = linker.instantiate(&mut store, &module)?;
+    let hello = instance.get_typed_func::<(), i32>(&mut store, "install")?;
+    hello.call(&mut store, ())?;
 
     // let mut sources = Sources::new();
     // sources

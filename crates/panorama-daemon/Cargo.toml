@@ -33,10 +33,6 @@ features = ["axum_extras", "time", "uuid", "chrono", "yaml"]
 git = "https://github.com/juhaku/utoipa"
 features = ["axum"]
 
-[dependencies.utoipa-swagger-ui]
-git = "https://github.com/juhaku/utoipa"
-features = ["axum"]
-
 [dependencies.async-imap]
 version = "0.9.7"
 default-features = false
