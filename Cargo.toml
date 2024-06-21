@@ -1,2 +1,2 @@
 workspace.resolver = "2"
-workspace.members = ["crates/*", "ui/src-tauri"]
+workspace.members = [ "apps/journal","crates/*", "ui/src-tauri"]

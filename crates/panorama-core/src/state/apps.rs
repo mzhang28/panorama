@@ -8,7 +8,10 @@ use std::{
 
 use anyhow::{Context as _, Result};
 use serde_yaml::Value;
-use wasmtime::{Config, Engine, Linker, Module, Store};
+use wasmtime::{
+  Caller, Config, Engine, Linker, Memory, MemoryType, Module, Store,
+};
+use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::AppState;
 
@@ -101,8 +104,29 @@ impl AppState {
     let config = Config::new();
     let engine = Engine::new(&config)?;
     let module = Module::new(&engine, &installer_program)?;
-    let linker = Linker::new(&engine);
-    let mut store: Store<u32> = Store::new(&engine, 4);
+
+    let wasi = WasiCtxBuilder::new().inherit_stdio().inherit_args().build();
+    let mut store: Store<_> = Store::new(&engine, wasi);
+    let ty = MemoryType::new64(0, None);
+    let memory = Memory::new(&mut store, ty)?;
+
+    let mut linker = Linker::new(&engine);
+    linker.func_wrap(
+      "env",
+      "register_endpoint",
+      |caller: Caller<'_, _>, param: i32| {
+        println!("Got {} , from WebAssembly", param);
+        // println!("my host state is: {}", caller.data());
+      },
+    )?;
+    linker.func_wrap(
+      "env",
+      "abort",
+      |caller: Caller<'_, _>, param: i32, _: i32, _: i32, _: i32| {
+        println!("Oops, aborted.");
+      },
+    )?;
+
     let instance = linker.instantiate(&mut store, &module)?;
     let hello = instance.get_typed_func::<(), i32>(&mut store, "install")?;
     hello.call(&mut store, ())?;
