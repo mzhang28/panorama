@@ -7,14 +7,14 @@ pub mod node;
 pub mod node_raw;
 // pub mod utils;
 
-use std::{collections::HashMap, fs, path::Path};
+use std::{fs, path::Path};
 
+use anyhow::{Context, Result};
 use bimap::BiMap;
-use miette::{Context, IntoDiagnostic, Result};
 use sqlx::{
   pool::PoolConnection,
   sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
-  Sqlite, SqliteConnection, SqlitePool,
+  Sqlite, SqlitePool,
 };
 use tantivy::{
   directory::MmapDirectory,
@@ -24,7 +24,7 @@ use tantivy::{
 
 use crate::{
   // mail::MailWorker,
-  migrations::{self, MIGRATOR},
+  migrations::MIGRATOR,
 };
 
 pub fn tantivy_schema() -> (Schema, BiMap<String, Field>) {
@@ -52,7 +52,6 @@ impl AppState {
   pub async fn new(panorama_dir: impl AsRef<Path>) -> Result<Self> {
     let panorama_dir = panorama_dir.as_ref().to_path_buf();
     fs::create_dir_all(&panorama_dir)
-      .into_diagnostic()
       .context("Could not create panorama directory")?;
 
     println!("Panorama dir: {}", panorama_dir.display());
@@ -60,12 +59,9 @@ impl AppState {
     let (tantivy_index, tantivy_field_map) = {
       let (schema, field_map) = tantivy_schema();
       let tantivy_path = panorama_dir.join("tantivy-index");
-      fs::create_dir_all(&tantivy_path).into_diagnostic()?;
-      let dir = MmapDirectory::open(&tantivy_path).into_diagnostic()?;
-      let index = Index::builder()
-        .schema(schema)
-        .open_or_create(dir)
-        .into_diagnostic()?;
+      fs::create_dir_all(&tantivy_path)?;
+      let dir = MmapDirectory::open(&tantivy_path)?;
+      let index = Index::builder().schema(schema).open_or_create(dir)?;
       (index, field_map)
     };
 
@@ -77,7 +73,6 @@ impl AppState {
     let db = SqlitePoolOptions::new()
       .connect_with(sqlite_connect_options)
       .await
-      .into_diagnostic()
       .context("Could not connect to SQLite database")?;
 
     let state = AppState {
@@ -91,7 +86,7 @@ impl AppState {
   }
 
   pub async fn conn(&self) -> Result<PoolConnection<Sqlite>> {
-    self.db.acquire().await.into_diagnostic()
+    self.db.acquire().await.map_err(|err| err.into())
   }
 
   async fn init(&self) -> Result<()> {
@@ -99,7 +94,6 @@ impl AppState {
     MIGRATOR
       .run(&self.db)
       .await
-      .into_diagnostic()
       .context("Could not migrate database")?;
 
     // let state = self.clone();

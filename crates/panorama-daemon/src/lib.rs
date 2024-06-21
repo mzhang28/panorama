@@ -14,8 +14,8 @@ mod node;
 
 use std::fs;
 
+use anyhow::Result;
 use axum::{http::Method, routing::get, Router};
-use miette::{IntoDiagnostic, Result};
 use panorama_core::AppState;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
@@ -39,7 +39,7 @@ pub async fn run() -> Result<()> {
 
   let data_dir = dirs::data_dir().unwrap();
   let panorama_dir = data_dir.join("panorama");
-  fs::create_dir_all(&panorama_dir).into_diagnostic()?;
+  fs::create_dir_all(&panorama_dir)?;
 
   let state = AppState::new(&panorama_dir).await?;
 
@@ -64,9 +64,9 @@ pub async fn run() -> Result<()> {
     .layer(ServiceBuilder::new().layer(trace_layer))
     .with_state(state.clone());
 
-  let listener = TcpListener::bind("0.0.0.0:5195").await.into_diagnostic()?;
+  let listener = TcpListener::bind("0.0.0.0:5195").await?;
   println!("Listening... {:?}", listener);
-  axum::serve(listener, app).await.into_diagnostic()?;
+  axum::serve(listener, app).await?;
 
   Ok(())
 }

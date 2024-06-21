@@ -3,11 +3,11 @@ use std::{
   time::Duration,
 };
 
+use anyhow::{Context as _, Result};
 use async_imap::Session;
 use backoff::{exponential::ExponentialBackoff, SystemClock};
 use futures::TryStreamExt;
 use itertools::Itertools;
-use miette::{Context, IntoDiagnostic, Result};
 use tokio::{net::TcpStream, time::sleep};
 use uuid::Uuid;
 
@@ -60,15 +60,13 @@ impl MailWorker {
 
     let stream =
       TcpStream::connect((config.imap_hostname.as_str(), config.imap_port))
-        .await
-        .into_diagnostic()?;
+        .await?;
 
     let client = async_imap::Client::new(stream);
     let mut session = client
       .login(&config.imap_username, &config.imap_password)
       .await
-      .map_err(|(err, _)| err)
-      .into_diagnostic()?;
+      .map_err(|(err, _)| err)?;
 
     let all_mailbox_ids = self
       .fetch_and_store_all_mailboxes(config.node_id.to_string(), &mut session)
@@ -98,11 +96,9 @@ impl MailWorker {
     // println!("Session: {:?}", session);
     let mailboxes = session
       .list(None, Some("*"))
-      .await
-      .into_diagnostic()?
+      .await?
       .try_collect::<Vec<_>>()
-      .await
-      .into_diagnostic()?;
+      .await?;
 
     let mut all_mailboxes = HashMap::new();
 
@@ -178,7 +174,6 @@ impl MailWorker {
     let all_uids = session
       .uid_search("ALL")
       .await
-      .into_diagnostic()
       .context("Could not fetch all UIDs")?;
 
     println!("All UIDs ({}): {:?}", all_uids.len(), all_uids);

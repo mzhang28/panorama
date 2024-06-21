@@ -1,8 +1,8 @@
 use std::{collections::HashMap, str::FromStr, time::Duration};
 
+use anyhow::Result;
 use cozo::{DataValue, JsonData, ScriptMutability};
 use futures::TryStreamExt;
-use miette::{IntoDiagnostic, Result};
 use tokio::{net::TcpStream, time::sleep};
 use uuid::Uuid;
 

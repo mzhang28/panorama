@@ -1,21 +1,10 @@
-use std::{
-  collections::{BTreeMap, HashMap},
-  str::FromStr,
-};
+use std::collections::{BTreeMap, HashMap};
 
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use anyhow::Result;
+use chrono::{DateTime, Utc};
 use itertools::Itertools;
-use miette::{bail, Context, Error, IntoDiagnostic, Report, Result};
 use serde_json::Value;
-use sqlx::{
-  query::Query, sqlite::SqliteArguments, Acquire, Connection, Executor,
-  FromRow, QueryBuilder, Sqlite,
-};
-use tantivy::{
-  schema::{OwnedValue, Value as _},
-  time::Date,
-  Term,
-};
+use sqlx::{Connection, Executor, FromRow, QueryBuilder, Sqlite};
 use uuid::Uuid;
 
 use crate::{state::node_raw::FieldMappingRow, AppState, NodeId};
@@ -99,8 +88,7 @@ impl AppState {
           // })
         })
       })
-      .await
-      .into_diagnostic()?;
+      .await?;
 
     todo!()
     // Ok(())
@@ -159,9 +147,13 @@ impl AppState {
       // all_relation_constraints.push(format!("{table_gen_name}[{keys}],"))
     }
 
-    query.push("SELECT");
+    if selected_fields.is_empty() {
+      return Ok(HashMap::new());
+    }
+
+    query.push("SELECT ");
     query.push(selected_fields.join(", "));
-    query.push("FROM");
+    query.push(" FROM ");
     println!("Query: {:?}", query.sql());
 
     // let all_relation_constraints = all_relation_constraints.join("\n");
@@ -181,7 +173,7 @@ impl AppState {
     //   "
     // );
 
-    let rows = query.build().fetch_all(x).await.into_diagnostic();
+    let rows = query.build().fetch_all(x).await;
 
     todo!()
   }
@@ -257,7 +249,7 @@ impl AppState {
         })
       })
       .await
-      .into_diagnostic()
+      .map_err(|err| err.into())
   }
 
   async fn create_node_raw<'e, 'c: 'e, X>(
@@ -327,6 +319,7 @@ impl AppState {
 
     // Update database
     let mut node_has_keys = Vec::new();
+    println!("Fields by table: {:?}", fields_by_table);
     for ((app_id, app_table_name), fields) in fields_by_table.iter() {
       for field_info in fields {
         node_has_keys.push(&field_info.full_key);
@@ -394,13 +387,15 @@ impl AppState {
       // }
     }
 
-    let mut query =
-      QueryBuilder::new("INSERT INTO node_has_key (node_id, full_key) VALUES ");
-    query.push_values(node_has_keys, |mut b, key| {
-      b.push_bind(node_id).push_bind(key);
-    });
-    println!("Query: {:?}", query.sql());
-    query.build().execute(x).await?;
+    if !node_has_keys.is_empty() {
+      let mut query =
+        QueryBuilder::new("INSERT INTO node_has_key (node_id, full_key) ");
+      query.push_values(node_has_keys, |mut b, key| {
+        b.push_bind(node_id).push_bind(key);
+      });
+      println!("Query: {:?}", query.sql());
+      query.build().execute(x).await?;
+    }
 
     Ok(())
   }

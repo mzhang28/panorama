@@ -1,21 +1,24 @@
-use cozo::DbInstance;
-use itertools::Itertools;
-use miette::Result;
+use anyhow::Result;
+use sqlx::SqlitePool;
 use tantivy::Index;
 
-use crate::{migrations::run_migrations, state::tantivy_schema, AppState};
+use crate::{
+  migrations::MIGRATOR,
+  state::{node::CreateOrUpdate, tantivy_schema},
+  AppState,
+};
 
 pub async fn test_state() -> Result<AppState> {
-  let db = DbInstance::new("mem", "", "")?;
+  let db = SqlitePool::connect(":memory:").await?;
   let (schema, tantivy_field_map) = tantivy_schema();
   let tantivy_index = Index::create_in_ram(schema);
+  MIGRATOR.run(&db).await?;
 
   let state = AppState {
     db,
     tantivy_index,
     tantivy_field_map,
   };
-  run_migrations(&state.db).await?;
 
   Ok(state)
 }
@@ -26,8 +29,9 @@ pub async fn test_create_node() -> Result<()> {
 
   let node_info = state
     .create_or_update_node(
-      None,
-      "panorama/journal/page",
+      CreateOrUpdate::Create {
+        r#type: "panorama/journal/page".to_string(),
+      },
       Some(btmap! {
         "panorama/journal/page/content".to_owned() => json!("helloge"),
       }),
@@ -49,19 +53,33 @@ pub async fn test_full_text_search() -> Result<()> {
 
   let node_info = state
     .create_or_update_node(
-      "panorama/journal/page",
+      CreateOrUpdate::Create {
+        r#type: "panorama/journal/page".to_string(),
+      },
       Some(btmap! {
         "panorama/journal/page/content".to_owned() => json!("Hello, world!"),
       }),
     )
     .await?;
 
-  let results = state.search_nodes("world").await?;
+  todo!();
+  // let results = state.search_nodes("world").await?;
 
-  assert!(results
-    .into_iter()
-    .map(|entry| entry.0)
-    .contains(&node_info.node_id));
+  // assert!(results
+  //   .into_iter()
+  //   .map(|entry| entry.0)
+  //   .contains(&node_info.node_id));
+
+  Ok(())
+}
+
+#[tokio::test]
+pub async fn test_install_apps() -> Result<()> {
+  let state = test_state().await?;
+
+  state.install_apps_from_search_paths().await?;
+
+  panic!();
 
   Ok(())
 }

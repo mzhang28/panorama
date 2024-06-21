@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
+use anyhow::Result;
 use cozo::ScriptMutability;
-use miette::Result;
 use serde_json::Value;
 
 use crate::AppState;

@@ -17,7 +17,7 @@ use std::fmt;
 
 pub use crate::state::AppState;
 
-use miette::{bail, IntoDiagnostic, Result};
+use anyhow::{bail, Result};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ impl fmt::Display for NodeId {
 }
 
 pub fn ensure_ok(s: &str) -> Result<()> {
-  let status: Value = serde_json::from_str(&s).into_diagnostic()?;
+  let status: Value = serde_json::from_str(&s)?;
   let status = status.as_object().unwrap();
   let ok = status.get("ok").unwrap().as_bool().unwrap_or(false);
   if !ok {

@@ -2,7 +2,7 @@ use sqlx::{Executor, FromRow, Sqlite};
 
 use crate::AppState;
 
-#[derive(FromRow)]
+#[derive(Debug, FromRow)]
 pub struct FieldMappingRow {
   pub full_key: String,
   pub app_id: i64,

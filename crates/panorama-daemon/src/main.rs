@@ -1,4 +1,4 @@
-use miette::Result;
+use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {

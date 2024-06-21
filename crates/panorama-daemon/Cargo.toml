@@ -14,7 +14,6 @@ csv = "1.3.0"
 dirs = "5.0.1"
 futures = "0.3.30"
 itertools = "0.13.0"
-miette = { version = "5.5.0", features = ["fancy", "backtrace"] }
 panorama-core = { path = "../panorama-core" }
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
