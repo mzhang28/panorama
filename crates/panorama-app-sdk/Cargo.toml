@@ -1,5 +1,5 @@
 [package]
-name = "journal"
+name = "panorama-app-sdk"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,4 +8,3 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2.92"
-panorama-app-sdk = { path = "../../crates/panorama-app-sdk" }

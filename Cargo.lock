@@ -2686,6 +2686,7 @@ dependencies = [
 name = "journal"
 version = "0.1.0"
 dependencies = [
+ "panorama-app-sdk",
  "wasm-bindgen",
 ]
 
@@ -3467,6 +3468,13 @@ dependencies = [
  "tauri-plugin-window-state",
  "tokio",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "panorama-app-sdk"
+version = "0.1.0"
+dependencies = [
+ "wasm-bindgen",
 ]
 
 [[package]]
