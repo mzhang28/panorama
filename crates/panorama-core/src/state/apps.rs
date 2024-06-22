@@ -106,30 +106,37 @@ impl AppState {
     let module = Module::new(&engine, &installer_program)?;
 
     let wasi = WasiCtxBuilder::new().inherit_stdio().inherit_args().build();
-    let mut store: Store<_> = Store::new(&engine, wasi);
-    let ty = MemoryType::new64(0, None);
-    let memory = Memory::new(&mut store, ty)?;
 
     let mut linker = Linker::new(&engine);
     linker.func_wrap(
       "env",
       "register_endpoint",
-      |caller: Caller<'_, _>, param: i32| {
-        println!("Got {} , from WebAssembly", param);
+      |mut caller: Caller<'_, _>, url_len: i64, url: i32| {
+        println!("WTF? {url_len} {url}");
+        let mem = caller.get_export("memory").and_then(|e| e.into_memory());
+        if let Some(mem) = mem {
+          let mut buffer = vec![0; url_len as usize];
+          mem.read(caller, url as usize, &mut buffer);
+          let string = String::from_utf8(buffer);
+          println!("{:?}", string);
+        }
         // println!("my host state is: {}", caller.data());
       },
     )?;
-    linker.func_wrap(
-      "env",
-      "abort",
-      |caller: Caller<'_, _>, param: i32, _: i32, _: i32, _: i32| {
-        println!("Oops, aborted.");
-      },
-    )?;
 
-    let instance = linker.instantiate(&mut store, &module)?;
-    let hello = instance.get_typed_func::<(), i32>(&mut store, "install")?;
-    hello.call(&mut store, ())?;
+    let mut store: Store<_> = Store::new(&engine, wasi);
+    let instance = linker
+      .instantiate(&mut store, &module)
+      .context("Could not instantiate")?;
+
+    instance.exports(&mut store).for_each(|export| {
+      println!("Export: {}", export.name());
+    });
+
+    let hello = instance
+      .get_typed_func::<(), i32>(&mut store, "install")
+      .context("Could not get typed function")?;
+    hello.call(&mut store, ()).context("Could not call")?;
 
     // let mut sources = Sources::new();
     // sources
