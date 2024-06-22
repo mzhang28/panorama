@@ -138,40 +138,6 @@ impl AppState {
       .context("Could not get typed function")?;
     hello.call(&mut store, ()).context("Could not call")?;
 
-    // let mut sources = Sources::new();
-    // sources
-    //   .insert(Source::new("register.rn", register_script).into_diagnostic()?)
-    //   .into_diagnostic()?;
-
-    // let mut diagnostics = Diagnostics::new();
-    // let register_script_unit = prepare(&mut sources)
-    //   .with_diagnostics(&mut diagnostics)
-    //   .build();
-    // if !diagnostics.is_empty() {
-    //   let mut writer = StandardStream::stderr(ColorChoice::Always);
-    //   diagnostics.emit(&mut writer, &sources).into_diagnostic()?;
-    // }
-    // let register_script_unit =
-    //   Arc::new(register_script_unit.into_diagnostic()?);
-
-    // let module = Module::new();
-    // // let mut ctx = Context::new();
-    // let mut ctx = Context::with_default_modules().into_diagnostic()?;
-    // ctx.install(module).into_diagnostic()?;
-
-    // let rt_ctx = ctx.runtime().into_diagnostic()?;
-    // let ctx_arc = Arc::new(rt_ctx);
-    // let mut vm = Vm::new(ctx_arc, register_script_unit);
-
-    // let main = Hash::type_hash(["main"]);
-    // let result = vm
-    //   .execute(main, ())
-    //   .into_diagnostic()?
-    //   .complete()
-    //   .into_result()
-    //   .into_diagnostic()?;
-    // println!("Executed. {result:?}");
-
     Ok(())
   }
 }
