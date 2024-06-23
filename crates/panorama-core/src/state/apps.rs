@@ -3,13 +3,11 @@ use std::{
   fs::{self, File},
   io::Read,
   path::{Path, PathBuf},
-  sync::Arc,
 };
 
 use anyhow::{Context as _, Result};
-use serde_yaml::Value;
 use wasmtime::{
-  Caller, Config, Engine, Linker, Memory, MemoryType, Module, Store,
+  AsContext, Caller, Config, Engine, Linker, Memory, Module, Store,
 };
 use wasmtime_wasi::WasiCtxBuilder;
 
@@ -115,10 +113,9 @@ impl AppState {
         println!("WTF? {url_len} {url}");
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
-          let mut buffer = vec![0; url_len as usize];
-          mem.read(caller, url as usize, &mut buffer);
-          let string = String::from_utf8(buffer);
-          println!("{:?}", string);
+          let result =
+            read_utf_8string(&mut caller, &mem, url_len as usize, url as usize);
+          println!("{:?}", result);
         }
         // println!("my host state is: {}", caller.data());
       },
@@ -140,4 +137,19 @@ impl AppState {
 
     Ok(())
   }
+}
+
+fn read_utf_8string<C>(
+  c: C,
+  mem: &Memory,
+  len: usize,
+  offset: usize,
+) -> Result<String>
+where
+  C: AsContext,
+{
+  let mut buffer = vec![0; len];
+  mem.read(c, offset, &mut buffer)?;
+  let string = String::from_utf8(buffer)?;
+  Ok(string)
 }
