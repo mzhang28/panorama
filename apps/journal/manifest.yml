@@ -3,4 +3,5 @@ version: 0.1.0
 panorama_version: 0.1.0
 description: Note taking app
 
-installer_path: pkg/journal_bg.wasm
+# installer_path: ../../target/wasm32-unknown-unknown/wasm-release/panorama_journal.wasm
+installer_path: ../../target/wasm32-unknown-unknown/wasm-debug/panorama_journal.wasm

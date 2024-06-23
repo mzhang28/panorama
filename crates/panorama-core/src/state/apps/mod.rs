@@ -1,3 +1,7 @@
+#[macro_use]
+pub mod macros;
+pub mod internal;
+
 use std::{
   collections::HashMap,
   fs::{self, File},
@@ -5,9 +9,11 @@ use std::{
   path::{Path, PathBuf},
 };
 
-use anyhow::{Context as _, Result};
+use anyhow::{anyhow, Context as _, Result};
+use internal::{WasmtimeInstanceEnv, WasmtimeModule};
+use itertools::Itertools;
 use wasmtime::{
-  AsContext, Caller, Config, Engine, Linker, Memory, Module, Store,
+  AsContext, Caller, Config, Engine, Instance, Linker, Memory, Module, Store,
 };
 use wasmtime_wasi::WasiCtxBuilder;
 
@@ -103,28 +109,30 @@ impl AppState {
     let engine = Engine::new(&config)?;
     let module = Module::new(&engine, &installer_program)?;
 
-    let wasi = WasiCtxBuilder::new().inherit_stdio().inherit_args().build();
-
     let mut linker = Linker::new(&engine);
-    linker.func_wrap(
-      "env",
-      "register_endpoint",
-      |mut caller: Caller<'_, _>, url_len: i64, url: i32| {
-        println!("WTF? {url_len} {url}");
-        let mem = caller.get_export("memory").and_then(|e| e.into_memory());
-        if let Some(mem) = mem {
-          let result =
-            read_utf_8string(&mut caller, &mem, url_len as usize, url as usize);
-          println!("{:?}", result);
-        }
-        // println!("my host state is: {}", caller.data());
-      },
-    )?;
+    WasmtimeModule::link_imports(&mut linker)?;
+    let module = linker.instantiate_pre(&module)?;
+    let module = WasmtimeModule { module };
 
-    let mut store: Store<_> = Store::new(&engine, wasi);
-    let instance = linker
-      .instantiate(&mut store, &module)
+    let mut state = WasmtimeInstanceEnv { mem: None };
+    let mut store = Store::new(&engine, state);
+    println!(
+      "Required imports: {:?}",
+      module
+        .module
+        .module()
+        .imports()
+        .map(|s| s.name())
+        .collect_vec()
+    );
+    let instance = module
+      .module
+      .instantiate(&mut store)
       .context("Could not instantiate")?;
+    let mem = instance
+      .get_memory(&mut store, "memory")
+      .ok_or_else(|| anyhow!("Fuck!"))?;
+    store.data_mut().mem = Some(mem);
 
     instance.exports(&mut store).for_each(|export| {
       println!("Export: {}", export.name());

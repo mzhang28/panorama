@@ -1,7 +1,15 @@
-use wasm_bindgen::prelude::wasm_bindgen;
+#![no_std]
 
-#[wasm_bindgen]
+#[macro_use]
+extern crate panorama_app_sdk;
+
+use panorama_app_sdk::prelude::*;
+
+panorama_app_sdk::init!();
+
+#[no_mangle]
 pub fn install() -> i32 {
-  panorama_app_sdk::register_endpoint("/get_todays_date");
+  println!("SHIET");
+  // panorama_app_sdk::register_endpoint("/get_todays_date");
   123
 }
