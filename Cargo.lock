@@ -3492,6 +3492,7 @@ dependencies = [
  "chrono",
  "futures",
  "itertools 0.13.0",
+ "schemars",
  "serde",
  "serde_json",
  "serde_yaml",

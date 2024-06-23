@@ -10,6 +10,5 @@ panorama_app_sdk::init!();
 #[no_mangle]
 pub fn install() -> i32 {
   println!("SHIET");
-  // panorama_app_sdk::register_endpoint("/get_todays_date");
   123
 }

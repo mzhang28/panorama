@@ -5,3 +5,10 @@ description: Note taking app
 
 # installer_path: ../../target/wasm32-unknown-unknown/wasm-release/panorama_journal.wasm
 installer_path: ../../target/wasm32-unknown-unknown/wasm-debug/panorama_journal.wasm
+
+endpoints:
+- url: /date/:date
+  method: GET
+  export_name: get_date_info
+
+triggers:

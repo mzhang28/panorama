@@ -7,7 +7,7 @@ pub mod node;
 pub mod node_raw;
 // pub mod utils;
 
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::{Context, Result};
 use bimap::BiMap;
@@ -21,6 +21,7 @@ use tantivy::{
   schema::{Field, Schema, STORED, STRING, TEXT},
   Index,
 };
+use wasmtime::Module;
 
 use crate::{
   // mail::MailWorker,
@@ -46,6 +47,8 @@ pub struct AppState {
   pub db: SqlitePool,
   pub tantivy_index: Index,
   pub tantivy_field_map: BiMap<String, Field>,
+
+  pub app_wasm_modules: HashMap<String, Module>,
 }
 
 impl AppState {

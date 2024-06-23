@@ -1,6 +1,7 @@
 #[macro_use]
 pub mod macros;
 pub mod internal;
+pub mod manifest;
 
 use std::{
   collections::HashMap,
@@ -12,12 +13,11 @@ use std::{
 use anyhow::{anyhow, Context as _, Result};
 use internal::{WasmtimeInstanceEnv, WasmtimeModule};
 use itertools::Itertools;
-use wasmtime::{
-  AsContext, Caller, Config, Engine, Instance, Linker, Memory, Module, Store,
-};
-use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime::{AsContext, Config, Engine, Linker, Memory, Module, Store};
 
 use crate::AppState;
+
+use self::manifest::AppManifest;
 
 pub type AllAppData = HashMap<String, AppData>;
 
@@ -63,15 +63,6 @@ impl AppState {
 
     Ok(all_app_data)
   }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AppManifest {
-  name: String,
-  version: Option<String>,
-  panorama_version: Option<String>,
-  description: Option<String>,
-  installer_path: PathBuf,
 }
 
 #[derive(Debug)]

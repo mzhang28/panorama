@@ -25,6 +25,7 @@ async fn main() {
     Some(Command::Daemon) => {
       panorama_daemon::run().await;
     }
+
     None => {
       if !opt.no_embedded_daemon {
         tokio::spawn(panorama_daemon::run());

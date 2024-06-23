@@ -17,6 +17,7 @@ macro_rules! init {
     static ALLOC: panorama_app_sdk::wee_alloc::WeeAlloc =
       panorama_app_sdk::wee_alloc::WeeAlloc::INIT;
 
+    #[cfg(no_std)]
     #[panic_handler]
     fn panic(_info: &core::panic::PanicInfo) -> ! {
       loop {}
