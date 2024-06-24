@@ -35,13 +35,9 @@ To develop a custom app, you will need to provide:
     - none: the app isn't allowed to write to the specified field
 
 -
-  A list of relations your app will use.
+  List of endpoints and triggers, along with their handlers.
 
-  For example, the journal app will use `journal` for keeping track of regular pages, but may use another relation `journal_day` for keeping track of mapping days to journals. (**TODO:** not a good example, these could be combined)
-
-  The indexes for the relations should also be listed.
--
-  A list of services your app will run in the background.
+  The handlers take the form `
 
 ## App ownership of nodes
 
@@ -65,6 +61,4 @@ Apps automatically own nodes they create.
 
 ### Mail
 
-### Calendar
-
-### Contacts
+### Codetrack

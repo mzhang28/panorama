@@ -1,4 +1,4 @@
-name: "@panorama/journal"
+name: panorama/journal
 version: 0.1.0
 panorama_version: 0.1.0
 description: Note taking app
@@ -22,6 +22,4 @@ endpoints:
     method: GET
     export_name: get_date_info
     permissions:
-      - "@panorama/current_time"
-
-triggers:
+      - @panorama/current_time

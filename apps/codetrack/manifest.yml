@@ -1,0 +1,28 @@
+name: panorama/codetrack
+version: 0.1.0
+panorama_version: 0.1.0
+description: Code tracking app similar to WakaTime
+
+node_types:
+  - name: heartbeat
+
+keys:
+  - name: start_time
+    type: date
+
+  - name: end_time
+    type: date
+
+  - name: project
+    type: text
+
+indexes:
+  - type: rtree
+    start: panorama/codetrack/start_time
+    end: panorama/codetrack/start_time
+
+endpoints:
+
+profiles:
+  release:
+    module: ./main.wasm
