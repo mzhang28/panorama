@@ -2,6 +2,7 @@
 name = "panorama-journal"
 version = "0.1.0"
 edition = "2021"
+default-target = "wasm32-unknown-unknown"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
