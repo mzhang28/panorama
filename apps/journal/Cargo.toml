@@ -7,4 +7,5 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+chrono = "0.4.38"
 panorama-app-sdk = { path = "../../crates/panorama-app-sdk" }

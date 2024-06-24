@@ -1,5 +1,7 @@
 #![no_std]
 
+use chrono::{DateTime, Utc};
+
 pub extern crate wee_alloc;
 
 #[macro_use]
@@ -13,6 +15,10 @@ pub mod macros;
 pub mod internal;
 pub mod sys;
 
-pub mod prelude {
-  // pub use crate::macros::println;
+pub mod prelude {}
+
+/// Returns the current time
+pub fn get_current_time() -> DateTime<Utc> {
+  let result = unsafe { sys::_get_current_time() };
+  DateTime::from_timestamp_nanos(result)
 }

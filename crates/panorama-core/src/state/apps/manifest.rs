@@ -4,21 +4,21 @@ use schemars::JsonSchema;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct AppManifest {
-  name: String,
-  version: Option<String>,
-  panorama_version: Option<String>,
-  description: Option<String>,
-  installer_path: PathBuf,
+  pub name: String,
+  pub version: Option<String>,
+  pub panorama_version: Option<String>,
+  pub description: Option<String>,
+  pub installer_path: PathBuf,
 
-  endpoints: Vec<AppManifestEndpoint>,
-  triggers: Vec<AppManifestTriggers>,
+  pub endpoints: Vec<AppManifestEndpoint>,
+  pub triggers: Vec<AppManifestTriggers>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct AppManifestEndpoint {
-  url: String,
-  method: String,
-  export_name: String,
+  pub url: String,
+  pub method: String,
+  pub export_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

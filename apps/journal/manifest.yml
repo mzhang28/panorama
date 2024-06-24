@@ -1,4 +1,4 @@
-name: journal
+name: "@panorama/journal"
 version: 0.1.0
 panorama_version: 0.1.0
 description: Note taking app
@@ -6,9 +6,22 @@ description: Note taking app
 # installer_path: ../../target/wasm32-unknown-unknown/wasm-release/panorama_journal.wasm
 installer_path: ../../target/wasm32-unknown-unknown/wasm-debug/panorama_journal.wasm
 
+node_types:
+  - name: page
+  - name: block
+
+keys:
+  - name: page/content
+    type: text
+
+  - name: page/day
+    type: date
+
 endpoints:
-- url: /date/:date
-  method: GET
-  export_name: get_date_info
+  - url: /date/:date
+    method: GET
+    export_name: get_date_info
+    permissions:
+      - "@panorama/current_time"
 
 triggers:

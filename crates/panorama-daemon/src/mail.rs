@@ -1,5 +1,3 @@
-
-
 // pub async fn get_mail_config(
 //   State(state): State<AppState>,
 // ) -> AppResult<Json<Value>> {

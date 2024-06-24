@@ -49,6 +49,14 @@ pub struct AppState {
   pub tantivy_field_map: BiMap<String, Field>,
 
   pub app_wasm_modules: HashMap<String, Module>,
+  // TODO: Compile this into a more efficient thing than just iter
+  pub app_routes: HashMap<String, Vec<AppRoute>>,
+}
+
+#[derive(Clone)]
+pub struct AppRoute {
+  route: String,
+  handler_name: String,
 }
 
 impl AppState {
@@ -82,6 +90,8 @@ impl AppState {
       db,
       tantivy_index,
       tantivy_field_map,
+      app_wasm_modules: Default::default(),
+      app_routes: Default::default(),
     };
     state.init().await?;
 
@@ -105,4 +115,6 @@ impl AppState {
 
     Ok(())
   }
+
+  pub fn handle_app_route() {}
 }

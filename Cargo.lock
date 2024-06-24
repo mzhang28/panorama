@@ -3478,8 +3478,14 @@ dependencies = [
 name = "panorama-app-sdk"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "panorama-app-sdk-macros",
  "wee_alloc",
 ]
+
+[[package]]
+name = "panorama-app-sdk-macros"
+version = "0.1.0"
 
 [[package]]
 name = "panorama-core"
@@ -3514,11 +3520,13 @@ dependencies = [
  "async-imap",
  "axum",
  "chrono",
+ "clap",
  "csv",
  "dirs 5.0.1",
  "futures",
  "itertools 0.13.0",
  "panorama-core",
+ "schemars",
  "serde",
  "serde_json",
  "sugars",
@@ -3536,6 +3544,7 @@ dependencies = [
 name = "panorama-journal"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "panorama-app-sdk",
 ]
 

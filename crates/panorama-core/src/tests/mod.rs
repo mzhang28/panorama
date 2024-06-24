@@ -18,6 +18,8 @@ pub async fn test_state() -> Result<AppState> {
     db,
     tantivy_index,
     tantivy_field_map,
+    app_routes: Default::default(),
+    app_wasm_modules: Default::default(),
   };
 
   Ok(state)

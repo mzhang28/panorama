@@ -1,10 +1,7 @@
+use axum::Router;
+use utoipa::OpenApi;
 
-use axum::{
-  Router,
-};
-use utoipa::{OpenApi};
-
-use crate::{AppState};
+use crate::AppState;
 
 /// Node API
 #[derive(OpenApi)]

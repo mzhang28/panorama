@@ -11,4 +11,7 @@ extern "C" {
     // callback: *mut RegisterCallback,
     callback_data: *mut c_void,
   );
+
+  /// Returns the current time in nanoseconds
+  pub fn _get_current_time() -> i64;
 }

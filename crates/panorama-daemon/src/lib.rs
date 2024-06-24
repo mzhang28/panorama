@@ -7,6 +7,7 @@ extern crate serde_json;
 #[macro_use]
 extern crate sugars;
 
+pub mod apps;
 mod error;
 mod journal;
 pub mod mail;

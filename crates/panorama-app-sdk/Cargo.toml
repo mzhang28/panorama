@@ -8,3 +8,5 @@ crate-type = ["rlib"]
 
 [dependencies]
 wee_alloc = "0.4.5"
+panorama-app-sdk-macros = { path = "../panorama-app-sdk-macros" }
+chrono = "0.4.38"

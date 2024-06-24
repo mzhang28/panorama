@@ -3,12 +3,7 @@
 #[macro_use]
 extern crate panorama_app_sdk;
 
-use panorama_app_sdk::prelude::*;
-
-panorama_app_sdk::init!();
-
 #[no_mangle]
-pub fn install() -> i32 {
-  println!("SHIET");
-  123
+pub fn get_date_info() {
+  panorama_app_sdk::get_current_time();
 }

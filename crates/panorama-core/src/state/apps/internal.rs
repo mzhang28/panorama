@@ -1,6 +1,7 @@
 use std::io::{stdout, Write};
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use wasmtime::{Caller, InstancePre, Linker, Memory};
 
 pub struct WasmtimeModule {
@@ -39,6 +40,11 @@ impl WasmtimeInstanceEnv {
     mem.read(caller, ptr as usize, &mut buffer);
     let s = String::from_utf8(buffer).unwrap();
     println!("Called print: {}", s);
+  }
+
+  pub fn get_current_time(_: Caller<'_, Self>) -> i64 {
+    let now = Utc::now();
+    now.timestamp_nanos_opt().unwrap()
   }
 
   pub fn register_endpoint(mut caller: Caller<'_, Self>) {}

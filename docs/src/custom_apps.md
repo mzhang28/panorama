@@ -16,7 +16,7 @@ After this rolls out, most of the built-in panorama apps will also be converted 
 To develop a custom app, you will need to provide:
 
 -
-  App metadata. This contains:
+  App metadata in a `manifest.yml`. This contains:
 
   - App display name.
   - Version + License.
