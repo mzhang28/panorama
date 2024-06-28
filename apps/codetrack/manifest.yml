@@ -3,6 +3,8 @@ version: 0.1.0
 panorama_version: 0.1.0
 description: Code tracking app similar to WakaTime
 
+module: ./main.wasm
+
 node_types:
   - name: heartbeat
 

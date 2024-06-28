@@ -75,18 +75,23 @@ impl AppState {
     let app_path = path.as_ref();
     let manifest_path = app_path.join("manifest.yml");
     let manifest: AppManifest = {
-      let file = File::open(manifest_path)?;
-      serde_yaml::from_reader(file)?
+      let file = File::open(&manifest_path)?;
+      serde_yaml::from_reader(file).with_context(|| {
+        format!(
+          "Could not parse config file from {}",
+          manifest_path.display()
+        )
+      })?
     };
     println!("Manifest: {:?}", manifest);
 
-    let installer_path = app_path.join(manifest.installer_path);
+    let module_path = app_path.join(manifest.module);
 
     let installer_program = {
-      let mut file = File::open(&installer_path).with_context(|| {
+      let mut file = File::open(&module_path).with_context(|| {
         format!(
           "Could not open installer from path: {}",
-          installer_path.display()
+          module_path.display()
         )
       })?;
       let mut buf = Vec::new();

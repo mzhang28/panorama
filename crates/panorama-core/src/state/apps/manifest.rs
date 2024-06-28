@@ -8,9 +8,11 @@ pub struct AppManifest {
   pub version: Option<String>,
   pub panorama_version: Option<String>,
   pub description: Option<String>,
-  pub installer_path: PathBuf,
+  pub module: PathBuf,
 
+  #[serde(default)]
   pub endpoints: Vec<AppManifestEndpoint>,
+  #[serde(default)]
   pub triggers: Vec<AppManifestTriggers>,
 }
 

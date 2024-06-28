@@ -5,3 +5,4 @@ target
 **/export/export.json
 test.db*
 .env
+.direnv
