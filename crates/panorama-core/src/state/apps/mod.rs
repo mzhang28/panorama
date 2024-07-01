@@ -2,6 +2,7 @@
 pub mod macros;
 pub mod internal;
 pub mod manifest;
+pub mod memory;
 
 use std::{
   collections::HashMap,

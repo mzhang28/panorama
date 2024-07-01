@@ -1,0 +1,10 @@
+[package]
+name = "panorama-codetrack"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "panorama-codetrack"
+path = "rust-src/main.rs"
+
+[dependencies]

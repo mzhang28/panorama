@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use panorama_core::state::apps::manifest::AppManifest;
+use panorama_core::state::appsv0::manifest::AppManifest;
 use schemars::schema_for;
 
 #[derive(Debug, Parser)]

@@ -1,8 +1,9 @@
-pub mod apps;
+// pub mod apps;
 // pub mod codetrack;
 // pub mod export;
 // pub mod journal;
 // pub mod mail;
+pub mod appsv0;
 pub mod node;
 pub mod node_raw;
 // pub mod utils;
@@ -108,10 +109,6 @@ impl AppState {
       .run(&self.db)
       .await
       .context("Could not migrate database")?;
-
-    // let state = self.clone();
-    // let mail_worker = MailWorker::new(state);
-    // tokio::spawn(mail_worker.mail_loop());
 
     Ok(())
   }

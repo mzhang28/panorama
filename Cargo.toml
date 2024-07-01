@@ -1,5 +1,5 @@
 workspace.resolver = "2"
-workspace.members = ["apps/journal", "crates/*", "ui/src-tauri"]
+workspace.members = ["apps/*", "crates/*", "ui/src-tauri"]
 
 [profile.wasm-debug]
 inherits = "dev"
