@@ -1,3 +1,5 @@
 pub struct PanoramaDatabase();
 
-impl PanoramaDatabase {}
+impl PanoramaDatabase {
+  async fn ensure_mail_account() {}
+}

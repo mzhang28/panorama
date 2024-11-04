@@ -1,4 +1,13 @@
 syntax = "proto3";
 package panorama;
 
-service Panorama {}
+service Panorama {
+  // Mail service
+  rpc EnsureMailAccount(EnsureMailAccountRequest) returns (EnsureMailAccountReply);
+}
+
+message EnsureMailAccountRequest {
+  string id = 1;
+}
+
+message EnsureMailAccountReply {}
