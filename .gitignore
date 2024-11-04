@@ -1,9 +1,10 @@
-node_modules
-dist
-target
 .DS_Store
-**/export/export.json
-test.db*
+node_modules
+/build
+/.svelte-kit
+/package
 .env
-.direnv
-/proto/generated
+.env.*
+!.env.example
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
