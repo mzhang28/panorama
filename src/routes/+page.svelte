@@ -1,6 +1,8 @@
 <script>
+  import {} from "@tanstack/svelte-query";
   import "../global.scss";
   import Sidebar from "../components/composite/sidebar/Sidebar.svelte";
+  import MailAccounts from "../components/pages/MailAccounts.svelte";
 </script>
 
 <div class="container">
@@ -15,7 +17,9 @@
       <input type="text" placeholder="Search..." />
     </div>
 
-    <main class="container">main shit</main>
+    <main class="container">
+      <MailAccounts />
+    </main>
   </div>
 </div>
 

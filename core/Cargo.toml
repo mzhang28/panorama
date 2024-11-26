@@ -4,17 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-entity = { path = "entity" }
-migration = { path = "migration" }
-
+anyhow = "1.0.93"
 prost = "0.13.3"
+sqlx = { version = "0.8.2", features = ["runtime-tokio", "sqlite"] }
 tonic = "0.12.3"
-
-sea-orm = { version = "1.1.1", features = [
-  "sqlx-sqlite",
-  "runtime-tokio-rustls",
-  "macros",
-] }
 
 [build-dependencies]
 tonic-build = "0.12.3"

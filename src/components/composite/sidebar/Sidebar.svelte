@@ -1,7 +1,4 @@
 <script lang="ts">
-  import Fa from "svelte-fa";
-  import { faHome } from "@fortawesome/free-solid-svg-icons";
-  import Icon from "@iconify/svelte";
 </script>
 
 <div class="sidebar">

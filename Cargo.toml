@@ -1,2 +1,2 @@
 workspace.resolver = "2"
-workspace.members = ["src-tauri", "core", "core/migration", "core/entity"]
+workspace.members = ["src-tauri", "core"]
