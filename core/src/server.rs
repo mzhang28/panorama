@@ -1,4 +1,5 @@
 use tonic::{Request, Response, Result};
+use sea_orm::DatabaseConnection;
 
 use crate::dal::PanoramaDatabase;
 use crate::server_proto::panorama_server::Panorama as PanoramaServerProto;
@@ -8,7 +9,13 @@ pub struct Panorama {
   db: PanoramaDatabase,
 }
 
-impl Panorama {}
+impl Panorama {
+  pub async fn new(connection: DatabaseConnection) -> Self {
+    Self {
+      db: PanoramaDatabase::new(connection).await
+    }
+  }
+}
 
 #[tonic::async_trait]
 impl PanoramaServerProto for Panorama {
