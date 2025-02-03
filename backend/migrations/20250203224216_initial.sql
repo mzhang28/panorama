@@ -1,0 +1,3 @@
+CREATE TABLE "node" (
+  "id" PRIMARY KEY DEFAULT (UUIDV7_NOW())
+);
