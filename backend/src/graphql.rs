@@ -1,13 +1,14 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::Extension;
+use chrono::{DateTime, Utc};
 use futures::{stream::BoxStream, StreamExt};
 use juniper::{
   graphql_object, graphql_subscription, EmptyMutation, FieldError, FieldResult, GraphQLObject,
   RootNode,
 };
 use juniper_axum::{extract::JuniperRequest, response::JuniperResponse};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -26,18 +27,25 @@ pub struct Query;
 #[derive(GraphQLObject)]
 struct NodeBase {
   id: String,
+  created_at: DateTime<Utc>,
+  last_updated_at: DateTime<Utc>,
 }
 
 #[graphql_object]
 #[graphql(context = Context)]
 impl Query {
-  /// Adds two `a` and `b` numbers.
-  fn add(a: i32, b: i32) -> i32 {
-    a + b
-  }
-
-  fn node(id: String, context: &Context) -> FieldResult<NodeBase> {
-    Ok(NodeBase { id })
+  async fn node(id: String, #[graphql(ctx)] context: &Context) -> FieldResult<NodeBase> {
+    let data = sqlx::query(r#"select id, created_at, last_updated_at from node where id = ?"#)
+      .bind(&id)
+      .fetch_one(&context.db)
+      .await?;
+    let created_at = data.get(1);
+    let last_updated_at = data.get(2);
+    Ok(NodeBase {
+      id,
+      created_at,
+      last_updated_at,
+    })
   }
 }
 

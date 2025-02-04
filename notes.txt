@@ -1,0 +1,12 @@
+need a good data structure that has these functions:
+
+- insert(self) -> int
+- assign(self, rowid: int, key: string, value: arbitrary) -> ()
+- query(self, keys: set<string>) -> row[]
+
+s.t. forall self, id, key, value:
+
+  self.assign(id, key, value)
+  assert self.query({ key }) contains id
+
+a lattice?

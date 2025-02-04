@@ -1,0 +1,34 @@
+body,
+html,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgb(230, 244, 250);
+  padding: .25rem;
+
+  input.searchBar {
+    border: none;
+    min-width: 500px;
+    padding: .5rem;
+  }
+}
+
+.main {
+  flex-grow: 1;
+  display: flex;
+}

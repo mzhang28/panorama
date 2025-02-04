@@ -7,11 +7,12 @@ edition = "2021"
 anyhow = "1.0.95"
 axum = { version = "0.8.1", features = ["json", "http2", "macros", "ws"] }
 futures = "0.3.31"
-juniper = { version = "0.16.1", features = ["anyhow", "backtrace", "chrono"] }
+juniper = { version = "0.16.1", features = ["anyhow", "backtrace", "chrono", "chrono-tz"] }
 juniper_axum = { version = "0.2.0", features = ["subscriptions"] }
 juniper_graphql_ws = "0.4.0"
 rusqlite = { version = "0.32", features = ["functions"] }
-sqlx = { version = "0.8.3", features = ["runtime-tokio", "tls-rustls", "sqlite"] }
+sqlx = { version = "0.8.3", features = ["runtime-tokio", "tls-rustls", "sqlite", "chrono"] }
 tokio = { version = "1.43.0", features = ["full"] }
 tokio-stream = "0.1.17"
 uuid = { version = "1.12.1", features = ["v7"] }
+chrono = "0.4.30"

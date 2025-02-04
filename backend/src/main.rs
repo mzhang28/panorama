@@ -5,15 +5,17 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
-  routing::{get, on, MethodFilter},
+  extract::State,
+  routing::{get, on, post, MethodFilter},
   Extension, Router,
 };
+use chrono::Utc;
 use juniper::EmptyMutation;
 use juniper_graphql_ws::ConnectionConfig;
 use rusqlite::functions::FunctionFlags;
 use sqlx::{
-  error::DatabaseError,
-  sqlite::{SqliteConnectOptions, SqliteError, SqlitePoolOptions},
+  sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+  Row,
 };
 use uuid::Uuid;
 
@@ -32,6 +34,14 @@ async fn main() -> Result<()> {
           unsafe { rusqlite::Connection::from_handle_owned(raw_handle.as_mut()) }
             // ok holy shit sqlx::SqliteError can't be constructed so i need to figure out how to handle this error
             .unwrap();
+
+        rusqlite_handle
+          .create_scalar_function("NOW_ISO8601", 0, FunctionFlags::SQLITE_UTF8, |ctx| {
+            let now = Utc::now();
+            Ok(now.to_rfc3339())
+          })
+          // same as above
+          .unwrap();
 
         rusqlite_handle
           .create_scalar_function("UUIDV7_NOW", 0, FunctionFlags::SQLITE_UTF8, |ctx| {
@@ -68,7 +78,7 @@ async fn main() -> Result<()> {
     .route(
       "/subscriptions",
       get(juniper_axum::ws::<Arc<Schema>>(ConnectionConfig::new(
-        context,
+        context.clone(),
       ))),
     )
     .route(
@@ -76,11 +86,21 @@ async fn main() -> Result<()> {
       get(juniper_axum::graphiql("/api/graphql", "/api/subscriptions")),
     )
     .layer(Extension(Arc::new(schema)))
-    .route("/", get(|| async { "Hello, World!" }));
+    .layer(Extension(context.clone()))
+    .route("/", get(|| async { "Hello, World!" }))
+    .route("/asdf", post(asdf))
+    .with_state(context.clone());
 
-  // run our app with hyper, listening globally on port 3000
   let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
   axum::serve(listener, app).await.unwrap();
 
   Ok(())
+}
+
+async fn asdf(State(ctx): State<Context>) -> String {
+  let result = sqlx::query("INSERT INTO node DEFAULT VALUES RETURNING id")
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+  result.get(0)
 }
