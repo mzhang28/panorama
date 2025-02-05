@@ -10,3 +10,8 @@ s.t. forall self, id, key, value:
   assert self.query({ key }) contains id
 
 a lattice?
+
+
+Next Rewrite Tasks
+
+- Replace the db?
