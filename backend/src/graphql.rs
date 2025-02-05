@@ -34,6 +34,21 @@ struct NodeBase {
 #[graphql_object]
 #[graphql(context = Context)]
 impl Query {
+  async fn nodes(#[graphql(ctx)] context: &Context) -> FieldResult<Vec<NodeBase>> {
+    Ok(
+      sqlx::query(r#"select id, created_at, last_updated_at from node"#)
+        .fetch_all(&context.db)
+        .await?
+        .into_iter()
+        .map(|row| NodeBase {
+          id: row.get(0),
+          created_at: row.get(1),
+          last_updated_at: row.get(2),
+        })
+        .collect(),
+    )
+  }
+
   async fn node(id: String, #[graphql(ctx)] context: &Context) -> FieldResult<NodeBase> {
     let data = sqlx::query(r#"select id, created_at, last_updated_at from node where id = ?"#)
       .bind(&id)
