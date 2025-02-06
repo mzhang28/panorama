@@ -4,12 +4,16 @@ CREATE TABLE "node" (
   "last_updated_at" TEXT NOT NULL DEFAULT (NOW_ISO8601()),
 
   -- System stuff
+  "panorama_seed_id" TEXT,
   "panorama_config_key" TEXT,
   "panorama_config_value" TEXT,
 
   -- General stuff
   "title" TEXT,
   "label" TEXT,
+
+  -- Automate stuff
+  "automate_trigger_json" TEXT,
 
   -- Calendar
   "cal_date" TEXT,
@@ -43,6 +47,7 @@ CREATE TABLE "node" (
   "json" TEXT
 );
 
+CREATE INDEX idx_node_panorama_seed_id ON node(panorama_seed_id);
 CREATE INDEX idx_node_panorama_config_key ON node(panorama_config_key);
 
 CREATE INDEX idx_node_cal_date ON node(cal_date);

@@ -1,37 +1,54 @@
 #[macro_use]
 extern crate serde;
+#[macro_use]
+extern crate tracing;
 
 mod apps;
 mod db;
 mod graphql;
+pub mod seed_data;
+pub mod services;
 
 use std::{env, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use apps::{cal, wakatime};
 use axum::{
-  extract::{MatchedPath, Request, State},
-  routing::{get, on, post, MethodFilter},
+  extract::{MatchedPath, Request},
+  routing::{any, get, on, post, MethodFilter},
   Extension, Router,
 };
 use chrono::Utc;
 use juniper::EmptyMutation;
 use juniper_graphql_ws::ConnectionConfig;
 use rusqlite::functions::FunctionFlags;
+use seed_data::ensure_seed_data;
+use services::run_services;
 use sqlx::{
   migrate,
   sqlite::{SqliteConnectOptions, SqlitePoolOptions},
   Row,
 };
+use tokio::{spawn, sync::mpsc};
 use tower_http::trace::TraceLayer;
 use tracing::{info_span, Span};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt::time::uptime, layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 use crate::graphql::{Context, Query, Schema, Subscription};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+  let format = tracing_subscriber::fmt::format()
+    .with_level(true) // don't include levels in formatted output
+    .with_target(false) // don't include targets
+    .with_thread_ids(false) // include the thread ID of the current thread
+    .with_thread_names(false) // include the name of the current thread
+    .with_ansi(true)
+    .with_timer(uptime())
+    .with_source_location(true)
+    .pretty(); // use the `Compact` formatting style.
+
   tracing_subscriber::registry()
     .with(
       tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -44,10 +61,11 @@ async fn main() -> Result<()> {
         .into()
       }),
     )
-    .with(tracing_subscriber::fmt::layer())
+    .with(tracing_subscriber::fmt::layer().event_format(format))
     .init();
 
   let db_path = PathBuf::from(env::var("DATABASE_PATH").unwrap_or_else(|_| "test.db".to_owned()));
+
   let db = SqlitePoolOptions::new()
     .after_connect(|conn, _| {
       Box::pin(async move {
@@ -92,8 +110,18 @@ async fn main() -> Result<()> {
 
   migrate!().run(&db).await?;
 
+  ensure_seed_data(&db).await?;
+
   let context = Context { db: db.clone() };
   let schema = Schema::new(Query, EmptyMutation::new(), Subscription);
+
+  let (workflow_router_tx, workflow_router_rx) = mpsc::unbounded_channel();
+  let workflow_router = move |req: Request| async move {
+    workflow_router_tx.send(req);
+  };
+
+  // Spawn services
+  let services_handle = spawn(run_services(context.clone()));
 
   let app = Router::new()
     .route(
@@ -114,6 +142,7 @@ async fn main() -> Result<()> {
       get(juniper_axum::graphiql("/api/graphql", "/api/subscriptions")),
     )
     .route("/", get(|| async { "Hello, World!" }))
+    .route("/workflows", any(workflow_router))
     .route("/apps/cal/ics_upload", post(cal::ics_upload))
     .route(
       "/apps/wakatime/api/v1/users/current/statusbar/today",
