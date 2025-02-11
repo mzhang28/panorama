@@ -47,3 +47,8 @@ pub enum TriggerType {
 pub struct CronTrigger {
   expression: String,
 }
+pub enum AutomateRequest {}
+
+pub enum AutomateResponse {}
+
+pub async fn automate() {}

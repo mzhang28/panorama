@@ -15,6 +15,11 @@ CREATE TABLE "node" (
   -- Automate stuff
   "automate_trigger_json" TEXT,
 
+  -- Data viz stuff
+  "dataviz_graph_type" TEXT,
+  "dataviz_query" TEXT,
+  "dataviz_options_json" TEXT,
+
   -- Calendar
   "cal_date" TEXT,
   "cal_date_with_time" BOOLEAN,
@@ -57,3 +62,10 @@ CREATE INDEX idx_node_cal_date_end_with_time ON node(cal_date_end_with_time);
 
 CREATE INDEX idx_node_wakatime_language ON node(wakatime_language);
 CREATE INDEX idx_node_wakatime_project ON node(wakatime_project);
+
+CREATE TABLE "tags" (
+  "node_id" TEXT,
+  "tag" TEXT,
+
+  PRIMARY KEY (node_id, tag)
+);

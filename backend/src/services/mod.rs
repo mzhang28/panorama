@@ -1,12 +1,15 @@
 pub mod automate;
 
 use anyhow::Result;
-use automate::run_automate_service;
 
 use crate::graphql::Context;
 
-pub async fn run_services(ctx: Context) -> Result<()> {
-  run_automate_service(ctx).await?;
+pub async fn spawn_services(ctx: Context) -> Result<()> {
+  Ok(())
+}
+
+pub async fn spawn_repeatable_service() -> Result<()> {
+  loop {}
 
   Ok(())
 }

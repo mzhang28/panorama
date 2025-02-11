@@ -23,7 +23,7 @@ use juniper::EmptyMutation;
 use juniper_graphql_ws::ConnectionConfig;
 use rusqlite::functions::FunctionFlags;
 use seed_data::ensure_seed_data;
-use services::run_services;
+use services::spawn_services;
 use sqlx::{
   migrate,
   sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
   };
 
   // Spawn services
-  let services_handle = spawn(run_services(context.clone()));
+  let services_handle = spawn(spawn_services(context.clone()));
 
   let app = Router::new()
     .route(
