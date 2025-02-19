@@ -2,6 +2,7 @@
 name = "backend"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-only"
 
 [dependencies]
 anyhow = "1.0.95"
@@ -37,4 +38,8 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tower-http = { version = "0.6.2", features = ["trace"] }
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.138"
-icalendar = { version = "0.16.12", features = ["serde", "serde_json", "chrono-tz"] }
+icalendar = { version = "0.16.12", features = [
+  "serde",
+  "serde_json",
+  "chrono-tz",
+] }
