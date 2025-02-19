@@ -1,3 +1,9 @@
+@import "tailwindcss";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 body,
 html,
 #root {
@@ -20,12 +26,12 @@ html,
   justify-content: center;
   background-color: rgb(230, 244, 250);
   padding: 0.25rem;
+}
 
-  input.searchBar {
-    border: none;
-    min-width: 500px;
-    padding: 0.5rem;
-  }
+.header input.searchBar {
+  border: none;
+  min-width: 500px;
+  padding: 0.5rem;
 }
 
 .main {
@@ -35,4 +41,7 @@ html,
 
 .fc {
   width: 100%;
+}
+
+@theme {
 }

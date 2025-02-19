@@ -1,31 +1,25 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import Calendar from "./Calendar";
-import "./global.scss";
+import Calendar from "./apps/Calendar";
+import "./global.css";
 import "bootstrap/dist/css/bootstrap.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
+import TabContainer from "./components/TabContainer";
+import type { PropsWithChildren } from "react";
 
 const queryClient = new QueryClient();
 
 export default function App() {
   return (
-    <>
-      <QueryClientProvider client={queryClient}>
-        <div className="container">
-          <div className="header">
-            <div>
-              <input
-                type="text"
-                className="searchBar"
-                placeholder="Search panorama..."
-              />
-            </div>
-          </div>
+    <Wrappers>
+      <TabContainer />
+    </Wrappers>
+  );
+}
 
-          <div className="main">
-            <Calendar />
-          </div>
-        </div>
-      </QueryClientProvider>
-    </>
+function Wrappers({ children }: PropsWithChildren<{}>) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children ?? null}
+    </QueryClientProvider>
   );
 }
