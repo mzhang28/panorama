@@ -1,15 +1,18 @@
 # panorama
 
-To install dependencies:
+Current goals:
 
-```bash
-bun install
-```
+- Apps
+  - Calendar
+  - File storage
+  - ActivityWatch / wakatime tracking
+  - Automation
+  - Data visualization
+  - Some other apps probably
+- Search interface
+- Server/client architecture
 
-To run:
+Future goals:
 
-```bash
-bun run frontend/index.tsx
-```
-
-This project was created using `bun init` in bun v1.1.26. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
+- Fully offline local first
+- Multi-device syncing
