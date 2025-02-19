@@ -91,23 +91,6 @@ async fn main() -> Result<()> {
   let services_handle = spawn(spawn_services(context.clone()));
 
   let app = Router::new()
-    .route(
-      "/graphql",
-      on(
-        MethodFilter::GET.or(MethodFilter::POST),
-        crate::graphql::handler,
-      ),
-    )
-    .route(
-      "/subscriptions",
-      get(juniper_axum::ws::<Arc<Schema>>(ConnectionConfig::new(
-        context.clone(),
-      ))),
-    )
-    .route(
-      "/graphiql",
-      get(juniper_axum::graphiql("/api/graphql", "/api/subscriptions")),
-    )
     .route("/", get(|| async { "Hello, World!" }))
     .route("/workflows", any(workflow_router))
     .route("/apps/cal/ics_upload", post(cal::ics_upload))

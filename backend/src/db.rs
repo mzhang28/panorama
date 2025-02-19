@@ -1,6 +1,7 @@
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use rusqlite::functions::FunctionFlags;
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 use uuid::Uuid;
 
 pub fn init_db_options() -> SqlitePoolOptions {
@@ -57,4 +58,13 @@ pub fn init_db_options() -> SqlitePoolOptions {
       Ok(())
     })
   })
+}
+
+pub async fn get_config(pool: &SqlitePool, key: impl AsRef<str>) -> Result<String> {
+  let row = sqlx::query("select panorama_config_value from node where panorama_config_key = ?")
+    .bind(key.as_ref())
+    .fetch_one(pool)
+    .await?;
+
+  Ok(row.get(0))
 }

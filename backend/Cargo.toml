@@ -43,3 +43,6 @@ icalendar = { version = "0.16.12", features = [
   "serde_json",
   "chrono-tz",
 ] }
+cmd_lib = "1.9.5"
+reqwest = { version = "0.12.12", features = ["stream"] }
+tokio-util = { version = "0.7.13", features = ["full", "io", "io-util"] }

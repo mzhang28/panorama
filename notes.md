@@ -7,6 +7,11 @@
 - Storage
   - Figure out how to hook up to garage
   - For other users: Figure out how to hook up to actual S3
+- Data viz
+  - Get this with wakapi data
+- Automation
+  - Create new webhooks
+  - Run bun code as a result of a webhook
 
 # Next Rewrite Tasks
 
@@ -17,6 +22,8 @@
 ## 2025-02-19
 
 - [x] support start/end query
+- Wakapi actually lets u export the data as CSV, use this to build and test the dataviz software
+  - https://github.com/muety/wakapi/blob/master/README.md#-data-export
 
 ## older
 
