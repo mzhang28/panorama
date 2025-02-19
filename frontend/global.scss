@@ -19,16 +19,20 @@ html,
   align-items: center;
   justify-content: center;
   background-color: rgb(230, 244, 250);
-  padding: .25rem;
+  padding: 0.25rem;
 
   input.searchBar {
     border: none;
     min-width: 500px;
-    padding: .5rem;
+    padding: 0.5rem;
   }
 }
 
 .main {
   flex-grow: 1;
   display: flex;
+}
+
+.fc {
+  width: 100%;
 }

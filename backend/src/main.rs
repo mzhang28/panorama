@@ -144,6 +144,7 @@ async fn main() -> Result<()> {
     .route("/", get(|| async { "Hello, World!" }))
     .route("/workflows", any(workflow_router))
     .route("/apps/cal/ics_upload", post(cal::ics_upload))
+    .route("/apps/cal/events", get(cal::query_events))
     .route(
       "/apps/wakatime/api/v1/users/current/statusbar/today",
       get(wakatime::statusbar),

@@ -22,9 +22,10 @@ CREATE TABLE "node" (
 
   -- Calendar
   "cal_date" TEXT,
-  "cal_date_with_time" BOOLEAN,
+  "cal_date_opt" BOOLEAN,
   "cal_date_end" TEXT,
-  "cal_date_end_with_time" BOOLEAN,
+  "cal_date_end_opt" BOOLEAN,
+  "cal_location" TEXT,
 
   -- Contacts
   "contact_name" TEXT,
@@ -56,9 +57,7 @@ CREATE INDEX idx_node_panorama_seed_id ON node(panorama_seed_id);
 CREATE INDEX idx_node_panorama_config_key ON node(panorama_config_key);
 
 CREATE INDEX idx_node_cal_date ON node(cal_date);
-CREATE INDEX idx_node_cal_date_with_time ON node(cal_date_with_time);
 CREATE INDEX idx_node_cal_date_end ON node(cal_date_end);
-CREATE INDEX idx_node_cal_date_end_with_time ON node(cal_date_end_with_time);
 
 CREATE INDEX idx_node_wakatime_language ON node(wakatime_language);
 CREATE INDEX idx_node_wakatime_project ON node(wakatime_project);
