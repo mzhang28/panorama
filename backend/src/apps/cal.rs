@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
-use axum::extract::{Multipart, State};
+use axum::extract::{Multipart, Query, State};
 use axum::Json;
 use chrono::{DateTime, Utc};
 use icalendar::{Calendar, CalendarComponent, CalendarDateTime, Component, DatePerhapsTime, Event};
 use serde_json::{json, Value as JsonValue};
-use sqlx::Row;
+use sqlx::{QueryBuilder, Row, Sqlite};
 
 use crate::graphql::Context;
 
@@ -21,7 +21,10 @@ pub async fn ics_upload(State(ctx): State<Context>, mut multipart: Multipart) {
   for component in ics_data.into_iter() {
     match component {
       CalendarComponent::Event(event) => {
-        let start_date = event.get_start().and_then(extract_datetime);
+        let start_date = event
+          .get_start()
+          .and_then(extract_datetime)
+          .map(|date| date.timestamp());
 
         let row = sqlx::query(
           "insert into node (title, cal_date, json)
@@ -65,27 +68,43 @@ fn extract_datetime(date: DatePerhapsTime) -> Option<DateTime<Utc>> {
   }
 }
 
-// fn iso_represent(dpt: DatePerhapsTime) -> (String, bool) {
-//   match dpt {
-//     DatePerhapsTime::Date(date) => {}
-//     DatePerhapsTime::DateTime(datetime) => match datetime {
-//       CalendarDateTime::Floating(naive_date_time) => {}
-//       CalendarDateTime::Utc(date_time) => todo!(),
-//       CalendarDateTime::WithTimezone { date_time, tzid } => todo!(),
-//     },
-//   }
-// }
+#[derive(Debug, Deserialize)]
+pub struct QueryEventsRequest {
+  start_date: Option<String>,
+  end_date: Option<String>,
+}
 
 #[derive(Debug, Serialize)]
 pub struct QueryEventsResponse {
   events: Vec<JsonValue>,
 }
 
-pub async fn query_events(State(ctx): State<Context>) -> Json<QueryEventsResponse> {
-  let rows = sqlx::query("select title, cal_date, json from node where cal_date is not null")
-    .fetch_all(&ctx.db)
-    .await
-    .unwrap();
+pub async fn query_events(
+  State(ctx): State<Context>,
+  Query(query): Query<QueryEventsRequest>,
+) -> Json<QueryEventsResponse> {
+  let mut qb = QueryBuilder::<Sqlite>::new(
+    "select title, cal_date, json from node where cal_date is not null",
+  );
+
+  if let Some(start_date) = query.start_date {
+    let start_date = DateTime::parse_from_rfc3339(&start_date).unwrap();
+    debug!(start_date = start_date.timestamp(), "Parsed start date");
+    qb.push(" and cal_date >= ")
+      .push_bind(start_date.timestamp());
+  }
+
+  if let Some(end_date) = query.end_date {
+    let end_date = DateTime::parse_from_rfc3339(&end_date).unwrap();
+    debug!(end_date = end_date.timestamp(), "Parsed end date");
+    qb.push(" and cal_date <= ").push_bind(end_date.timestamp());
+  }
+
+  debug!(query = qb.sql(), "Executing SQL query:");
+
+  let rows = qb.build().fetch_all(&ctx.db).await.unwrap();
+
+  debug!(num_rows = rows.len(), "Done!");
 
   let data = rows
     .into_iter()

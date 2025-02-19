@@ -19,6 +19,7 @@ use axum::{
   Extension, Router,
 };
 use chrono::Utc;
+use db::init_db_options;
 use juniper::EmptyMutation;
 use juniper_graphql_ws::ConnectionConfig;
 use rusqlite::functions::FunctionFlags;
@@ -66,41 +67,7 @@ async fn main() -> Result<()> {
 
   let db_path = PathBuf::from(env::var("DATABASE_PATH").unwrap_or_else(|_| "test.db".to_owned()));
 
-  let db = SqlitePoolOptions::new()
-    .after_connect(|conn, _| {
-      Box::pin(async move {
-        let mut locked_conn = conn.lock_handle().await?;
-        let mut raw_handle = locked_conn.as_raw_handle();
-
-        // SAFETY: We are currently locking the handle
-        let rusqlite_handle =
-          unsafe { rusqlite::Connection::from_handle_owned(raw_handle.as_mut()) }
-            // ok holy shit sqlx::SqliteError can't be constructed so i need to figure out how to handle this error
-            .unwrap();
-
-        rusqlite_handle
-          .create_scalar_function("NOW_ISO8601", 0, FunctionFlags::SQLITE_UTF8, |_| {
-            let now = Utc::now();
-            Ok(now.to_rfc3339())
-          })
-          // same as above
-          .unwrap();
-
-        rusqlite_handle
-          .create_scalar_function("UUIDV7_NOW", 0, FunctionFlags::SQLITE_UTF8, |_| {
-            let id = Uuid::now_v7();
-            Ok(id.to_string())
-          })
-          // same as above
-          .unwrap();
-
-        drop(rusqlite_handle);
-        drop(locked_conn);
-        // conn is now unlocked
-
-        Ok(())
-      })
-    })
+  let db = init_db_options()
     .connect_with(
       SqliteConnectOptions::new()
         .filename(db_path)

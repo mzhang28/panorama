@@ -10,7 +10,11 @@ export default function Calendar() {
 
   const fetchEvents = useCallback(async () => {
     if (startDate === null || endDate === null) return null;
-    const res = await fetch("/api/apps/cal/events");
+    const params = new URLSearchParams();
+    params.set("start_date", startDate.toISOString());
+    params.set("end_date", endDate.toISOString());
+    console.log("params", params.toString());
+    const res = await fetch(`/api/apps/cal/events?${params.toString()}`);
     const data = await res.json();
     return data.events.map((event) => ({
       title: event.title,
@@ -19,7 +23,7 @@ export default function Calendar() {
   }, [startDate, endDate]);
 
   const { data: events } = useQuery({
-    queryKey: ["cal/events"],
+    queryKey: ["cal/events", startDate, endDate],
     queryFn: fetchEvents,
   });
 

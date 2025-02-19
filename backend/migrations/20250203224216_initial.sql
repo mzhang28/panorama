@@ -21,10 +21,10 @@ CREATE TABLE "node" (
   "dataviz_options_json" TEXT,
 
   -- Calendar
-  "cal_date" TEXT,
-  "cal_date_opt" BOOLEAN,
-  "cal_date_end" TEXT,
-  "cal_date_end_opt" BOOLEAN,
+  "cal_date" INTEGER,
+  "cal_date_opt" TEXT,
+  "cal_date_end" INTEGER,
+  "cal_date_end_opt" TEXT,
   "cal_location" TEXT,
 
   -- Contacts
