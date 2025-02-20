@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { useEffect } from "react";
 import { useState } from "react";
 import JournalPage from "./JournalPage";
+import { ArrowRightIcon } from "lucide-react";
 
 export default function Home() {
   const todaysDate = format(new Date(), "yyyy-MM-dd");
@@ -16,10 +17,12 @@ export default function Home() {
             placeholder="What's new?"
           />
           <div className="flex justify-end">
-            <button className="bg-slate-600 text-white px-3 py-2">Post</button>
+            <button className="flex bg-slate-600 text-white px-3 py-2">
+              Save to panorama <ArrowRightIcon />
+            </button>
           </div>
         </div>
-
+        <div className="flex justify-center text-slate-400">━━━━❰❉❱━━━━</div>
         <JournalPage date={todaysDate} />
         <button>Load next page</button>
       </div>
