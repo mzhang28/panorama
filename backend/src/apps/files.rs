@@ -5,6 +5,7 @@ use axum::{
 use object_store::{path::Path, PutPayload};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
+use uuid::Uuid;
 
 use crate::context::Context;
 
@@ -25,9 +26,9 @@ pub async fn upload_file(
   let hash = hasher.finalize();
   let hash = format!("{:x}", hash);
 
-  // TODO: do a rename based on the hash of the file
   // TODO: streaming upload w/ progress
-  let upload_path = Path::parse("my-upload").unwrap();
+  let uuid = Uuid::now_v7();
+  let upload_path = Path::parse(format!("uploads/{}", uuid.to_string())).unwrap();
   let payload = PutPayload::from_bytes(file_bytes);
   ctx.object_store.put(&upload_path, payload).await.unwrap();
 
