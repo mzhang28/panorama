@@ -17,9 +17,6 @@ pub async fn download_bun() -> Result<()> {
     _ => panic!("unsupported platform"),
   };
 
-  let url = format!("https://github.com/oven-sh/bun/releases/latest/download/bun-{target}.zip");
-  println!("url {url}");
-
   let panorama_state_dir = dirs::state_dir()
     .map(|d| d.join("panorama"))
     .or_else(|| dirs::runtime_dir().map(|d| d.join("panorama")))
@@ -30,8 +27,12 @@ pub async fn download_bun() -> Result<()> {
   let bin_dir = panorama_state_dir.join("bin");
   std::fs::create_dir_all(&bin_dir)?;
   let bun_path = bin_dir.join("bun");
+  debug!(bun_path = ?bun_path.display(), "Checking for bun at path");
 
   if !bun_path.exists() {
+    let url = format!("https://github.com/oven-sh/bun/releases/latest/download/bun-{target}.zip");
+    debug!(url = url, "Bun not found, downloading bun from url");
+
     let res = reqwest::get(url).await?;
     let mut tempfile = NamedTempFile::new()?;
     tempfile.write_all(&res.bytes().await?)?;
@@ -42,7 +43,7 @@ pub async fn download_bun() -> Result<()> {
     std::fs::rename(output_path, bun_path)?;
     info!("Done.");
   } else {
-    info!("Bun already downloaded!.")
+    debug!("Bun already downloaded!.")
   }
 
   Ok(())

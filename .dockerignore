@@ -1,0 +1,12 @@
+node_modules
+dist
+target
+.DS_Store
+**/export/export.json
+test.db*
+.env
+.direnv
+/proto/generated
+
+/storage
+/backend/storage

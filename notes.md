@@ -2,8 +2,8 @@
 
 - Calendar
 - Main screen
-  - Have individual views
-  - Make those views saveable as nodes in the db
+  - Make views saveable as nodes in the db
+  - Open new views
 - Storage
   - Figure out how to hook up to garage
   - For other users: Figure out how to hook up to actual S3
@@ -12,12 +12,20 @@
 - Automation
   - Create new webhooks
   - Run bun code as a result of a webhook
+- Wakapi ingestion
 
 # Next Rewrite Tasks
 
 - Replace the db?
+- CRDT?
 
 # Development Log
+
+## 2025-02-20
+
+- [x] file upload via local filesystem via object_store crate
+- [x] Have individual views (this was done as a tab like thing)
+- [x] download bun
 
 ## 2025-02-19
 
