@@ -37,17 +37,10 @@ export default function TabContainer() {
           </button>
         ))}
       </div>
-      {/* <Tabs
-        value={currentTab.toString()}
-        onValueChange={(v) => setCurrentTab(parseInt(v))}
-        className="w-full"
-      >
-        <TabsList>
-          <Input placeholder="Search panorama..." />
 
-        </TabsList>
-      </Tabs> */}
-      <TabContent />
+      <div className="bg-slate-100 grow">
+        <TabContent />
+      </div>
     </>
   );
 }

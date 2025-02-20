@@ -11,7 +11,9 @@ const queryClient = new QueryClient();
 export default function App() {
   return (
     <Wrappers>
-      <TabContainer />
+      <div className="flex flex-col grow">
+        <TabContainer />
+      </div>
     </Wrappers>
   );
 }

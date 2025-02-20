@@ -4,6 +4,8 @@
 - Main screen
   - Make views saveable as nodes in the db
   - Open new views
+- Home screen
+  - Recent nodes
 - Storage
   - Figure out how to hook up to garage
   - For other users: Figure out how to hook up to actual S3
@@ -26,6 +28,7 @@
 - [x] file upload via local filesystem via object_store crate
 - [x] Have individual views (this was done as a tab like thing)
 - [x] download bun
+- later when doing real time stuff, use this: https://loro.dev/blog/loro-richtext
 
 ## 2025-02-19
 

@@ -31,26 +31,6 @@ pub fn init_db_options() -> SqlitePoolOptions {
         // same as above
         .unwrap();
 
-      rusqlite_handle
-        .create_scalar_function("DATE_BEFORE", 2, FunctionFlags::SQLITE_UTF8, |ctx| {
-          let date_a: String = ctx.get(0)?;
-          let date_b: String = ctx.get(0)?;
-          let date_a = DateTime::parse_from_rfc3339(&date_a).unwrap();
-          let date_b = DateTime::parse_from_rfc3339(&date_b).unwrap();
-          return Ok(if date_a < date_b { 1 } else { 0 });
-        })
-        .unwrap();
-
-      rusqlite_handle
-        .create_scalar_function("DATE_AFTER", 2, FunctionFlags::SQLITE_UTF8, |ctx| {
-          let date_a: String = ctx.get(0)?;
-          let date_b: String = ctx.get(0)?;
-          let date_a = DateTime::parse_from_rfc3339(&date_a).unwrap();
-          let date_b = DateTime::parse_from_rfc3339(&date_b).unwrap();
-          return Ok(if date_a > date_b { 1 } else { 0 });
-        })
-        .unwrap();
-
       drop(rusqlite_handle);
       drop(locked_conn);
       // conn is now unlocked

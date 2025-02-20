@@ -11,6 +11,12 @@ CREATE TABLE "node" (
   -- General stuff
   "title" TEXT,
   "label" TEXT,
+  "content" TEXT, -- generic content
+
+  -- Journal
+  -- NOTE: We are using a YYYY-MM-DD string date rather than a timestamp
+  -- We want journals to be dated, but this distinction is rather arbitrary
+  "journal_date" TEXT,
 
   -- File
   "blob_hash" TEXT,
@@ -60,7 +66,9 @@ CREATE TABLE "node" (
 );
 
 CREATE INDEX idx_node_panorama_seed_id ON node(panorama_seed_id);
-CREATE INDEX idx_node_panorama_config_key ON node(panorama_config_key);
+CREATE UNIQUE INDEX idx_node_panorama_config_key ON node(panorama_config_key);
+
+CREATE UNIQUE INDEX idx_node_journal_date ON node(journal_date);
 
 CREATE INDEX idx_node_cal_date ON node(cal_date);
 CREATE INDEX idx_node_cal_date_end ON node(cal_date_end);

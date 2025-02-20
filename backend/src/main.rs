@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate serde;
 #[macro_use]
+extern crate ts_rs;
+#[macro_use]
 extern crate tracing;
 
 mod apps;
@@ -12,6 +14,7 @@ pub mod services;
 use std::{env, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
+use apps::journal;
 use axum::{
   extract::{MatchedPath, Request},
   routing::{any, get, on, post, MethodFilter},
@@ -97,20 +100,20 @@ async fn main() -> Result<()> {
   // Spawn services
   let services_handle = spawn(spawn_services(context.clone()));
 
+  #[rustfmt::skip]
   let app = Router::new()
     .route("/", get(|| async { "Hello, World!" }))
     .route("/workflows", any(workflow_router))
     .route("/apps/file/upload", post(files::upload_file))
     .route("/apps/cal/ics_upload", post(cal::ics_upload))
     .route("/apps/cal/events", get(cal::query_events))
-    .route(
-      "/apps/wakatime/api/v1/users/current/statusbar/today",
-      get(wakatime::statusbar),
-    )
-    .route(
-      "/apps/wakatime/api/v1/users/current/heartbeats.bulk",
-      post(wakatime::bulk_heartbeats),
-    )
+    .route("/apps/journal/by_date/{date}", get(journal::get_journal))
+    .route("/apps/journal/by_date/{date}", post(journal::save_journal))
+    .route("/apps/wakatime/api/v1/users/current/statusbar/today", get(wakatime::statusbar))
+    .route("/apps/wakatime/api/v1/users/current/heartbeats.bulk", post(wakatime::bulk_heartbeats))
+  ;
+
+  let app = app
     .layer(Extension(context.clone()))
     .layer(
       TraceLayer::new_for_http()
