@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use icalendar::{Calendar, CalendarComponent, CalendarDateTime, Component, DatePerhapsTime, Event};
 use serde_json::{json, Value as JsonValue};
 use sqlx::{QueryBuilder, Row, Sqlite};
+use ts_rs::TS;
 
 use crate::context::Context;
 
@@ -74,9 +75,18 @@ pub struct QueryEventsRequest {
   end_date: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
 pub struct QueryEventsResponse {
-  events: Vec<JsonValue>,
+  events: Vec<QueryEventData>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct QueryEventData {
+  title: String,
+  start_date: String,
+  other_data: JsonValue,
 }
 
 pub async fn query_events(
@@ -108,12 +118,10 @@ pub async fn query_events(
 
   let data = rows
     .into_iter()
-    .map(|row| {
-      json!({
-        "title": row.get::<String,usize>(0),
-        "start_date": row.get::<DateTime<Utc>,usize>(1).to_rfc3339(),
-        "other_data": serde_json::from_str::<JsonValue>(row.get(2)).unwrap(),
-      })
+    .map(|row| QueryEventData {
+      title: row.get(0),
+      start_date: row.get::<DateTime<Utc>, usize>(1).to_rfc3339(),
+      other_data: serde_json::from_str::<JsonValue>(row.get(2)).unwrap(),
     })
     .collect();
 

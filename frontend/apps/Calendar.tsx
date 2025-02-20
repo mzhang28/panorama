@@ -3,6 +3,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import bootstrap5Plugin from "@fullcalendar/bootstrap5";
 import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { QueryEventsResponse } from "../../backend/bindings/QueryEventsResponse";
 
 export default function Calendar() {
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -15,7 +16,7 @@ export default function Calendar() {
     params.set("end_date", endDate.toISOString());
     console.log("params", params.toString());
     const res = await fetch(`/api/apps/cal/events?${params.toString()}`);
-    const data = await res.json();
+    const data: QueryEventsResponse = await res.json();
     return data.events.map((event) => ({
       title: event.title,
       date: event.start_date,

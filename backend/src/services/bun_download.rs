@@ -3,8 +3,6 @@ use std::io::Write;
 use anyhow::Result;
 use cmd_lib::{run_cmd, run_fun};
 use tempfile::{NamedTempFile, TempDir};
-use tokio::fs::File;
-use tokio_util::io::StreamReader;
 
 pub async fn download_bun() -> Result<()> {
   #[rustfmt::skip]
@@ -37,14 +35,15 @@ pub async fn download_bun() -> Result<()> {
     let res = reqwest::get(url).await?;
     let mut tempfile = NamedTempFile::new()?;
     tempfile.write_all(&res.bytes().await?)?;
-    let zip_path = tempfile.path();
     let out_dir = TempDir::new()?;
     let out_dir_path = out_dir.path();
     zip_extract::extract(tempfile, out_dir_path, false)?;
     let output_path = out_dir_path.join(format!("bun-{target}")).join("bun");
     std::fs::rename(output_path, bun_path)?;
+    info!("Done.");
+  } else {
+    info!("Bun already downloaded!.")
   }
-  info!("Done.");
 
   Ok(())
 }
