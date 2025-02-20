@@ -12,8 +12,14 @@ CREATE TABLE "node" (
   "title" TEXT,
   "label" TEXT,
 
+  -- File
+  "blob_hash" TEXT,
+
   -- Automate stuff
+  "automate_flow_json" TEXT,
   "automate_trigger_json" TEXT,
+  "automate_node_json" TEXT,
+  "automate_run_json" TEXT,
 
   -- Data viz stuff
   "dataviz_graph_type" TEXT,
@@ -22,9 +28,9 @@ CREATE TABLE "node" (
 
   -- Calendar
   "cal_date" INTEGER,
-  "cal_date_opt" TEXT,
+  "cal_date_json" TEXT,
   "cal_date_end" INTEGER,
-  "cal_date_end_opt" TEXT,
+  "cal_date_end_json" TEXT,
   "cal_location" TEXT,
 
   -- Contacts

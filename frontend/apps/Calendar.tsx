@@ -28,16 +28,19 @@ export default function Calendar() {
   });
 
   return (
-    <FullCalendar
-      plugins={[dayGridPlugin, bootstrap5Plugin]}
-      themeSystem="bootstrap5"
-      initialView="dayGridMonth"
-      datesSet={(dateInfo) => {
-        setStartDate(dateInfo.start);
-        setEndDate(dateInfo.end);
-        console.log("set date info", dateInfo);
-      }}
-      events={events ?? []}
-    />
+    <>
+      btw i will theme this later
+      <FullCalendar
+        plugins={[dayGridPlugin, bootstrap5Plugin]}
+        themeSystem="bootstrap5"
+        initialView="dayGridMonth"
+        datesSet={(dateInfo) => {
+          setStartDate(dateInfo.start);
+          setEndDate(dateInfo.end);
+          console.log("set date info", dateInfo);
+        }}
+        events={events ?? []}
+      />
+    </>
   );
 }

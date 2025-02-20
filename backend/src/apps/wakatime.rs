@@ -3,7 +3,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_json::Value;
 use sqlx::{Execute, Row};
 
-use crate::graphql::Context;
+use crate::context::Context;
 
 pub struct SummaryData {}
 

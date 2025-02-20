@@ -5,7 +5,7 @@ use anyhow::Result;
 
 use self::automate::run_automate_service;
 use self::bun_download::download_bun;
-use crate::graphql::Context;
+use crate::context::Context;
 
 pub async fn spawn_services(ctx: Context) -> Result<()> {
   tokio::spawn(download_bun());

@@ -5,6 +5,8 @@ import Calendar from "@/apps/Calendar";
 import Home from "@/apps/Home";
 import Automate from "@/apps/Automate";
 import { cn } from "@/lib/utils";
+import { Plus } from "lucide-react";
+import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
 
 /** Contains all the tabs on the main page */
 export default function TabContainer() {
@@ -14,6 +16,10 @@ export default function TabContainer() {
   return (
     <>
       <div className="flex border-b-1">
+        <NewMenu />
+        {/* <button className="p-2">
+          <Plus />
+        </button> */}
         <input placeholder="Search panorama..." className="p-2 outline-none" />
         {tabs.map((tab, idx) => (
           <button
@@ -62,4 +68,30 @@ function TabContent({}) {
     default:
       return <>how did u find this</>;
   }
+}
+
+function NewMenu() {
+  const items = [{ name: "Note" }, { name: "Bookmark" }];
+
+  return (
+    <Menu>
+      <MenuButton className="p-2">
+        <Plus />
+      </MenuButton>
+      <MenuItems
+        anchor="bottom"
+        className="absolute flex ring-1 mt-2 w-56 origin-top-left bg-white border-1 shadow-lg ring-black/5 focus:outline-hidden"
+      >
+        <div className="py-1 w-full flex flex-col items-stretch">
+          {items.map(({ name }) => (
+            <MenuItem>
+              <button className="flex px-4 py-2 no-underline text-gray-600 hover:bg-gray-200">
+                {name}
+              </button>
+            </MenuItem>
+          ))}
+        </div>
+      </MenuItems>
+    </Menu>
+  );
 }

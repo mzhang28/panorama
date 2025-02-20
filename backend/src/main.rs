@@ -4,15 +4,14 @@ extern crate serde;
 extern crate tracing;
 
 mod apps;
+pub mod context;
 mod db;
-mod graphql;
 pub mod seed_data;
 pub mod services;
 
 use std::{env, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
-use apps::{cal, wakatime};
 use axum::{
   extract::{MatchedPath, Request},
   routing::{any, get, on, post, MethodFilter},
@@ -22,6 +21,7 @@ use chrono::Utc;
 use db::init_db_options;
 use juniper::EmptyMutation;
 use juniper_graphql_ws::ConnectionConfig;
+use object_store::local::LocalFileSystem;
 use rusqlite::functions::FunctionFlags;
 use seed_data::ensure_seed_data;
 use services::spawn_services;
@@ -36,7 +36,8 @@ use tracing::{info_span, Span};
 use tracing_subscriber::{fmt::time::uptime, layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
-use crate::graphql::{Context, Query, Schema, Subscription};
+use crate::apps::{cal, files, wakatime};
+use crate::context::Context;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -79,8 +80,14 @@ async fn main() -> Result<()> {
 
   ensure_seed_data(&db).await?;
 
-  let context = Context { db: db.clone() };
-  let schema = Schema::new(Query, EmptyMutation::new(), Subscription);
+  let storage_root = PathBuf::from("./storage");
+  std::fs::create_dir_all(&storage_root)?;
+  let object_store = LocalFileSystem::new_with_prefix(storage_root)?;
+
+  let context = Context {
+    db: db.clone(),
+    object_store: Arc::new(object_store),
+  };
 
   let (workflow_router_tx, workflow_router_rx) = mpsc::unbounded_channel();
   let workflow_router = move |req: Request| async move {
@@ -93,6 +100,7 @@ async fn main() -> Result<()> {
   let app = Router::new()
     .route("/", get(|| async { "Hello, World!" }))
     .route("/workflows", any(workflow_router))
+    .route("/apps/file/upload", post(files::upload_file))
     .route("/apps/cal/ics_upload", post(cal::ics_upload))
     .route("/apps/cal/events", get(cal::query_events))
     .route(
@@ -103,7 +111,6 @@ async fn main() -> Result<()> {
       "/apps/wakatime/api/v1/users/current/heartbeats.bulk",
       post(wakatime::bulk_heartbeats),
     )
-    .layer(Extension(Arc::new(schema)))
     .layer(Extension(context.clone()))
     .layer(
       TraceLayer::new_for_http()

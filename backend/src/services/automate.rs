@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use axum::extract::{Query, State};
 use serde_json::json;
 use sqlx::Row;
 use tracing::Level;
 
-use crate::graphql::Context;
+use crate::context::Context;
 
 pub async fn run_automate_service(ctx: Context) -> Result<()> {
   let schedules = HashMap::<String, String>::new();
@@ -52,3 +53,8 @@ pub enum AutomateRequest {}
 pub enum AutomateResponse {}
 
 pub async fn automate() {}
+
+#[derive(Debug, Deserialize)]
+pub struct QueryFlowsRequest {}
+
+pub async fn query_flows(State(ctx): State<Context>, Query(query): Query<QueryFlowsRequest>) {}

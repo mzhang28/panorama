@@ -7,7 +7,7 @@ use icalendar::{Calendar, CalendarComponent, CalendarDateTime, Component, DatePe
 use serde_json::{json, Value as JsonValue};
 use sqlx::{QueryBuilder, Row, Sqlite};
 
-use crate::graphql::Context;
+use crate::context::Context;
 
 pub async fn ics_upload(State(ctx): State<Context>, mut multipart: Multipart) {
   println!("multipart: {:?}", multipart);
