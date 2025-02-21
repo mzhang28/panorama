@@ -48,3 +48,20 @@ pub async fn get_config(pool: &SqlitePool, key: impl AsRef<str>) -> Result<Strin
 
   Ok(row.get(0))
 }
+
+pub async fn get_config_with_default(
+  pool: &SqlitePool,
+  key: impl AsRef<str>,
+  value: impl AsRef<str>,
+) -> Result<String> {
+  let row = sqlx::query("insert into node (panorama_config_key, panorama_config_value)
+  values (?, ?)
+  on conflict (panorama_config_key) do update set panorama_config_value = EXCLUDED.panorama_config_value
+  returning panorama_config_value")
+    .bind(key.as_ref())
+    .bind(value.as_ref())
+    .fetch_one(pool)
+    .await?;
+
+  Ok(row.get(0))
+}

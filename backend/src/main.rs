@@ -14,9 +14,10 @@ pub mod services;
 use std::{env, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
-use apps::{journal, search};
+use apps::{journal, search, zotero};
 use axum::{
-  extract::{MatchedPath, Request},
+  extract::{DefaultBodyLimit, MatchedPath, Request},
+  response::Response,
   routing::{any, get, on, post, MethodFilter},
   Extension, Router,
 };
@@ -100,19 +101,23 @@ async fn main() -> Result<()> {
   let app = Router::new()
     .route("/", get(|| async { "Hello, World!" }))
     .route("/workflows", any(workflow_router))
-    .route("/apps/search", get(search::run_query))
-    .route("/apps/file/upload", post(files::upload_file))
-    .route("/apps/cal/ics_upload", post(cal::ics_upload))
     .route("/apps/cal/events", get(cal::query_events))
+    .route("/apps/cal/ics_upload", post(cal::ics_upload))
+    .route("/apps/file/upload", post(files::upload_file))
     .route("/apps/journal/by_date/{date}", get(journal::get_journal))
     .route("/apps/journal/by_date/{date}", post(journal::save_journal))
     .route("/apps/journal/by_date/{date}/prev", get(journal::get_prev_journal))
-    .route("/apps/wakatime/api/v1/users/current/statusbar/today", get(wakatime::statusbar))
+    .route("/apps/search", get(search::run_query))
     .route("/apps/wakatime/api/v1/users/current/heartbeats.bulk", post(wakatime::bulk_heartbeats))
+    .route("/apps/wakatime/api/v1/users/current/statusbar/today", get(wakatime::statusbar))
+    .route("/apps/zotero/connector/ping", post(zotero::connector_ping))
+    .route("/apps/zotero/connector/saveSnapshot", post(zotero::connector_save_snapshot))
+    .route("/apps/zotero/connector/getSelectedCollection", post(zotero::connector_get_selected_collection))
   ;
 
   let app = app
     .layer(Extension(context.clone()))
+    .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
     .layer(
       TraceLayer::new_for_http()
         .make_span_with(|request: &Request<_>| {
@@ -128,13 +133,15 @@ async fn main() -> Result<()> {
               method = ?request.method(),
               matched_path,
               path = tracing::field::Empty,
+              status = tracing::field::Empty,
           )
         })
         .on_request(|request: &Request<_>, span: &Span| {
-          // You can use `_span.record("some_other_field", value)` in one of these
-          // closures to attach a value to the initially empty field in the info_span
-          // created above.
           span.record("path", request.uri().path_and_query().map(|pq| pq.as_str()));
+        })
+        .on_response(|res: &Response, latency, span: &Span| {
+          span.record("status", res.status().as_u16());
+          debug!(latency = ?latency, "request");
         }),
     )
     .with_state(context.clone());
