@@ -43,23 +43,13 @@ CREATE TABLE "node" (
   "contact_name" TEXT,
   "contact_email" TEXT,
 
-  -- Mail
-  "mail_account_imap_host" TEXT,
-  "mail_account_imap_port" TEXT,
-  "mail_account_imap_username" TEXT,
-  "mail_account_imap_password" TEXT,
-  "mailbox_account_id" TEXT,
-  "mailbox_name" TEXT,
-  "mailbox_uid_validity" TEXT,
-  "message_mailbox_id" TEXT,
-  "message_uid" TEXT,
-  "message_from" TEXT,
-  "message_from_contact_id" TEXT,
-  "message_body" TEXT,
-
   -- wakatime heartbeat
   "wakatime_language" TEXT,
   "wakatime_project" TEXT,
+
+  -- Zotero shit
+  "zotero_parent_collection" TEXT,
+  "zotero_json" TEXT,
 
   -- extra json shit
   "json" TEXT

@@ -1,5 +1,7 @@
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import listPlugin from "@fullcalendar/list";
 import bootstrap5Plugin from "@fullcalendar/bootstrap5";
 import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -29,19 +31,22 @@ export default function Calendar() {
   });
 
   return (
-    <>
-      btw i will theme this later
+    <div className="p-3 grow flex flex-col">
       <FullCalendar
-        plugins={[dayGridPlugin, bootstrap5Plugin]}
+        plugins={[dayGridPlugin, timeGridPlugin, listPlugin, bootstrap5Plugin]}
         themeSystem="bootstrap5"
         initialView="dayGridMonth"
+        height="100%"
         datesSet={(dateInfo) => {
           setStartDate(dateInfo.start);
           setEndDate(dateInfo.end);
           console.log("set date info", dateInfo);
         }}
+        headerToolbar={{
+          right: "dayGridMonth,timeGridWeek,listWeek prev,today,next",
+        }}
         events={events ?? []}
       />
-    </>
+    </div>
   );
 }

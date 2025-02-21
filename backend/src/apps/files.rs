@@ -24,7 +24,7 @@ pub async fn upload_file(
   let mut hasher = Sha256::new();
   hasher.update(&file_bytes);
   let hash = hasher.finalize();
-  let hash = format!("{:x}", hash);
+  let hash_hex = format!("{:x}", hash);
 
   // TODO: streaming upload w/ progress
   let uuid = Uuid::now_v7();
@@ -32,7 +32,7 @@ pub async fn upload_file(
   let payload = PutPayload::from_bytes(file_bytes);
   ctx.object_store.put(&upload_path, payload).await.unwrap();
 
-  let blob_path = Path::parse(&hash).unwrap();
+  let blob_path = Path::parse(&hash_hex).unwrap();
   ctx
     .object_store
     .rename(&upload_path, &blob_path)
@@ -40,7 +40,7 @@ pub async fn upload_file(
     .unwrap();
 
   let row = sqlx::query("insert into node (blob_hash) values (?) returning id")
-    .bind(hash)
+    .bind(hash_hex)
     .fetch_one(&ctx.db)
     .await
     .unwrap();

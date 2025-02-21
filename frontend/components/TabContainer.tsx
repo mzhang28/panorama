@@ -50,7 +50,7 @@ export default function TabContainer() {
         ))}
       </div>
 
-      <div className="bg-slate-100 grow">
+      <div className="bg-slate-100 grow flex flex-col">
         <TabContent />
       </div>
     </>

@@ -10,6 +10,7 @@ pub mod context;
 mod db;
 pub mod seed_data;
 pub mod services;
+pub mod utils;
 
 use std::{env, path::PathBuf, sync::Arc};
 

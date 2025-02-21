@@ -23,6 +23,10 @@
 
 # Development Log
 
+## 2025-02-21
+
+- lol crazy dividers https://emojicombos.com/text-divider
+
 ## 2025-02-20
 
 - [x] file upload via local filesystem via object_store crate

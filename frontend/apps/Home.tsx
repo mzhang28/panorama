@@ -24,7 +24,9 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="flex justify-center text-slate-400">━━━━❰❉❱━━━━</div>
+        <div className="flex justify-center text-slate-400 text-2xl select-none">
+          ❅────────❅•°•°•❅────────❅
+        </div>
 
         <AllJournalPages />
       </div>

@@ -4,6 +4,8 @@ use anyhow::Result;
 use cmd_lib::{run_cmd, run_fun};
 use tempfile::{NamedTempFile, TempDir};
 
+use crate::utils::get_panorama_state_dir;
+
 pub async fn download_bun() -> Result<()> {
   #[rustfmt::skip]
   let platform = run_fun!(uname -ms)?;
@@ -17,12 +19,7 @@ pub async fn download_bun() -> Result<()> {
     _ => panic!("unsupported platform"),
   };
 
-  let panorama_state_dir = dirs::state_dir()
-    .map(|d| d.join("panorama"))
-    .or_else(|| dirs::runtime_dir().map(|d| d.join("panorama")))
-    .or_else(|| dirs::data_dir().map(|d| d.join("panorama")))
-    .or_else(|| dirs::home_dir().map(|d| d.join(".panorama")))
-    .unwrap();
+  let panorama_state_dir = get_panorama_state_dir();
 
   let bin_dir = panorama_state_dir.join("bin");
   std::fs::create_dir_all(&bin_dir)?;

@@ -6,10 +6,34 @@ import { useRef } from "react";
 import JournalPage from "./JournalPage";
 import type { GetJournalResponse } from "../../backend/bindings/GetJournalResponse";
 
+const formatDate = (date: Date) => format(date, "yyyy-MM-dd");
+
 export default function AllJournalPages() {
+  const [todaysDate, setTodaysDate] = useState<string>(() =>
+    formatDate(new Date()),
+  );
   const [journalPages, setJournalPages] = useState<string[]>([]);
   const endDetector = useRef<HTMLDivElement | null>(null);
   const [reobserve, setReobserve] = useState(0);
+
+  useEffect(() => {
+    const func = () => {
+      const oldDate = todaysDate;
+      const newDate = formatDate(new Date());
+      if (newDate !== oldDate) {
+        setTodaysDate(newDate);
+        setJournalPages([]);
+        setReobserve((c) => c + 1);
+      }
+    };
+
+    func();
+    const interval = setInterval(func, 10 * 60 * 1000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
@@ -19,7 +43,6 @@ export default function AllJournalPages() {
 
           // Get the next journal page
           if (journalPages.length === 0) {
-            const todaysDate = format(new Date(), "yyyy-MM-dd");
             setJournalPages([...journalPages, todaysDate]);
             setReobserve((c) => c + 1);
           } else {
@@ -46,7 +69,7 @@ export default function AllJournalPages() {
     return () => {
       if (endDetector.current) observer.unobserve(endDetector.current);
     };
-  }, [endDetector, reobserve]);
+  }, [endDetector, reobserve, todaysDate, journalPages]);
 
   return (
     <div className="flex flex-col gap-3 grow">
