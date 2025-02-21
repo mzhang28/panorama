@@ -14,7 +14,7 @@ pub mod services;
 use std::{env, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
-use apps::journal;
+use apps::{journal, search};
 use axum::{
   extract::{MatchedPath, Request},
   routing::{any, get, on, post, MethodFilter},
@@ -104,6 +104,7 @@ async fn main() -> Result<()> {
   let app = Router::new()
     .route("/", get(|| async { "Hello, World!" }))
     .route("/workflows", any(workflow_router))
+    .route("/apps/search", get(search::run_query))
     .route("/apps/file/upload", post(files::upload_file))
     .route("/apps/cal/ics_upload", post(cal::ics_upload))
     .route("/apps/cal/events", get(cal::query_events))

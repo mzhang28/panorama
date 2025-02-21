@@ -1,2 +1,2 @@
-workspace.members = ["backend"]
+workspace.members = ["backend", "desktop/src-tauri"]
 workspace.resolver = "2"
