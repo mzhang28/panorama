@@ -2,7 +2,13 @@
   "name": "panorama",
   "module": "frontend/index.tsx",
   "type": "module",
+  "scripts": {
+    "dev": "bunx vite",
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:5173"
+  },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.2.7",
     "@types/bun": "latest",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
@@ -14,6 +20,7 @@
     "typescript": "^5.7.3"
   },
   "dependencies": {
+    "@fontsource/zilla-slab": "^5.1.1",
     "@fullcalendar/bootstrap5": "^6.1.15",
     "@fullcalendar/core": "^6.1.15",
     "@fullcalendar/daygrid": "^6.1.15",

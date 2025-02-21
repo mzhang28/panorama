@@ -20,12 +20,8 @@ use axum::{
   routing::{any, get, on, post, MethodFilter},
   Extension, Router,
 };
-use chrono::Utc;
 use db::init_db_options;
-use juniper::EmptyMutation;
-use juniper_graphql_ws::ConnectionConfig;
 use object_store::local::LocalFileSystem;
-use rusqlite::functions::FunctionFlags;
 use seed_data::ensure_seed_data;
 use services::spawn_services;
 use sqlx::{
@@ -110,6 +106,7 @@ async fn main() -> Result<()> {
     .route("/apps/cal/events", get(cal::query_events))
     .route("/apps/journal/by_date/{date}", get(journal::get_journal))
     .route("/apps/journal/by_date/{date}", post(journal::save_journal))
+    .route("/apps/journal/by_date/{date}/prev", get(journal::get_prev_journal))
     .route("/apps/wakatime/api/v1/users/current/statusbar/today", get(wakatime::statusbar))
     .route("/apps/wakatime/api/v1/users/current/heartbeats.bulk", post(wakatime::bulk_heartbeats))
   ;

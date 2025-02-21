@@ -35,6 +35,35 @@ pub async fn get_journal(
   })
 }
 
+/// Gets the journal directly before this date, without inserting any
+pub async fn get_prev_journal(
+  State(ctx): State<Context>,
+  Path(date): Path<String>,
+) -> Json<Option<GetJournalResponse>> {
+  let res = sqlx::query(
+    "select id, journal_date, content from node
+    where journal_date < ?
+    order by journal_date desc
+    limit 1",
+  )
+  .bind(&date)
+  .fetch_one(&ctx.db)
+  .await;
+
+  match res {
+    Ok(row) => Json(Some(GetJournalResponse {
+      node_id: row.get(0),
+      date: row.get(1),
+      content: row.get(2),
+    })),
+    Err(sqlx::Error::RowNotFound) => Json(None),
+    Err(other) => {
+      Err::<(), _>(other).unwrap();
+      unreachable!()
+    }
+  }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SaveJournalRequest {
   content: String,

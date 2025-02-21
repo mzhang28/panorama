@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useState } from "react";
 import JournalPage from "./JournalPage";
 import { ArrowRightIcon } from "lucide-react";
+import AllJournalPages from "./AllJournalPages";
 
 export default function Home() {
   const todaysDate = format(new Date(), "yyyy-MM-dd");
@@ -22,9 +23,10 @@ export default function Home() {
             </button>
           </div>
         </div>
+
         <div className="flex justify-center text-slate-400">━━━━❰❉❱━━━━</div>
-        <JournalPage date={todaysDate} />
-        <button>Load next page</button>
+
+        <AllJournalPages />
       </div>
       <div className="flex flex-col min-w-3">Sidebar</div>
     </div>

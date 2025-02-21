@@ -14,5 +14,5 @@ pub async fn run_query(State(ctx): State<Context>) {
     .map(|row| row.get("name"))
     .collect::<Vec<String>>();
 
-  info!(attributes=?attributes,"attributes");
+  info!(attributes=?attributes, "attributes");
 }
