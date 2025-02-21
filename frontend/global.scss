@@ -1,0 +1,27 @@
+.journalMdxEditor {
+  p {
+    margin-bottom: 0.5rem;
+  }
+
+  ol {
+    list-style-type: decimal;
+    li {
+      margin: 0;
+    }
+  }
+
+  ul {
+    list-style-type: disc;
+    li {
+      margin: 0;
+    }
+  }
+
+  blockquote {
+    border-left: 2px solid var(--color-slate-600);
+    padding-left: 0.75rem;
+    color: var(--color-slate-600);
+    background-color: var(--color-slate-100);
+    padding: 0.75rem;
+  }
+}

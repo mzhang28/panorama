@@ -6,6 +6,7 @@ import {
   type MDXEditorMethods,
   quotePlugin,
   thematicBreakPlugin,
+  linkPlugin,
 } from "@mdxeditor/editor";
 import { useCallback } from "react";
 import { useState } from "react";
@@ -82,13 +83,14 @@ export default function JournalPage({ date }: JournalPageProps) {
         markdown=""
         ref={mdxEditorRef}
         onChange={(value) => updateLocalPage(value)}
-        className="[&_ul]:list-disc [&_blockquote]:border-l-2 [&_blockquote]:p-2"
+        className="journalMdxEditor"
         plugins={[
           headingsPlugin(),
           listsPlugin(),
           quotePlugin(),
           thematicBreakPlugin(),
           markdownShortcutPlugin(),
+          linkPlugin(),
         ]}
       />
     </div>

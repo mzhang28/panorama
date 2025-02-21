@@ -29,6 +29,7 @@
 - [x] Have individual views (this was done as a tab like thing)
 - [x] download bun
 - later when doing real time stuff, use this: https://loro.dev/blog/loro-richtext
+- something wonky going on with closing tabs, TODO: check it again
 
 ## 2025-02-19
 
