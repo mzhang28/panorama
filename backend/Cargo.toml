@@ -1,8 +1,9 @@
 [package]
 name = "backend"
-version = "0.1.0"
 edition = "2021"
-license = "GPL-3.0-only"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 anyhow = "1.0.95"
@@ -13,43 +14,35 @@ axum = { version = "0.8.1", features = [
   "ws",
   "multipart",
 ] }
+chrono = "0.4.30"
+cmd_lib = "1.9.5"
+dirs = "6.0.0"
 futures = "0.3.31"
-juniper = { version = "0.16.1", features = [
-  "anyhow",
-  "backtrace",
-  "chrono",
+icalendar = { version = "0.16.12", features = [
+  "serde",
+  "serde_json",
   "chrono-tz",
 ] }
-juniper_axum = { version = "0.2.0", features = ["subscriptions"] }
-juniper_graphql_ws = "0.4.0"
+object_store = "0.11.2"
+reqwest = { version = "0.12.12", features = ["stream"] }
 rusqlite = { version = "0.32", features = ["functions"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.138"
+sha2 = "0.10.8"
 sqlx = { version = "0.8.3", features = [
   "runtime-tokio",
   "tls-rustls",
   "sqlite",
   "chrono",
 ] }
+tempfile = "3.17.1"
 tokio = { version = "1.43.0", features = ["full"] }
 tokio-stream = "0.1.17"
-uuid = { version = "1.12.1", features = ["v7"] }
-chrono = "0.4.30"
+tokio-util = { version = "0.7.13", features = ["full", "io", "io-util"] }
+tower-http = { version = "0.6.2", features = ["trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-tower-http = { version = "0.6.2", features = ["trace"] }
-serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.138"
-icalendar = { version = "0.16.12", features = [
-  "serde",
-  "serde_json",
-  "chrono-tz",
-] }
-cmd_lib = "1.9.5"
-reqwest = { version = "0.12.12", features = ["stream"] }
-tokio-util = { version = "0.7.13", features = ["full", "io", "io-util"] }
-object_store = "0.11.2"
-sha2 = "0.10.8"
-tempfile = "3.17.1"
+ts-rs = { version = "10.1.0", features = ["serde-json-impl"] }
+uuid = { version = "1.12.1", features = ["v7"] }
 zip = "2.2.2"
 zip-extract = "0.2.1"
-dirs = "6.0.0"
-ts-rs = { version = "10.1.0", features = ["serde-json-impl"] }
