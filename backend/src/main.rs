@@ -1,24 +1,10 @@
-use std::{env, path::PathBuf, sync::Arc};
+use std::env;
 
 use anyhow::Result;
-use axum::{
-  extract::{DefaultBodyLimit, MatchedPath, Request},
-  response::Response,
-  routing::{any, get, on, post, MethodFilter},
-  Extension, Router,
-};
-use object_store::local::LocalFileSystem;
+use axum::extract::Request;
 use panorama_backend::{create_context, create_web_server};
-use sqlx::{
-  migrate,
-  sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-  Row,
-};
-use tokio::{spawn, sync::mpsc};
-use tower_http::trace::TraceLayer;
-use tracing::{info_span, Span};
+use tokio::sync::mpsc;
 use tracing_subscriber::{fmt::time::uptime, layer::SubscriberExt, util::SubscriberInitExt};
-use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<()> {

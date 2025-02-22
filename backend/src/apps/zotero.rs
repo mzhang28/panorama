@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::{context::Context, db::get_config};
+use crate::context::Context;
 
 #[derive(Debug, Serialize)]
 pub struct ConnectorPingResponse {}
@@ -91,7 +91,7 @@ pub async fn connector_save_snapshot(
   State(ctx): State<Context>,
   Json(req): Json<ConnectorSaveSnapshotRequest>,
 ) -> Json<ConnectorSaveSnapshotResponse> {
-  let mut req = req;
+  let req = req;
   // req.html = String::new();
   debug!(req = ?req, "saveSnapshot");
 

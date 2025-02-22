@@ -4,7 +4,7 @@ use axum::extract::{Multipart, Query, State};
 use axum::Json;
 use chrono::{DateTime, Utc};
 use icalendar::{Calendar, CalendarComponent, CalendarDateTime, Component, DatePerhapsTime, Event};
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
 use sqlx::{QueryBuilder, Row, Sqlite};
 use ts_rs::TS;
 

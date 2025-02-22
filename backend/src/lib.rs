@@ -20,14 +20,14 @@ use std::sync::Arc;
 use anyhow::Result;
 use axum::extract::{DefaultBodyLimit, MatchedPath, Request};
 use axum::response::Response;
-use axum::routing::{any, get, post};
-use axum::{Extension, Router};
+use axum::routing::{get, post};
+use axum::Router;
 use object_store::local::LocalFileSystem;
 use sqlx::{migrate, sqlite::SqliteConnectOptions};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
-use crate::apps::{cal, dataviz, files, journal, search, wakatime, zotero};
+use crate::apps::{cal, files, journal, search, wakatime, zotero};
 use crate::context::Context;
 use crate::db::init_db_options;
 

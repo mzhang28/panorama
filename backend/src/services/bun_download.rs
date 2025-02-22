@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use anyhow::Result;
-use cmd_lib::{run_cmd, run_fun};
+use cmd_lib::run_fun;
 use tempfile::{NamedTempFile, TempDir};
 
 use crate::utils::get_panorama_state_dir;

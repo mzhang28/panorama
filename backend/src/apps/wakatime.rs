@@ -1,5 +1,5 @@
-use axum::{extract::State, http::StatusCode, Extension, Json};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use axum::{extract::State, http::StatusCode, Json};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{Execute, Row};
 

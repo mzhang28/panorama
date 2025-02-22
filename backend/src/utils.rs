@@ -1,6 +1,5 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use tempfile::{NamedTempFile, TempDir};
 
 pub fn get_panorama_state_dir() -> PathBuf {
   dirs::state_dir()
