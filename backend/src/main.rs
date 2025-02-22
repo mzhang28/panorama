@@ -7,8 +7,8 @@ use axum::{
   routing::{any, get, on, post, MethodFilter},
   Extension, Router,
 };
-use backend::{create_context, create_web_server};
 use object_store::local::LocalFileSystem;
+use panorama_backend::{create_context, create_web_server};
 use sqlx::{
   migrate,
   sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
   let app = create_web_server(context).await?;
 
   let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-  axum::serve(listener, app);
+  axum::serve(listener, app).await?;
 
   Ok(())
 }

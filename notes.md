@@ -16,6 +16,7 @@
   - Run bun code as a result of a webhook
 - Wakapi ingestion
 - Tagging system
+- In the desktop build, figure out how to get the backend URL
 
 # Next Rewrite Tasks
 
@@ -52,7 +53,7 @@ need a good data structure that has these functions:
 
 s.t. forall self, id, key, value:
 
-  self.assign(id, key, value)
-  assert self.query({ key }) contains id
+self.assign(id, key, value)
+assert self.query({ key }) contains id
 
 a lattice?
