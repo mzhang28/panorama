@@ -15,6 +15,7 @@
   - Create new webhooks
   - Run bun code as a result of a webhook
 - Wakapi ingestion
+- Tagging system
 
 # Next Rewrite Tasks
 

@@ -82,6 +82,7 @@ export default function JournalPage({ date }: JournalPageProps) {
       <MDXEditor
         markdown=""
         ref={mdxEditorRef}
+        placeholder="What are you thinking about?"
         onChange={(value) => updateLocalPage(value)}
         className="journalMdxEditor"
         plugins={[

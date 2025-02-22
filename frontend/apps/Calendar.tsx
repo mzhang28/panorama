@@ -37,6 +37,7 @@ export default function Calendar() {
         themeSystem="bootstrap5"
         initialView="dayGridMonth"
         height="100%"
+        expandRows={true}
         datesSet={(dateInfo) => {
           setStartDate(dateInfo.start);
           setEndDate(dateInfo.end);

@@ -33,9 +33,9 @@ CREATE TABLE "node" (
   "dataviz_options_json" TEXT,
 
   -- Calendar
-  "cal_date" INTEGER,
+  "cal_date" TEXT,
   "cal_date_json" TEXT,
-  "cal_date_end" INTEGER,
+  "cal_date_end" TEXT,
   "cal_date_end_json" TEXT,
   "cal_location" TEXT,
 
@@ -72,3 +72,11 @@ CREATE TABLE "tags" (
 
   PRIMARY KEY (node_id, tag)
 );
+
+CREATE TRIGGER update_last_updated
+AFTER UPDATE ON node
+FOR EACH ROW BEGIN
+  UPDATE node
+  SET last_updated_at = NOW_ISO8601()
+  WHERE id = OLD.id;
+END;

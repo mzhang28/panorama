@@ -25,7 +25,8 @@ pub async fn ics_upload(State(ctx): State<Context>, mut multipart: Multipart) {
         let start_date = event
           .get_start()
           .and_then(extract_datetime)
-          .map(|date| date.timestamp());
+          .map(|date| date.to_rfc3339());
+        println!("START DATE: {:?}", start_date);
 
         let row = sqlx::query(
           "insert into node (title, cal_date, json)
@@ -99,15 +100,14 @@ pub async fn query_events(
 
   if let Some(start_date) = query.start_date {
     let start_date = DateTime::parse_from_rfc3339(&start_date).unwrap();
-    debug!(start_date = start_date.timestamp(), "Parsed start date");
     qb.push(" and cal_date >= ")
-      .push_bind(start_date.timestamp());
+      .push_bind(start_date.to_rfc3339());
   }
 
   if let Some(end_date) = query.end_date {
     let end_date = DateTime::parse_from_rfc3339(&end_date).unwrap();
-    debug!(end_date = end_date.timestamp(), "Parsed end date");
-    qb.push(" and cal_date <= ").push_bind(end_date.timestamp());
+    qb.push(" and cal_date <= ")
+      .push_bind(end_date.to_rfc3339());
   }
 
   debug!(query = qb.sql(), "Executing SQL query:");

@@ -19,11 +19,12 @@ pub async fn get_journal(
   Path(date): Path<String>,
 ) -> Json<GetJournalResponse> {
   let row = sqlx::query(
-    "insert into node (journal_date) values (?)
+    "insert into node (journal_date, title) values (?, ?)
     on conflict (journal_date) do update set journal_date = EXCLUDED.journal_date
     returning id, content",
   )
   .bind(&date)
+  .bind(&format!("Journal {date}"))
   .fetch_one(&ctx.db)
   .await
   .unwrap();

@@ -8,6 +8,7 @@ extern crate tracing;
 mod apps;
 pub mod context;
 mod db;
+pub mod node;
 pub mod seed_data;
 pub mod services;
 pub mod utils;
@@ -101,7 +102,7 @@ async fn main() -> Result<()> {
   #[rustfmt::skip]
   let app = Router::new()
     .route("/", get(|| async { "Hello, World!" }))
-    .route("/workflows", any(workflow_router))
+    .route("/apps/automate/workflows", any(workflow_router))
     .route("/apps/cal/events", get(cal::query_events))
     .route("/apps/cal/ics_upload", post(cal::ics_upload))
     .route("/apps/file/upload", post(files::upload_file))
@@ -111,9 +112,11 @@ async fn main() -> Result<()> {
     .route("/apps/search", get(search::run_query))
     .route("/apps/wakatime/api/v1/users/current/heartbeats.bulk", post(wakatime::bulk_heartbeats))
     .route("/apps/wakatime/api/v1/users/current/statusbar/today", get(wakatime::statusbar))
+    .route("/apps/zotero/connector/getSelectedCollection", post(zotero::connector_get_selected_collection))
     .route("/apps/zotero/connector/ping", post(zotero::connector_ping))
     .route("/apps/zotero/connector/saveSnapshot", post(zotero::connector_save_snapshot))
-    .route("/apps/zotero/connector/getSelectedCollection", post(zotero::connector_get_selected_collection))
+    .route("/node/recent", get(node::recent))
+    .route("/node/{id}", get(node::fetch))
   ;
 
   let app = app
