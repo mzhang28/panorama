@@ -32,13 +32,16 @@ export default function JournalPage({ date }: JournalPageProps) {
     return data;
   }, [date]);
 
-  const savePage = useCallback(async (value: string) => {
-    await fetch(`/api/apps/journal/by_date/${date}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: value }),
-    });
-  }, []);
+  const savePage = useCallback(
+    async (value: string) => {
+      await fetch(`/api/apps/journal/by_date/${date}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: value }),
+      });
+    },
+    [date]
+  );
 
   const { data: data } = useQuery({
     queryKey: ["journal/page", date],

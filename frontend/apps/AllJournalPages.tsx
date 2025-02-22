@@ -10,7 +10,7 @@ const formatDate = (date: Date) => format(date, "yyyy-MM-dd");
 
 export default function AllJournalPages() {
   const [todaysDate, setTodaysDate] = useState<string>(() =>
-    formatDate(new Date()),
+    formatDate(new Date())
   );
   const [journalPages, setJournalPages] = useState<string[]>([]);
   const endDetector = useRef<HTMLDivElement | null>(null);
@@ -33,7 +33,7 @@ export default function AllJournalPages() {
     return () => {
       clearInterval(interval);
     };
-  }, []);
+  }, [todaysDate]);
 
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
@@ -49,7 +49,7 @@ export default function AllJournalPages() {
             (async () => {
               const lastDate = journalPages[journalPages.length - 1];
               const res = await fetch(
-                `/api/apps/journal/by_date/${lastDate}/prev`,
+                `/api/apps/journal/by_date/${lastDate}/prev`
               );
               const data: GetJournalResponse | null = await res.json();
               if (data === null) {
@@ -69,7 +69,7 @@ export default function AllJournalPages() {
     return () => {
       if (endDetector.current) observer.unobserve(endDetector.current);
     };
-  }, [endDetector, reobserve, todaysDate, journalPages]);
+  }, [reobserve, todaysDate, journalPages]);
 
   return (
     <div className="flex flex-col gap-3 grow">

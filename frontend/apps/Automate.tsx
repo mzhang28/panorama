@@ -3,7 +3,9 @@ export default function Automate() {
     <>
       <h1>Automate</h1>
 
-      <button>create flow</button>
+      <button type="button" className="p-2 border-1">
+        create flow
+      </button>
     </>
   );
 }

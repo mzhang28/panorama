@@ -22,7 +22,10 @@ export default function Home() {
             placeholder="What's new?"
           />
           <div className="flex justify-end">
-            <button className="flex bg-slate-600 text-white px-3 py-2">
+            <button
+              type="button"
+              className="flex bg-slate-600 text-white px-3 py-2"
+            >
               Save to panorama <ArrowRightIcon />
             </button>
           </div>
@@ -56,5 +59,5 @@ function RecentNodes() {
 
   if (!nodes) return <>...</>;
 
-  return nodes.map((node) => <GenericNode id={node.id} />);
+  return nodes.map((node) => <GenericNode key={node.id} id={node.id} />);
 }
