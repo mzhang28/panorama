@@ -17,6 +17,7 @@
 - Wakapi ingestion
 - Tagging system
 - In the desktop build, figure out how to get the backend URL
+- Themes :3
 
 # Next Rewrite Tasks
 
@@ -24,6 +25,8 @@
 - CRDT?
 
 # Development Log
+
+## 2025-02-22
 
 ## 2025-02-21
 

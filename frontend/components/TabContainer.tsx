@@ -22,13 +22,14 @@ export default function TabContainer() {
         <input placeholder="Search panorama..." className="p-2 outline-none" />
         {tabs.map((tab, idx) => (
           <button
+            type="button"
             key={tab.id}
             className={cn(
               "flex items-center gap-2 h-10 rounded-t-md pl-4 py-2",
               idx > 0 ? "pr-3" : "pr-4",
               idx === currentTab
                 ? "bg-slate-900 text-slate-50"
-                : "hover:bg-gray-100",
+                : "hover:bg-gray-100"
             )}
             onClick={() => switchTab(idx)}
           >
@@ -38,9 +39,7 @@ export default function TabContainer() {
                 onClick={() => closeTab(idx)}
                 className={cn(
                   "rounded-lg",
-                  idx === currentTab
-                    ? "hover:bg-red-600"
-                    : "hover:bg-slate-200",
+                  idx === currentTab ? "hover:bg-red-600" : "hover:bg-slate-200"
                 )}
               >
                 <X className="w-3 h-3" />
