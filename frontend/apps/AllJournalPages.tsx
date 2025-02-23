@@ -10,7 +10,7 @@ const formatDate = (date: Date) => format(date, "yyyy-MM-dd");
 
 export default function AllJournalPages() {
   const [todaysDate, setTodaysDate] = useState<string>(() =>
-    formatDate(new Date())
+    formatDate(new Date()),
   );
   const [journalPages, setJournalPages] = useState<string[]>([]);
   const endDetector = useRef<HTMLDivElement | null>(null);
@@ -49,7 +49,7 @@ export default function AllJournalPages() {
             (async () => {
               const lastDate = journalPages[journalPages.length - 1];
               const res = await fetch(
-                `/api/apps/journal/by_date/${lastDate}/prev`
+                `/api/apps/journal/by_date/${lastDate}/prev`,
               );
               const data: GetJournalResponse | null = await res.json();
               if (data === null) {
@@ -78,7 +78,7 @@ export default function AllJournalPages() {
       ))}
 
       <div className="text-slate-500 text-center" ref={endDetector}>
-        <i>fin</i>
+        <i>end of journal</i>
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ mod db;
 mod node;
 pub mod seed_data;
 pub mod services;
+pub mod tag;
 pub mod utils;
 
 use std::env;
@@ -18,10 +19,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
+use axum::Router;
 use axum::extract::{DefaultBodyLimit, MatchedPath, Request};
 use axum::response::Response;
-use axum::routing::{get, post};
-use axum::Router;
+use axum::routing::{get, patch, post};
 use object_store::local::LocalFileSystem;
 use sqlx::{migrate, sqlite::SqliteConnectOptions};
 use tower_http::trace::TraceLayer;
@@ -72,6 +73,8 @@ pub async fn create_web_server(context: Context) -> Result<Router> {
     .route("/apps/zotero/connector/getSelectedCollection", post(zotero::connector_get_selected_collection))
     .route("/node/recent", get(node::recent))
     .route("/node/{id}", get(node::fetch))
+    .route("/node/{id}/tags", get(tag::get_tags))
+    .route("/node/{id}/tags", patch(tag::update_tags))
   ;
 
   let app = app

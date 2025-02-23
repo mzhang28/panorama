@@ -19,6 +19,7 @@ CREATE TABLE "node" (
   "journal_date" TEXT,
 
   -- File
+  "blob_mime" TEXT,
   "blob_hash" TEXT,
 
   -- Automate stuff
