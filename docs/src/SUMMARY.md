@@ -1,7 +1,10 @@
 # Summary
 
 - [Dream](./dream.md)
-- [Future Work](./future.md)
+
+# Built-in Apps
+
+- [Dataviz](./apps/dataviz.md)
 
 # Integrations
 
@@ -12,3 +15,4 @@
 - [Node info](./dev/nodes.md)
 - [Focus](./dev/focus.md)
 - [Log](./dev/log.md)
+- [Future Work](./dev/future.md)

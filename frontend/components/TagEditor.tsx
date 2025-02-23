@@ -19,7 +19,7 @@ export default function TagEditor({ id }: TagEditorProps) {
   const { mutate: addTagMutate } = useMutation({
     mutationKey: ["node", id, "tags"],
     mutationFn: async (newTagValue: string) => {
-      await fetch(`/api/node/${id}/tags`, {
+      const res = await fetch(`/api/node/${id}/tags`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ insertions: [newTagValue] }),

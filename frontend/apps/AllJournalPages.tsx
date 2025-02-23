@@ -77,7 +77,7 @@ export default function AllJournalPages() {
         <JournalPage date={date} key={date} />
       ))}
 
-      <div className="text-slate-500 text-center" ref={endDetector}>
+      <div className="text-slate-500 text-center select-none" ref={endDetector}>
         <i>end of journal</i>
       </div>
     </div>

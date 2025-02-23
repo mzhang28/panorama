@@ -9,7 +9,7 @@ mod apps;
 pub mod context;
 mod db;
 mod node;
-pub mod seed_data;
+pub mod query;
 pub mod services;
 pub mod tag;
 pub mod utils;
@@ -68,9 +68,11 @@ pub async fn create_web_server(context: Context) -> Result<Router> {
     .route("/apps/search", get(search::run_query))
     .route("/apps/wakatime/api/v1/users/current/heartbeats.bulk", post(wakatime::bulk_heartbeats))
     .route("/apps/wakatime/api/v1/users/current/statusbar/today", get(wakatime::statusbar))
+    // TODO: REMOVE ---------------v
     .route("/apps/zotero/connector/ping", post(zotero::connector_ping))
     .route("/apps/zotero/connector/saveSnapshot", post(zotero::connector_save_snapshot))
     .route("/apps/zotero/connector/getSelectedCollection", post(zotero::connector_get_selected_collection))
+    // TODO: ----------------------^
     .route("/node/recent", get(node::recent))
     .route("/node/{id}", get(node::fetch))
     .route("/node/{id}/tags", get(tag::get_tags))
