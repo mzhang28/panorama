@@ -1,11 +1,12 @@
 # Build the rust
-FROM rust:1.84 AS backend-builder
+FROM rust:1.85 AS backend-builder
 RUN mkdir /app
 WORKDIR /app
 COPY Cargo.toml /app
 COPY Cargo.lock /app
 COPY backend/ /app/backend/
-RUN cargo build --release --locked
+COPY src-tauri/ /app/src-tauri/
+RUN cargo build --release --locked -p panorama-backend
 
 # Build the frontend
 FROM oven/bun:1.2.2 AS frontend-builder
@@ -22,6 +23,6 @@ RUN bunx vite build
 
 FROM ubuntu:latest
 RUN mkdir /app
-COPY --from=backend-builder /app/target/release/backend /app/backend
+COPY --from=backend-builder /app/target/release/panorama-backend /app/server
 COPY --from=frontend-builder /usr/local/bin/bun /root/.local/state/panorama/bin/bun
-CMD ["/app/backend"]
+CMD ["/app/server"]

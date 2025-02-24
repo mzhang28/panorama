@@ -4,8 +4,24 @@ import { HelloWave } from "@/components/HelloWave";
 import ParallaxScrollView from "@/components/ParallaxScrollView";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { useAtomValue } from "jotai";
+import { homeserverUrlAtom } from "./settings";
+import { useQuery } from "@tanstack/react-query";
+
+async function fetchApi(base: string) {
+  const res = await fetch(`${base}/`);
+  const data = res.json();
+  return data;
+}
 
 export default function HomeScreen() {
+  const homeserverUrl = useAtomValue(homeserverUrlAtom);
+
+  const result = useQuery({
+    queryKey: ["hello", "world"],
+    queryFn: async () => fetchApi(homeserverUrl),
+  });
+
   return (
     <ParallaxScrollView
       headerBackgroundColor={{ light: "#A1CEDC", dark: "#1D3D47" }}
@@ -20,6 +36,8 @@ export default function HomeScreen() {
         <ThemedText type="title">HELLOGE.</ThemedText>
         <HelloWave />
       </ThemedView>
+      <ThemedText>Your server url is {homeserverUrl}</ThemedText>
+      <ThemedText>{JSON.stringify(result)}</ThemedText>
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Step 1: Try it</ThemedText>
         <ThemedText>
