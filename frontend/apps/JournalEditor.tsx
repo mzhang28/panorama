@@ -43,7 +43,7 @@ export default function JournalEditor({ id, date }: JournalEditorProps) {
     const { content } = nodeJson;
 
     // This is the first load from the server, so let's load it in
-    if (lastServerPage === null) {
+    if (lastServerPage === null && content !== null && content !== undefined) {
       setLastServerPage(content);
       // setLocalPage(content);
       mdxEditorRef.current?.setMarkdown(content);

@@ -1,7 +1,8 @@
 use anyhow::Result;
 use chrono::Utc;
-use rusqlite::functions::FunctionFlags;
-use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
+use rusqlite::{ffi::sqlite3_commit_hook, functions::FunctionFlags};
+use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
+use std::ptr;
 use uuid::Uuid;
 
 pub fn init_db_options() -> SqlitePoolOptions {
@@ -30,6 +31,9 @@ pub fn init_db_options() -> SqlitePoolOptions {
         })
         // same as above
         .unwrap();
+
+      // SAFETY: probably safe
+      // unsafe { sqlite3_commit_hook(*rusqlite_handle.handle(), Some(), ptr::null()) };
 
       drop(rusqlite_handle);
       drop(locked_conn);
