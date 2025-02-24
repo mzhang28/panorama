@@ -7,15 +7,17 @@ import {
   View,
 } from "react-native";
 import { atom, useAtom } from "jotai";
-
-export const homeserverUrlAtom = atom("http://minihost:10020");
+import { homeserverUrlAtom } from "@/lib/node";
+import { Text, Title } from "react-native-paper";
 
 export default function SettingsScreen() {
   const [homeserverUrl, setHomeserverUrl] = useAtom(homeserverUrlAtom);
 
   return (
     <View style={styles.container}>
-      <ThemedText style={styles.titleText}>HELLOSUS</ThemedText>
+      <Title>HELLOSUS</Title>
+
+      <Text>Homeserver URL</Text>
       <TextInput
         keyboardType="url"
         autoCapitalize="none"
@@ -30,7 +32,7 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: 100,
+    padding: 16,
     display: "flex",
     flexDirection: "column",
     gap: 20,

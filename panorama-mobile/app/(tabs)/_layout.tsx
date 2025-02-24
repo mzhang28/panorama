@@ -8,7 +8,7 @@ import TabBarBackground from "@/components/ui/TabBarBackground";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import HomeScreen from ".";
+import HomeScreen from "./(home)";
 import { BottomNavigation, Icon } from "react-native-paper";
 import SettingsScreen from "./settings";
 import { CommonActions } from "@react-navigation/native";
