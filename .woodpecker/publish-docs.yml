@@ -12,5 +12,5 @@ steps:
       - AWS_ENDPOINT_URL
       - AWS_SECRET_ACCESS_KEY
     when:
-      - branch: master
+      - branch: rewrite/from-2025-02-03
         event: push
