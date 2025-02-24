@@ -9,7 +9,6 @@ mod apps;
 pub mod context;
 mod db;
 mod node;
-pub mod query;
 pub mod services;
 pub mod tag;
 pub mod utils;
@@ -25,33 +24,56 @@ use axum::response::Response;
 use axum::routing::{get, patch, post};
 use object_store::local::LocalFileSystem;
 use sqlx::{migrate, sqlite::SqliteConnectOptions};
+use tantivy::Index;
+use tantivy::directory::MmapDirectory;
+use tantivy::schema::{Schema, TEXT};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
+use utils::get_panorama_state_dir;
 
 use crate::apps::{cal, files, journal, search, wakatime, zotero};
 use crate::context::Context;
 use crate::db::init_db_options;
 
 pub async fn create_context() -> Result<Context> {
-  let db_path = PathBuf::from(env::var("DATABASE_PATH").unwrap_or_else(|_| "test.db".to_owned()));
+  let state_dir = get_panorama_state_dir();
+  std::fs::create_dir_all(&state_dir)?;
+  info!(
+    state_dir = state_dir.display().to_string(),
+    "Using state dir"
+  );
 
-  let db = init_db_options()
-    .connect_with(
-      SqliteConnectOptions::new()
-        .filename(db_path)
-        .create_if_missing(true),
-    )
-    .await?;
+  let db = {
+    let db_path = state_dir.join("panorama.db");
+    let db = init_db_options()
+      .connect_with(
+        SqliteConnectOptions::new()
+          .filename(db_path)
+          .create_if_missing(true),
+      )
+      .await?;
+    migrate!().run(&db).await?;
+    db
+  };
 
-  migrate!().run(&db).await?;
+  let object_store = {
+    let storage_root = state_dir.join("storage");
+    std::fs::create_dir_all(&storage_root)?;
+    LocalFileSystem::new_with_prefix(storage_root)?
+  };
 
-  let storage_root = PathBuf::from("./storage");
-  std::fs::create_dir_all(&storage_root)?;
-  let object_store = LocalFileSystem::new_with_prefix(storage_root)?;
+  let tantivy_index = {
+    let tantivy_index_dir = state_dir.join("tantivy");
+    std::fs::create_dir_all(&tantivy_index_dir)?;
+    let directory = MmapDirectory::open(tantivy_index_dir)?;
+    let schema = get_tantivy_schema();
+    Index::open_or_create(directory, schema)?
+  };
 
   Ok(Context {
     db: db.clone(),
     object_store: Arc::new(object_store),
+    tantivy_index,
   })
 }
 
@@ -110,4 +132,10 @@ pub async fn create_web_server(context: Context) -> Result<Router> {
     .with_state(context.clone());
 
   Ok(app)
+}
+
+fn get_tantivy_schema() -> Schema {
+  let mut builder = Schema::builder();
+  builder.add_text_field("content", TEXT);
+  builder.build()
 }

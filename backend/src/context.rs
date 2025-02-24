@@ -7,4 +7,5 @@ use sqlx::SqlitePool;
 pub struct Context {
   pub(crate) db: SqlitePool,
   pub(crate) object_store: Arc<dyn ObjectStore>,
+  pub(crate) tantivy_index: tantivy::Index,
 }
