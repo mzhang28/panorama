@@ -14,7 +14,7 @@ RUN bunx vite build
 # Build the rust
 FROM rust:1.85 AS backend-builder
 RUN mkdir /app
-COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+COPY --from=frontend-builder /app/dist /app/dist
 WORKDIR /app
 COPY Cargo.toml /app
 COPY Cargo.lock /app
