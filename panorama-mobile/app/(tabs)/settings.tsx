@@ -8,7 +8,7 @@ import {
 } from "react-native";
 import { atom, useAtom } from "jotai";
 
-export const homeserverUrlAtom = atom("");
+export const homeserverUrlAtom = atom("http://minihost:10020");
 
 export default function SettingsScreen() {
   const [homeserverUrl, setHomeserverUrl] = useAtom(homeserverUrlAtom);

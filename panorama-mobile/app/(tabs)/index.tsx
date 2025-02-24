@@ -10,7 +10,9 @@ import { useQuery } from "@tanstack/react-query";
 
 async function fetchApi(base: string) {
   const res = await fetch(`${base}/`);
-  const data = res.json();
+  console.log("base is", base);
+  console.log("res is", res);
+  const data = res.text();
   return data;
 }
 
@@ -33,11 +35,12 @@ export default function HomeScreen() {
       }
     >
       <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">HELLOGE.</ThemedText>
+        <ThemedText type="title">hellosu.</ThemedText>
         <HelloWave />
       </ThemedView>
       <ThemedText>Your server url is {homeserverUrl}</ThemedText>
-      <ThemedText>{JSON.stringify(result)}</ThemedText>
+      <ThemedText>Status: {result.status}</ThemedText>
+      <ThemedText>Text (fetched from server): {result.data}</ThemedText>
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Step 1: Try it</ThemedText>
         <ThemedText>
