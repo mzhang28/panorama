@@ -1,0 +1,16 @@
+steps:
+  deploy:
+    image: peaceiris/mdbook:v0.4.40-rust
+    commands:
+      - apk add minio-client
+      - mdbook build docs
+      - mc alias set $AWS_DEFAULT_REGION $AWS_ENDPOINT_URL $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY --api S3v4
+      - mc mirror --overwrite ./docs/book/ $AWS_DEFAULT_REGION/mzhang-io-website/panorama/
+    secrets:
+      - AWS_ACCESS_KEY_ID
+      - AWS_DEFAULT_REGION
+      - AWS_ENDPOINT_URL
+      - AWS_SECRET_ACCESS_KEY
+    when:
+      - branch: master
+        event: push
