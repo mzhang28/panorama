@@ -2,12 +2,21 @@ use std::env;
 
 use anyhow::Result;
 use axum::extract::Request;
+use clap::Parser;
 use panorama_backend::{create_context, create_web_server};
 use tokio::sync::mpsc;
 use tracing_subscriber::{fmt::time::uptime, layer::SubscriberExt, util::SubscriberInitExt};
 
+#[derive(Debug, Parser)]
+struct Opt {
+  #[clap(default_value = "3000", env = "PANORAMA_PORT")]
+  port: u16,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+  let opt = Opt::parse();
+
   let format = tracing_subscriber::fmt::format()
     .with_level(true) // don't include levels in formatted output
     .with_target(false) // don't include targets
@@ -45,7 +54,9 @@ async fn main() -> Result<()> {
 
   let app = create_web_server(context).await?;
 
-  let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+  let listener = tokio::net::TcpListener::bind(("0.0.0.0", opt.port))
+    .await
+    .unwrap();
   axum::serve(listener, app).await?;
 
   Ok(())
