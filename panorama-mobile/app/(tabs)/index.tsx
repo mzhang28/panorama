@@ -1,4 +1,4 @@
-import { Image, StyleSheet, Platform } from "react-native";
+import { Image, StyleSheet, Platform, Pressable } from "react-native";
 
 import { HelloWave } from "@/components/HelloWave";
 import ParallaxScrollView from "@/components/ParallaxScrollView";
@@ -7,21 +7,24 @@ import { ThemedView } from "@/components/ThemedView";
 import { useAtomValue } from "jotai";
 import { homeserverUrlAtom } from "./settings";
 import { useQuery } from "@tanstack/react-query";
+import { Button, Card, List, Title } from "react-native-paper";
+import { RecentNodesResponse } from "@@/backend/bindings/RecentNodesResponse";
+import { Link } from "expo-router";
 
-async function fetchApi(base: string) {
-  const res = await fetch(`${base}/`);
-  console.log("base is", base);
-  console.log("res is", res);
-  const data = res.text();
+async function fetchApi<T>(base: string): Promise<T> {
+  const res = await fetch(`${base}`);
+  const data: T = await res.json();
   return data;
 }
 
 export default function HomeScreen() {
   const homeserverUrl = useAtomValue(homeserverUrlAtom);
 
-  const result = useQuery({
-    queryKey: ["hello", "world"],
-    queryFn: async () => fetchApi(homeserverUrl),
+  const { data: recentNodes } = useQuery({
+    queryKey: ["recentNodes", homeserverUrl],
+    queryFn: async () =>
+      fetchApi<RecentNodesResponse>(`${homeserverUrl}/node/recent`),
+    staleTime: 1000,
   });
 
   return (
@@ -34,13 +37,31 @@ export default function HomeScreen() {
         />
       }
     >
+      <Card>
+        <Card.Content>
+          <Title>Hello World!</Title>
+        </Card.Content>
+      </Card>
+
+      {recentNodes === undefined ? (
+        <ThemedText>Loading...</ThemedText>
+      ) : (
+        <List.Section>
+          <List.Subheader>Recent Nodes</List.Subheader>
+          {recentNodes.nodes.map((node, idx) => (
+            <Link push href="/(tabs)/settings" key={node.id}>
+              {node.id}
+              {/* <List.Item title={node.id} /> */}
+            </Link>
+          ))}
+        </List.Section>
+      )}
+
       <ThemedView style={styles.titleContainer}>
         <ThemedText type="title">hellosu.</ThemedText>
         <HelloWave />
       </ThemedView>
       <ThemedText>Your server url is {homeserverUrl}</ThemedText>
-      <ThemedText>Status: {result.status}</ThemedText>
-      <ThemedText>Text (fetched from server): {result.data}</ThemedText>
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Step 1: Try it</ThemedText>
         <ThemedText>

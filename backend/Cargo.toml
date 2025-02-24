@@ -5,6 +5,9 @@ version.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+static-build = ["dep:rust-embed", "dep:mime_guess"]
+
 [dependencies]
 anyhow = "1.0.95"
 axum = { version = "0.8.1", features = [
@@ -49,6 +52,12 @@ ts-rs = { version = "10.1.0", features = ["serde-json-impl"] }
 uuid = { version = "1.12.1", features = ["v7"] }
 zip = "2.2.2"
 zip-extract = "0.2.1"
+
+rust-embed = { version = "8.5.0", optional = true, features = [
+  "interpolate-folder-path",
+  "compression",
+] }
+mime_guess = { version = "2.0.5", optional = true }
 
 [build-dependencies]
 lalrpop = "0.22.1"

@@ -18,6 +18,9 @@ CREATE TABLE "node" (
   -- We want journals to be dated, but this distinction is rather arbitrary
   "journal_date" TEXT,
 
+  -- Tasks
+  "task_status" TEXT,
+
   -- File
   "blob_mime" TEXT,
   "blob_hash" TEXT,

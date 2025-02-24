@@ -14,8 +14,6 @@ export default function SettingsScreen() {
   const [homeserverUrl, setHomeserverUrl] = useAtom(homeserverUrlAtom);
 
   return (
-    // <SafeAreaView>
-    //   <ScrollView>
     <View style={styles.container}>
       <ThemedText style={styles.titleText}>HELLOSUS</ThemedText>
       <TextInput
@@ -27,8 +25,6 @@ export default function SettingsScreen() {
         onChange={(e) => setHomeserverUrl(e.nativeEvent.text)}
       />
     </View>
-    //   </ScrollView>
-    // </SafeAreaView>
   );
 }
 

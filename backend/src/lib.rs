@@ -18,10 +18,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use axum::Router;
 use axum::extract::{DefaultBodyLimit, MatchedPath, Request};
 use axum::response::Response;
 use axum::routing::{get, patch, post};
+use axum::{Json, Router};
 use object_store::local::LocalFileSystem;
 use sqlx::{migrate, sqlite::SqliteConnectOptions};
 use tantivy::Index;
@@ -80,7 +80,7 @@ pub async fn create_context() -> Result<Context> {
 pub async fn create_web_server(context: Context) -> Result<Router> {
   #[rustfmt::skip]
   let app = Router::new()
-    .route("/", get(|| async { "Hello, World!" }))
+    .route("/", get(|| async { Json("Hello, World!") }))
     .route("/apps/cal/events", get(cal::query_events))
     .route("/apps/cal/ics_upload", post(cal::ics_upload))
     .route("/apps/file/upload", post(files::upload_file))

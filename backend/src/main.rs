@@ -1,7 +1,10 @@
 use std::env;
 
+#[cfg(feature = "static-build")]
+mod static_build;
+
 use anyhow::Result;
-use axum::extract::Request;
+use axum::{Router, extract::Request};
 use clap::Parser;
 use panorama_backend::{create_context, create_web_server};
 use tokio::sync::mpsc;
@@ -9,7 +12,12 @@ use tracing_subscriber::{fmt::time::uptime, layer::SubscriberExt, util::Subscrib
 
 #[derive(Debug, Parser)]
 struct Opt {
-  #[clap(default_value = "3000", env = "PANORAMA_PORT")]
+  #[clap(
+    long = "port",
+    short = 'p',
+    default_value = "3000",
+    env = "PANORAMA_PORT"
+  )]
   port: u16,
 }
 
@@ -53,6 +61,9 @@ async fn main() -> Result<()> {
   // let services_handle = spawn(spawn_services(context.clone()));
 
   let app = create_web_server(context).await?;
+
+  #[cfg(feature = "static-build")]
+  let app = static_build::create_static_router(app);
 
   let listener = tokio::net::TcpListener::bind(("0.0.0.0", opt.port))
     .await
