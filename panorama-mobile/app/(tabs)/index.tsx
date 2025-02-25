@@ -16,14 +16,12 @@ import { useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, List, Title, TouchableRipple } from "react-native-paper";
 import { RecentNodesResponse } from "@@/backend/bindings/RecentNodesResponse";
-import { Link, router, useSegments } from "expo-router";
+import { Link, router, useRootNavigationState, useSegments } from "expo-router";
 import { homeserverUrlAtom, useFetchApi } from "@/lib/node";
 
 export default function HomeScreen() {
   const homeserverUrl = useAtomValue(homeserverUrlAtom);
   const fetchApi = useFetchApi();
-
-  const segments = useSegments();
 
   const { data: recentNodes } = useQuery({
     queryKey: ["recentNodes"],
@@ -40,6 +38,10 @@ export default function HomeScreen() {
           </Title>
         </Card.Content>
       </Card>
+
+      <Link push href="/settings" asChild>
+        <Button mode="contained">Lol</Button>
+      </Link>
 
       {recentNodes === undefined ? (
         <ThemedText>Loading...</ThemedText>
