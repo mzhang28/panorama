@@ -1,30 +1,35 @@
 import { ThemedText } from "@/components/ThemedText";
-import {
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from "react-native";
+import { SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
 import { atom, useAtom } from "jotai";
 import { homeserverUrlAtom } from "@/lib/node";
-import { Text, Title } from "react-native-paper";
+import { Text, TextInput, Title } from "react-native-paper";
+import { useCallback } from "react";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 
 export default function SettingsScreen() {
   const [homeserverUrl, setHomeserverUrl] = useAtom(homeserverUrlAtom);
+  const queryClient = useQueryClient();
+
+  const updateHomeserverUrl = useCallback(
+    (url: string) => {
+      setHomeserverUrl(url);
+      queryClient.clear();
+    },
+    [setHomeserverUrl],
+  );
 
   return (
     <View style={styles.container}>
       <Title>HELLOSUS</Title>
 
-      <Text>Homeserver URL</Text>
       <TextInput
+        label="Homeserver URL"
         keyboardType="url"
         autoCapitalize="none"
         placeholder="Enter a homeserver URL..."
         style={styles.homeserverInput}
         value={homeserverUrl}
-        onChange={(e) => setHomeserverUrl(e.nativeEvent.text)}
+        onChange={(e) => updateHomeserverUrl(e.nativeEvent.text)}
       />
     </View>
   );

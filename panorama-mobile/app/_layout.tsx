@@ -33,7 +33,6 @@ export default function RootLayout() {
   });
 
   const { routes } = useRootNavigationState();
-  console.log(JSON.stringify(routes, null, 2));
 
   useEffect(() => {
     if (loaded) {
@@ -63,7 +62,6 @@ export default function RootLayout() {
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="+not-found" />
-            <Stack.Screen name="node" options={{}} />
           </Stack>
           <StatusBar style="auto" />
         </QueryClientProvider>

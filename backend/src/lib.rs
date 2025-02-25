@@ -20,9 +20,10 @@ use std::sync::Arc;
 use anyhow::Result;
 use axum::extract::{DefaultBodyLimit, MatchedPath, Request};
 use axum::response::Response;
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use object_store::local::LocalFileSystem;
+use serde_json::json;
 use sqlx::{migrate, sqlite::SqliteConnectOptions};
 use tantivy::Index;
 use tantivy::directory::MmapDirectory;
@@ -80,7 +81,7 @@ pub async fn create_context() -> Result<Context> {
 pub async fn create_web_server(context: Context) -> Result<Router> {
   #[rustfmt::skip]
   let app = Router::new()
-    .route("/", get(|| async { Json("Hello, World!") }))
+    .route("/", get(|| async { Json(json!({"hello": "world!", "version": env!("CARGO_PKG_VERSION")})) }))
     .route("/apps/cal/events", get(cal::query_events))
     .route("/apps/cal/ics_upload", post(cal::ics_upload))
     .route("/apps/file/upload", post(files::upload_file))
@@ -95,8 +96,10 @@ pub async fn create_web_server(context: Context) -> Result<Router> {
     .route("/apps/zotero/connector/saveSnapshot", post(zotero::connector_save_snapshot))
     .route("/apps/zotero/connector/getSelectedCollection", post(zotero::connector_get_selected_collection))
     // TODO: ----------------------^
+    .route("/node", put(node::create))
     .route("/node/recent", get(node::recent))
     .route("/node/{id}", get(node::fetch))
+    .route("/node/{id}", patch(node::update))
     .route("/node/{id}/tags", get(tag::get_tags))
     .route("/node/{id}/tags", patch(tag::update_tags))
   ;

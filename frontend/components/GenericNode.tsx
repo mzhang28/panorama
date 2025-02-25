@@ -24,19 +24,24 @@ export default function GenericNode({
 
   if (!nodeJson) return <>{status}</>;
 
+  const computedDisplayStyle = displayStyle ?? guessedDisplayStyle(nodeJson);
+
   return (
     <div className="border-1 shadow-md bg-white flex flex-col">
       <div className="text-sm border-b-1 flex">
         <div className="p-1">
           {nodeJson.title}
           <CopyButton contents={id} />
+          <br />
+          <small>{nodeJson.last_updated_at}</small>
         </div>
         <div className="grow" />
         <div>
           <TagEditor id={id} />
         </div>
       </div>
-      <NodeDisplay id={id} displayStyle={displayStyle} />
+
+      <NodeDisplay id={id} displayStyle={computedDisplayStyle} />
     </div>
   );
 }
@@ -52,6 +57,8 @@ export function NodeDisplay({ id, displayStyle }) {
   switch (displayStyle) {
     case "journalPage":
       return <JournalEditor id={id} date={nodeJson.journal_date} />;
+    case "contentPage":
+      return <JournalEditor id={id} date={nodeJson.journal_date} />;
 
     default:
       return (
@@ -63,4 +70,10 @@ export function NodeDisplay({ id, displayStyle }) {
         </div>
       );
   }
+}
+
+function guessedDisplayStyle(nodeJson) {
+  if (nodeJson.journal_date) return "journalPage";
+  else if (nodeJson.content) return "contentPage";
+  return "";
 }

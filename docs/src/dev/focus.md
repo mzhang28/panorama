@@ -18,3 +18,4 @@
 - Tagging system
 - In the desktop build, figure out how to get the backend URL
 - Themes :3
+- When querying for nodes, configure # of results

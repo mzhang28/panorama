@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface JournalEditorProps {
   id: string;
-  date: string;
+  date?: string;
 }
 
 export default function JournalEditor({ id, date }: JournalEditorProps) {
@@ -29,11 +29,19 @@ export default function JournalEditor({ id, date }: JournalEditorProps) {
 
   const savePage = useCallback(
     async (value: string) => {
-      await fetch(`/api/apps/journal/by_date/${date}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: value }),
-      });
+      if (date) {
+        await fetch(`/api/apps/journal/by_date/${date}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: value }),
+        });
+      } else {
+        await fetch(`/api/node/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: value }),
+        });
+      }
     },
     [date],
   );

@@ -1,6 +1,6 @@
 use axum::{
-  extract::{Path, State},
   Json,
+  extract::{Path, State},
 };
 use sqlx::Row;
 
@@ -68,6 +68,7 @@ pub async fn get_prev_journal(
 #[derive(Debug, Deserialize)]
 pub struct SaveJournalRequest {
   content: String,
+  id: String,
 }
 
 #[derive(Debug, Serialize)]

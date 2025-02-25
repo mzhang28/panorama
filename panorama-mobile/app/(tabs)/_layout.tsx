@@ -17,7 +17,6 @@ export default function TabLayout() {
     <Tabs
       tabBar={({ navigation, state, descriptors }) => (
         <BottomNavigation.Bar
-          shifting
           navigationState={state}
           onTabPress={({ route, preventDefault }) => {
             const event = navigation.emit({
@@ -40,17 +39,11 @@ export default function TabLayout() {
             if (options.tabBarIcon) {
               return options.tabBarIcon({ focused, color, size: 24 });
             }
-
             return null;
           }}
           getLabelText={({ route }) => {
             const { options } = descriptors[route.key];
-            const label =
-              options.tabBarLabel !== undefined
-                ? options.tabBarLabel
-                : options.title !== undefined
-                  ? options.title
-                  : route.title;
+            const label = options.tabBarLabel ?? options.title ?? route.title;
 
             return label;
           }}
@@ -67,20 +60,20 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="calendar"
         options={{
-          title: "Home",
+          title: "Calendar",
           tabBarIcon: ({ color }) => (
-            <Icon source="home" color={color} size={24} />
+            <Icon source="calendar" color={color} size={24} />
           ),
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
-          title: "Home",
+          title: "Settings",
           tabBarIcon: ({ color }) => (
-            <Icon source="home" color={color} size={24} />
+            <Icon source="cog" color={color} size={24} />
           ),
         }}
       />

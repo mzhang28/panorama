@@ -1,10 +1,17 @@
 import { ThemedText } from "@/components/ThemedText";
-import { useFetchApi } from "@/lib/node";
+import {
+  MarkdownTextInput,
+  parseExpensiMark,
+} from "@expensify/react-native-live-markdown";
+import { homeserverUrlAtom, useApiQuery, useFetchApi } from "@/lib/node";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import { View, StyleSheet } from "react-native";
-import { Card, Icon, Text, Title } from "react-native-paper";
+import { Card, Chip, Icon, Text, Title } from "react-native-paper";
 import { format } from "date-fns";
+import { useCallback, useEffect, useState } from "react";
+import JournalEditor from "@/components/JournalEditor";
+import { useAtom } from "jotai";
 
 export interface NodePageProps {}
 
@@ -12,9 +19,15 @@ export default function NodePage({}: NodePageProps) {
   const { id } = useLocalSearchParams();
   const fetchApi = useFetchApi();
 
-  const { data: nodeInfo } = useQuery({
+  const { data: nodeInfo } = useApiQuery({
     queryKey: ["node", id],
     queryFn: async () => fetchApi(`/node/${id}`),
+    staleTime: 1000,
+  });
+
+  const { data: tagInfo } = useApiQuery({
+    queryKey: ["node", id, "tags"],
+    queryFn: async () => fetchApi(`/node/${id}/tags`),
     staleTime: 1000,
   });
 
@@ -34,6 +47,29 @@ export default function NodePage({}: NodePageProps) {
             </Text>
           </Card.Content>
         </Card>
+      )}
+
+      <Card>
+        <Card.Content style={styles.calendarCard}>
+          {(tagInfo ?? []).map((tag) => (
+            <Chip key={tag} icon="tag" mode="outlined" onPress={() => {}}>
+              {tag}
+            </Chip>
+          ))}
+        </Card.Content>
+      </Card>
+
+      {nodeInfo.journal_date !== null && nodeInfo.content !== undefined && (
+        <>
+          <Card>
+            <Card.Content style={styles.calendarCard}>
+              <Icon source="notebook" size={24} />
+              <Text>{nodeInfo.journal_date}</Text>
+            </Card.Content>
+          </Card>
+          <Text>Content:</Text>
+          <JournalEditor id={id} date={nodeInfo.journal_date} />
+        </>
       )}
 
       <Text style={styles.code}>

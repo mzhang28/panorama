@@ -1,6 +1,12 @@
+import {
+  QueryKey,
+  UndefinedInitialDataOptions,
+  useQuery,
+} from "@tanstack/react-query";
 import { atom, useAtomValue } from "jotai";
 import { useCallback, useMemo } from "react";
 
+// export const homeserverUrlAtom = atom("http://10.0.0.234:5173");
 export const homeserverUrlAtom = atom("http://minihost:10020");
 
 export function useFetchApi(): <T>(
@@ -18,14 +24,21 @@ export function useFetchApi(): <T>(
         console.log("requesting", url, init);
         const res = await fetch(url, init);
         const data: T = await res.json();
+        console.log("result", data);
         return data;
       },
     [homeserverUrl],
   );
 }
 
-export async function fetchApi<T>(base: string): Promise<T> {
-  const res = await fetch(`${base}`);
-  const data: T = await res.json();
-  return data;
+export function useApiQuery<
+  TQueryFnData = unknown,
+  TError = Error,
+  TData = TQueryFnData,
+>(options: UndefinedInitialDataOptions<TQueryFnData, TError, TData>) {
+  const homeserverUrl = useAtomValue(homeserverUrlAtom);
+  return useQuery({
+    ...options,
+    queryKey: [homeserverUrl, ...options.queryKey],
+  });
 }

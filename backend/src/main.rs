@@ -8,6 +8,7 @@ use axum::{Router, extract::Request};
 use clap::Parser;
 use panorama_backend::{create_context, create_web_server};
 use tokio::sync::mpsc;
+use tracing::info;
 use tracing_subscriber::{fmt::time::uptime, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Parser)]
@@ -68,6 +69,8 @@ async fn main() -> Result<()> {
   let listener = tokio::net::TcpListener::bind(("0.0.0.0", opt.port))
     .await
     .unwrap();
+
+  info!("Listening on {}", listener.local_addr().unwrap());
   axum::serve(listener, app).await?;
 
   Ok(())
