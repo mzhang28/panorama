@@ -1,0 +1,21 @@
+models:
+  journal:
+    fields:
+      - day
+
+  calendar:
+    fields:
+      - date_start
+      - date_end
+      - location
+
+  contact:
+    fields:
+      - name
+      - email
+
+  viz_panel:
+    fields:
+      - builtin_name
+      - query
+      - options_json

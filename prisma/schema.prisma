@@ -1,0 +1,21 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Node {
+  id                      String  @id @default(uuid())
+  journal__day            String?
+  calendar__date_start    String?
+  calendar__date_end      String?
+  calendar__location      String?
+  contact__name           String?
+  contact__email          String?
+  viz_panel__builtin_name String?
+  viz_panel__query        String?
+  viz_panel__options_json String?
+}

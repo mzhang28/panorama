@@ -1,0 +1,30 @@
+{
+  "name": "panorama",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/estree": "^1.0.7",
+    "concurrently": "^9.1.2",
+    "cookie": "^1.0.2",
+    "yaml": "^2.7.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "scripts": {
+    "generate": "bun run models/generate.ts; prisma format; prisma generate"
+  },
+  "dependencies": {
+    "@hokify/agenda": "^6.3.0",
+    "@prisma/client": "6.5.0",
+    "@types/koa": "^2.15.0",
+    "@types/koa-bodyparser": "^4.3.12",
+    "@types/node-schedule": "^2.1.7",
+    "koa": "^2.16.0",
+    "koa-bodyparser": "^4.4.1",
+    "node-schedule": "^2.1.1",
+    "prisma": "^6.5.0"
+  }
+}
