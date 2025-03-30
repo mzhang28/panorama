@@ -1,6 +1,7 @@
 import Koa from "koa";
 import koaBodyparser from "koa-bodyparser";
-import scheduler from "node-schedule";
+
+import "./search";
 
 const app = new Koa();
 
@@ -9,7 +10,7 @@ app.use(async (ctx) => {
   ctx.body = "Hello World!";
 });
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 6561;
 
 app.listen(port, () => {
   console.log(`Server listening at http://localhost:${port}`);
