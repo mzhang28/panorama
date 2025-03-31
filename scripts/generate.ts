@@ -12,8 +12,8 @@ const depend = async <T, U>(d: Promise<T>, e: () => Promise<U>): Promise<U> => {
 const prismaFile = generatePrisma();
 
 await Promise.all([
-  // prismaFile,
-  // depend(prismaFile, () => $`prisma format`),
-  // depend(prismaFile, () => $`prisma generate`),
+  prismaFile,
+  depend(prismaFile, () => $`prisma format`),
+  depend(prismaFile, () => $`prisma generate`),
   $`peggy -o ${root}/generated/searchQuery.js --dts -m ${root}/generated/searchQuery.map.js ${root}/backend/query.pegjs`,
 ]);

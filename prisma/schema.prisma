@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,14 +8,14 @@ datasource db {
 }
 
 model Node {
-  id String @id @default(uuid(7))
-  journal__day String?
-calendar__date_start String?
-calendar__date_end String?
-calendar__location String?
-contact__name String?
-contact__email String?
-viz_panel__builtin_name String?
-viz_panel__query String?
-viz_panel__options_json String?
+  id                      String  @id @default(uuid(7))
+  journal__day            String?
+  calendar__date_start    String?
+  calendar__date_end      String?
+  calendar__location      String?
+  contact__name           String?
+  contact__email          String?
+  viz_panel__builtin_name String?
+  viz_panel__query        String?
+  viz_panel__options_json String?
 }

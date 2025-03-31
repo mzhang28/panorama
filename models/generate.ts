@@ -8,9 +8,11 @@ const FieldSpec = z.object({
   indexed: z.boolean().default(false),
   type: z.string().default("String"),
 });
+
 const ModelSpec = z.object({
   fields: FieldSpec.array(),
 });
+
 const ModelSpecs = z.object({
   models: z.record(ModelSpec),
 });

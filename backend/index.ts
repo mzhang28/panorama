@@ -1,11 +1,14 @@
 import Koa from "koa";
 import koaBodyparser from "koa-bodyparser";
 
-import "./search";
+import { router as searchRouter } from "./search";
 
 const app = new Koa();
 
 app.use(koaBodyparser());
+
+app.use(searchRouter.routes());
+
 app.use(async (ctx) => {
   ctx.body = "Hello World!";
 });
