@@ -22,6 +22,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(ADS)
 
 add_subdirectory(panorama-core)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(RUST_BUILD_TYPE "debug")
+else()
+    set(RUST_BUILD_TYPE "release")
+endif()
 
 set(BUILD_EXAMPLES OFF CACHE BOOL "Do not build examples" FORCE)
 
@@ -42,5 +47,5 @@ target_include_directories(PanoramaUi PRIVATE
 target_link_libraries(PanoramaUi PRIVATE
     Qt6::Widgets
     qtadvanceddocking-qt6
-    "${CMAKE_BINARY_DIR}/panorama-core/target/release/libpanorama_core.a"
+    "${CMAKE_BINARY_DIR}/panorama-core/target/${RUST_BUILD_TYPE}/libpanorama_core.a"
 )

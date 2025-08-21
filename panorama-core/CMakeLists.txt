@@ -8,7 +8,15 @@ if(NOT CARGO_EXECUTABLE)
     message(FATAL_ERROR "cargo not found")
 endif()
 
-set(RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/target/release")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(RUST_BUILD_TYPE "debug")
+    set(CARGO_BUILD_TYPE_FLAG "")
+else()
+    set(RUST_BUILD_TYPE "release")
+    set(CARGO_BUILD_TYPE_FLAG "--release")
+endif()
+
+set(RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/target/${RUST_BUILD_TYPE}")
 set(RUST_LIB_NAME panorama_core) # must match Cargo.toml [lib] name
 
 file(GLOB_RECURSE RUST_SOURCES
@@ -17,7 +25,7 @@ file(GLOB_RECURSE RUST_SOURCES
 
 add_custom_command(
     OUTPUT "${RUST_TARGET_DIR}/lib${RUST_LIB_NAME}.a"
-    COMMAND ${CARGO_EXECUTABLE} build --release --target-dir "${CMAKE_CURRENT_BINARY_DIR}/target"
+    COMMAND ${CARGO_EXECUTABLE} build ${CARGO_BUILD_TYPE_FLAG} --target-dir "${CMAKE_CURRENT_BINARY_DIR}/target"
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Building Rust library"
     DEPENDS ${RUST_SOURCES}
