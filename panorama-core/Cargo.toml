@@ -1,0 +1,14 @@
+[package]
+name = "panorama-core"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "panorama_core"
+crate-type = ["staticlib"]
+
+[dependencies]
+cxx = "1.0.168"
+
+[build-dependencies]
+cxx-build = "1.0.168"

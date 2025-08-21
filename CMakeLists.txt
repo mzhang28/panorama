@@ -21,6 +21,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ADS)
 
+add_subdirectory(panorama-core)
+
 set(BUILD_EXAMPLES OFF CACHE BOOL "Do not build examples" FORCE)
 
 set(CMAKE_AUTOMOC ON)
@@ -28,12 +30,17 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 add_executable(PanoramaUi
-    src/main.cpp
-    src/MainWindow.cpp
+    ui/main.cpp
+    ui/MainWindow.cpp
 )
+add_dependencies(PanoramaUi PanoramaCore)
 
-target_include_directories(PanoramaUi PRIVATE ${ads_SOURCE_DIR}/src)
+target_include_directories(PanoramaUi PRIVATE
+    "${ads_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/panorama-core/target/cxxbridge/panorama-core/src"
+)
 target_link_libraries(PanoramaUi PRIVATE
     Qt6::Widgets
     qtadvanceddocking-qt6
+    "${CMAKE_BINARY_DIR}/panorama-core/target/release/libpanorama_core.a"
 )
