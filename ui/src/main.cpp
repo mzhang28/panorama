@@ -1,12 +1,11 @@
+#include "MainWindow.h"
 #include <QApplication>
-#include <QWidget>
 
 int main(int argc, char *argv[]) {
   QApplication app(argc, argv);
 
-  QWidget window;
-  window.setWindowTitle("hello world");
-  window.resize(400, 300); // optional, default size
+  MainWindow window;
+  window.setWindowTitle("Panorama");
   window.show();
 
   return app.exec();
