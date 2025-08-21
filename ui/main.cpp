@@ -2,6 +2,8 @@
 #include <QApplication>
 #include <QCommandLineParser>
 
+#include "panorama-core/src/lib.rs.h"
+
 int main(int argc, char *argv[]) {
   QApplication app(argc, argv);
 
@@ -16,7 +18,8 @@ int main(int argc, char *argv[]) {
   if (parser.isSet(daemonOption)) {
     qDebug() << "Running as daemon...";
     // start your daemon loop here
-    return app.exec();
+    run_bridge();
+    return 0;
   } else {
     qDebug() << "Running GUI...";
     MainWindow window;

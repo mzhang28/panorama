@@ -42,7 +42,7 @@ add_dependencies(PanoramaUi PanoramaCore)
 
 target_include_directories(PanoramaUi PRIVATE
     "${ads_SOURCE_DIR}/src"
-    "${CMAKE_SOURCE_DIR}/panorama-core/target/cxxbridge/panorama-core/src"
+    "${CMAKE_BINARY_DIR}/panorama-core/target/cxxbridge"
 )
 target_link_libraries(PanoramaUi PRIVATE
     Qt6::Widgets

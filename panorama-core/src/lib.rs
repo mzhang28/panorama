@@ -1,8 +1,17 @@
+use anyhow::Result;
+
 #[cxx::bridge]
 mod ffi {
     extern "Rust" {
-        fn hello();
+        fn run_bridge();
     }
 }
 
-fn hello() {}
+pub fn run() -> Result<()> {
+    println!("Running daemon from Rust...");
+    Ok(())
+}
+
+fn run_bridge() {
+    let _ = run();
+}
