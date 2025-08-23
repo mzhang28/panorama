@@ -5,6 +5,8 @@
 #include "DockWidget.h"
 #include "MainWindow.h"
 #include "Toolbar.h"
+#include "ads_globals.h"
+#include "views/Calendar.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   QSettings settings("mzhang", "panorama");
@@ -20,23 +22,33 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Create the dock manager
   m_DockManager = new ads::CDockManager(this);
   m_DockManager->restoreState(settings.value("dockManagerState").toByteArray());
+  ads::CDockManager::setConfigFlag(
+      ads::CDockManager::HideSingleCentralWidgetTitleBar, true);
 
-  QLabel *label = new QLabel("Welcome to panorama!");
-  label->setAlignment(Qt::AlignCenter);
+  // QLabel *label = new QLabel("Welcome to panorama!");
+  // label->setAlignment(Qt::AlignCenter);
 
-  ads::CDockWidget *empty = new ads::CDockWidget("Empty");
-  empty->setWidget(label);
-  empty->setFeature(ads::CDockWidget::NoTab, true);
-  m_DockManager->setCentralWidget(empty);
+  // ads::CDockWidget *empty = new ads::CDockWidget(m_DockManager, "Empty");
+  // empty->setWidget(label);
+  // empty->setFeature(ads::CDockWidget::NoTab, true);
+  // m_DockManager->setCentralWidget(empty);
 
   // m_DockManager->setEmptyDockWidgetText("No dock widgets available");
 
   // // Create a dock widget with the label
-  // ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("Label 1");
-  // dockWidget->setWidget(label);
+  {
+    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("Calendar");
+    GCalWeekView *calendar = new GCalWeekView(this);
+    dockWidget->setWidget(calendar);
+    m_DockManager->addDockWidget(ads::TopDockWidgetArea, dockWidget);
+  }
 
-  // // Add the dock widget to the top dock widget area
-  // m_DockManager->addDockWidget(ads::TopDockWidgetArea, dockWidget);
+  {
+    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("Calendar2");
+    GCalWeekView *calendar = new GCalWeekView(this);
+    dockWidget->setWidget(calendar);
+    m_DockManager->addDockWidget(ads::CenterDockWidgetArea, dockWidget);
+  }
 
   // // Create the View menu and add toggle action
   // m_menuView = menuBar()->addMenu("View");

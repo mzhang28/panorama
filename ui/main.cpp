@@ -22,6 +22,7 @@ int main(int argc, char *argv[]) {
   } else {
     qDebug() << "Running GUI...";
     MainWindow window;
+    // window.setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
     window.setWindowTitle("Panorama");
     window.show();
 

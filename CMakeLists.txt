@@ -35,9 +35,10 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 add_executable(PanoramaUi
-    ui/main.cpp
     ui/MainWindow.cpp
     ui/Toolbar.cpp
+    ui/main.cpp
+    ui/views/Calendar.cpp
 )
 add_dependencies(PanoramaUi PanoramaCore)
 
