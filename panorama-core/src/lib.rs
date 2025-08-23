@@ -1,4 +1,11 @@
+mod background;
+mod db;
+
 use anyhow::Result;
+use sqlx::SqlitePool;
+use tokio::runtime::Runtime;
+
+use crate::db::Dal;
 
 #[cxx::bridge]
 mod ffi {
@@ -7,11 +14,18 @@ mod ffi {
     }
 }
 
-pub fn run() -> Result<()> {
+pub async fn run() -> Result<()> {
     println!("Running daemon from Rust...");
+    tokio::spawn(background::background_loop());
+
+    let pool = SqlitePool::connect("test.db").await?;
+    let dal = Dal { pool };
+    dal.migrate().await?;
+
     Ok(())
 }
 
 fn run_bridge() {
-    let _ = run();
+    let runtime = Runtime::new().unwrap();
+    let _ = runtime.block_on(run());
 }

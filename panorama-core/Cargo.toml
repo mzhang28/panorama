@@ -3,13 +3,27 @@ name = "panorama-core"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "panorama-daemon"
+path = "src/main.rs"
+
 [lib]
 name = "panorama_core"
-crate-type = ["staticlib"]
+crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 anyhow = "1.0.99"
 cxx = "1.0.168"
+mlua = { version = "0.11.2", features = ["luajit", "serde", "vendored"] }
+serde_json = "1.0.143"
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio",
+    "sqlite",
+    "tls-none",
+    "tls-rustls",
+] }
+tokio = { version = "1.47.1", features = ["full"] }
+uuid = { version = "1.18.0", features = ["v7"] }
 
 [build-dependencies]
 cxx-build = "1.0.168"

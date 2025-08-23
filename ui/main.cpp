@@ -17,7 +17,6 @@ int main(int argc, char *argv[]) {
 
   if (parser.isSet(daemonOption)) {
     qDebug() << "Running as daemon...";
-    // start your daemon loop here
     run_bridge();
     return 0;
   } else {
