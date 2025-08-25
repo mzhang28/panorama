@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/">
+    <file>fonts/Inter-VariableFont_opsz,wght.ttf</file>
+  </qresource>
+</RCC>

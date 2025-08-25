@@ -1,4 +1,5 @@
 #include <QCloseEvent>
+#include <QFontDatabase>
 #include <QLabel>
 #include <QSettings>
 
@@ -9,6 +10,8 @@
 #include "views/Calendar.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
+  this->backendConn = new QNetworkAccessManager();
+
   QSettings settings("mzhang", "panorama");
   restoreGeometry(settings.value("geometry").toByteArray());
   restoreState(settings.value("windowState").toByteArray());
@@ -18,6 +21,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(toolbar, &MainToolBar::buttonClicked, this, [](const QString &name) {
     QMessageBox::information(nullptr, "Toolbar", name + " clicked");
   });
+
+  // Set font
+  int id = QFontDatabase::addApplicationFont(
+      ":/fonts/Inter-VariableFont_opsz,wght.ttf");
+  QString family = QFontDatabase::applicationFontFamilies(id).at(0);
+  QFont font(family, 12);
+  QApplication::setFont(font);
 
   // Create the dock manager
   m_DockManager = new ads::CDockManager(this);
@@ -66,4 +76,8 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   settings.setValue("windowState", saveState());
   settings.setValue("dockManagerState", m_DockManager->saveState());
   QMainWindow::closeEvent(event);
+}
+
+void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
+  std::cout << "openge " << url << std::endl;
 }

@@ -11,7 +11,7 @@ if(APPLE)
     set(CMAKE_DISABLE_FIND_PACKAGE_Vulkan ON)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -39,6 +39,7 @@ add_executable(PanoramaUi
     ui/Toolbar.cpp
     ui/main.cpp
     ui/views/Calendar.cpp
+    ui/resources.qrc
 )
 add_dependencies(PanoramaUi PanoramaCore)
 
@@ -48,6 +49,7 @@ target_include_directories(PanoramaUi PRIVATE
 )
 target_link_libraries(PanoramaUi PRIVATE
     Qt6::Widgets
+    Qt6::Network
     qtadvanceddocking-qt6
     "${CMAKE_BINARY_DIR}/panorama-core/target/${RUST_BUILD_TYPE}/libpanorama_core.a"
 )
