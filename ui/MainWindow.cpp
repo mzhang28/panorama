@@ -3,15 +3,19 @@
 #include <QLabel>
 #include <QSettings>
 
+#include "DockManager.h"
+#include "DockOverlay.h"
 #include "DockWidget.h"
 #include "MainWindow.h"
+#include "Recents.h"
 #include "Toolbar.h"
 #include "ads_globals.h"
-#include "views/Calendar.h"
+#include "views/Journal.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   this->backendConn = new QNetworkAccessManager();
 
+  // Load window state
   QSettings settings("mzhang", "panorama");
   restoreGeometry(settings.value("geometry").toByteArray());
   restoreState(settings.value("windowState").toByteArray());
@@ -30,39 +34,31 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   QApplication::setFont(font);
 
   // Create the dock manager
-  m_DockManager = new ads::CDockManager(this);
-  m_DockManager->restoreState(settings.value("dockManagerState").toByteArray());
   ads::CDockManager::setConfigFlag(
       ads::CDockManager::HideSingleCentralWidgetTitleBar, true);
+  ads::CDockManager::setAutoHideConfigFlag(
+      ads::CDockManager::AutoHideFeatureEnabled, true);
+  ads::CDockManager::setAutoHideConfigFlag(
+      ads::CDockManager::DockAreaHasAutoHideButton, true);
 
-  // QLabel *label = new QLabel("Welcome to panorama!");
-  // label->setAlignment(Qt::AlignCenter);
+  m_DockManager = new ads::CDockManager(this);
+  m_DockManager->restoreState(settings.value("dockManagerState").toByteArray());
+  // ads::CDockManager::setConfigFlag(ads::CDockManager::FocusHighlighting,
+  // true); // THIS CAUSES A SEGFAULT??
 
-  // ads::CDockWidget *empty = new ads::CDockWidget(m_DockManager, "Empty");
-  // empty->setWidget(label);
-  // empty->setFeature(ads::CDockWidget::NoTab, true);
-  // m_DockManager->setCentralWidget(empty);
-
-  // m_DockManager->setEmptyDockWidgetText("No dock widgets available");
-
-  // // Create a dock widget with the label
-  {
-    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("Calendar");
-    GCalWeekView *calendar = new GCalWeekView(this);
-    dockWidget->setWidget(calendar);
-    m_DockManager->addDockWidget(ads::TopDockWidgetArea, dockWidget);
+  if (m_DockManager->dockWidgetsMap().size() == 0) {
+    auto today =
+        std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now());
+    auto url = std::format("/journal/{:%F}", today);
+    openUrl(url, ads::CenterDockWidgetArea);
   }
 
-  {
-    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("Calendar2");
-    GCalWeekView *calendar = new GCalWeekView(this);
-    dockWidget->setWidget(calendar);
-    m_DockManager->addDockWidget(ads::CenterDockWidgetArea, dockWidget);
-  }
-
-  // // Create the View menu and add toggle action
-  // m_menuView = menuBar()->addMenu("View");
-  // m_menuView->addAction(dockWidget->toggleViewAction());
+  // Left sidebar
+  Recents *recentsWidget = new Recents(this);
+  ads::CDockWidget *recentsDock = m_DockManager->createDockWidget("recents");
+  recentsDock->setWidget(recentsWidget);
+  // recentsDock->toggleView(false);
+  m_DockManager->addAutoHideDockWidget(ads::SideBarLeft, recentsDock);
 }
 
 MainWindow::~MainWindow() {
@@ -80,4 +76,19 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
 void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
   std::cout << "openge " << url << std::endl;
+
+  // TODO: Replace this with some proper routing
+
+  if (url.starts_with("/node/")) {
+    std::string_view id = url.substr(6);
+    std::cout << "lol! " << id << std::endl;
+  }
+
+  if (url.starts_with("/journal/")) {
+    std::string_view id = url.substr(9);
+    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("journal");
+    Journal *journal = new Journal(this);
+    dockWidget->setWidget(journal);
+    m_DockManager->addDockWidget(area, dockWidget);
+  }
 }

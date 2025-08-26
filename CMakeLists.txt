@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.31)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(PanoramaUi LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(APPLE)
@@ -21,6 +21,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ADS)
 
+FetchContent_Declare(
+    QMarkdownTextEdit
+    GIT_REPOSITORY https://github.com/pbek/qmarkdowntextedit.git
+    GIT_TAG 0ada3f3a156fdadd92c91368684ef0f406b835e2 # some random commit i fetched off main, this project doesn't use tags...
+)
+FetchContent_MakeAvailable(QMarkdownTextEdit)
+
 add_subdirectory(panorama-core)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(RUST_BUILD_TYPE "debug")
@@ -36,20 +43,24 @@ set(CMAKE_AUTOUIC ON)
 
 add_executable(PanoramaUi
     ui/MainWindow.cpp
+    ui/Recents.cpp
+    ui/RecentNodeStore.cpp
     ui/Toolbar.cpp
     ui/main.cpp
-    ui/views/Calendar.cpp
     ui/resources.qrc
+    ui/views/Journal.cpp
 )
 add_dependencies(PanoramaUi PanoramaCore)
 
 target_include_directories(PanoramaUi PRIVATE
     "${ads_SOURCE_DIR}/src"
+    "${qmarkdowntextedit_SOURCE_DIR}"
     "${CMAKE_BINARY_DIR}/panorama-core/target/cxxbridge"
 )
 target_link_libraries(PanoramaUi PRIVATE
     Qt6::Widgets
     Qt6::Network
     qtadvanceddocking-qt6
+    qmarkdowntextedit
     "${CMAKE_BINARY_DIR}/panorama-core/target/${RUST_BUILD_TYPE}/libpanorama_core.a"
 )

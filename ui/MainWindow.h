@@ -17,7 +17,9 @@ public:
   ~MainWindow();
 
 public slots:
-  void openUrl(std::string_view url, ads::DockWidgetArea area);
+  /** Open the given URL as a new window with the given dock widget */
+  void openUrl(std::string_view url,
+               ads::DockWidgetArea area = ads::TopDockWidgetArea);
 
 protected:
   void closeEvent(QCloseEvent *event) override;
@@ -27,6 +29,5 @@ private:
 
   QNetworkAccessManager *backendConn;
 
-  // Menu
   QMenu *m_menuView;
 };
