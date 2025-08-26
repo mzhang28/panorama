@@ -13,6 +13,7 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 anyhow = "1.0.99"
+axum = { version = "0.8.4", features = ["http2", "ws", "macros"] }
 clap = { version = "4.5.45", features = ["derive"] }
 cxx = "1.0.168"
 mlua = { version = "0.11.2", features = ["luajit", "serde", "vendored"] }
