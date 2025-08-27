@@ -1,5 +1,10 @@
+#[macro_use]
+extern crate serde;
+
+mod apps;
 mod background;
 mod db;
+mod graphql;
 mod server;
 
 use std::ffi::{CStr, c_char};
@@ -13,7 +18,7 @@ use sqlx::{
 };
 use tokio::runtime::Runtime;
 
-use crate::{db::Dal, server::server_main};
+use crate::{apps::install_default_apps, db::Dal, server::server_main};
 
 #[cxx::bridge]
 mod ffi {
@@ -38,8 +43,11 @@ pub async fn run() -> Result<()> {
     let dal = Dal { pool };
     dal.migrate().await?;
 
+    install_default_apps(dal.clone()).await?;
+
     let background = catch(background::background_loop());
-    let server_main_fut = catch(server_main());
+    let dal_server = dal.clone();
+    let server_main_fut = catch(server_main(dal_server));
 
     let _ = tokio::join!(background, server_main_fut);
     println!("Done!");
