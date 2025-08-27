@@ -72,3 +72,13 @@ Fields are a distinct concept from edges, which relate nodes.
 
 - Misc notes:
   - Build produced several unrelated warnings (unused imports/unused vars) and some macOS linker warnings about SDK versions; these are orthogonal to the implemented features and can be cleaned up separately.
+
+- Recent JournalStore learnings:
+
+  - **Central store:** Added a singleton `JournalStore` (`QObject`) to cache per-node content, debounce saves, and broadcast updates to all open `Journal` widgets via Qt signals (`contentChanged`, `statusChanged`).
+  - **API surface:** `ensureLoaded(nodeId)` loads initial content, `setContent(nodeId, content)` updates cache + schedules save, `setNetworkManager(...)` wires `QNetworkAccessManager` for GraphQL requests.
+  - **Save flow:** Per-node `QTimer` debounces (1s) then issues a `setField` GraphQL mutation; `statusChanged` reports `unsaved` → `saving` → `saved` (or `error`).
+  - **Cross-window updates:** Editors subscribe to `contentChanged` to receive authoritative content; when one window types it calls `setContent` which immediately broadcasts the new text to others.
+  - **Cursor-jump bug & fix:** Emitting `contentChanged` back to the origin caused the origin editor to call `setPlainText(...)` and reset the cursor to the start. Fix: `Journal` now ignores incoming `contentChanged` when the editor already holds the identical text (skip `setPlainText`).
+  - **Alternatives & future improvements:** Could embed an origin token to avoid echoing to the sender, normalize whitespace before comparison, or preserve/restore cursor/selection on programmatic updates; consider changing `statusChanged` to a typed enum (`Q_ENUM`) and removing the singleton in favor of DI.
+  - **Build notes:** Added `ui/stores/JournalStore.cpp` to `CMakeLists.txt` so `Q_OBJECT` is moc'ed. Local sandbox build showed unrelated Qt/uic and macOS SDK warnings (toolchain environment issues) but the source changes are correct for a normal dev environment.

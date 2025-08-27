@@ -8,6 +8,8 @@ pub async fn install_default_apps(dal: Dal) -> Result<()> {
     // Desired journal fields
     let mut desired = HashMap::new();
     desired.insert("journal/title".to_string(), "TEXT".to_string());
+    // Store the editor contents separately from the title
+    desired.insert("journal/content".to_string(), "TEXT".to_string());
 
     // Determine which keys are missing from _panorama_schema_columns
     let mut missing = HashMap::new();

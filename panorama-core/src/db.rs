@@ -36,9 +36,11 @@ impl Dal {
             .map(|(name, ty)| (format!("{}-{}", Uuid::now_v7().to_string(), name), name, ty))
             .collect::<Vec<_>>();
         for (column_name, _, field_ty) in augmented_fields.iter() {
-            s.push(format!("\"{column_name}\" {field_ty},"));
+            // QueryBuilder will insert the separators between entries, so don't
+            // include a trailing comma here.
+            s.push(format!("\"{column_name}\" {field_ty}"));
         }
-        s.push_unseparated("primary key (node_id))");
+        s.push_unseparated(", primary key (node_id))");
         let query = qb.build();
         println!("Query: {:?}", query.sql());
         let _result = query.execute(&self.pool).await?;

@@ -22,8 +22,10 @@ async fn test_install_default_apps_idempotent() -> Result<()> {
     install_default_apps(dal.clone()).await?;
 
     // Check that the key exists only once
-    let count = dal.schema_count("journal/title").await?;
-    assert_eq!(count, 1, "journal/title should be present exactly once");
+    let count_title = dal.schema_count("journal/title").await?;
+    assert_eq!(count_title, 1, "journal/title should be present exactly once");
+    let count_content = dal.schema_count("journal/content").await?;
+    assert_eq!(count_content, 1, "journal/content should be present exactly once");
 
     // Cleanup
     let _ = std::fs::remove_file(db_path);

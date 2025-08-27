@@ -30,19 +30,25 @@ QString JournalStore::content(const QString &nodeId) const {
   return m_contents.value(nodeId, QString());
 }
 
+QString JournalStore::title(const QString &nodeId) const {
+  return m_titles.value(nodeId, QString());
+}
+
 void JournalStore::ensureLoaded(const QString &nodeId) {
-  if (m_contents.contains(nodeId) || !m_mgr) {
+  if ((m_contents.contains(nodeId) || m_titles.contains(nodeId)) || !m_mgr) {
     // already loaded or no network; still emit what we have so UIs can show
+    if (m_titles.contains(nodeId))
+      emit titleChanged(nodeId, m_titles.value(nodeId));
     emit contentChanged(nodeId, m_contents.value(nodeId));
-    emit statusChanged(nodeId, m_contents.contains(nodeId)
+    emit statusChanged(nodeId, (m_contents.contains(nodeId) || m_titles.contains(nodeId))
                                    ? QString("saved")
                                    : QString("unsaved"));
     return;
   }
 
-  // Query backend for node
+  // Query backend for node: request both title and content fields
   QString query = QString(
-      "query($id: String!) { nodes(id: $id) { id journal { title } } }");
+      "query($id: String!) { nodes(id: $id) { id journal { title content } } }");
   QJsonObject vars;
   vars.insert("id", QJsonValue(nodeId));
   QJsonObject body;
@@ -68,10 +74,21 @@ void JournalStore::ensureLoaded(const QString &nodeId) {
             QJsonObject first = nodes.at(0).toObject();
             if (first.contains("journal")) {
               QJsonObject journal = first.value("journal").toObject();
-              if (journal.contains("title")) {
-                QString title = journal.value("title").toString();
-                m_contents.insert(nodeId, title);
-                emit contentChanged(nodeId, title);
+              QString gotTitle;
+              QString gotContent;
+              if (journal.contains("title"))
+                gotTitle = journal.value("title").toString();
+              if (journal.contains("content"))
+                gotContent = journal.value("content").toString();
+              if (!gotTitle.isEmpty()) {
+                m_titles.insert(nodeId, gotTitle);
+                emit titleChanged(nodeId, gotTitle);
+              }
+              if (!gotContent.isEmpty()) {
+                m_contents.insert(nodeId, gotContent);
+                emit contentChanged(nodeId, gotContent);
+              }
+              if (!gotTitle.isEmpty() || !gotContent.isEmpty()) {
                 emit statusChanged(nodeId, QString("saved"));
                 return;
               }
@@ -120,9 +137,10 @@ void JournalStore::onSaveTimerTimeout() {
 
   emit statusChanged(nodeId, QString("saving"));
 
+  // Persist content to the journal app's "content" field.
   QString mutation =
       QString("mutation($nodeId: String!, $value: String!) { setField(nodeId: "
-              "$nodeId, app: \"journal\", field: \"title\", value: $value) }");
+              "$nodeId, app: \"journal\", field: \"content\", value: $value) }");
 
   QJsonObject vars;
   vars.insert("nodeId", QJsonValue(nodeId));

@@ -65,6 +65,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   recentsDock->setWidget(recentsWidget);
   // recentsDock->toggleView(false);
   m_DockManager->addAutoHideDockWidget(ads::SideBarLeft, recentsDock);
+  // Open recent node when double-clicked in the Recents list
+  connect(recentsWidget, &Recents::openNode, this, [this](const QString &nodeId) {
+    QString url = QString("/journal/%1").arg(nodeId);
+    this->openUrl(url.toStdString(), ads::CenterDockWidgetArea);
+  });
 }
 
 MainWindow::~MainWindow() {
