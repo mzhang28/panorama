@@ -30,8 +30,10 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
   header->setContentsMargins(0, 0, 0, 0);
   header->addWidget(label);
   header->addStretch();
-  m_statusLabel = new QLabel(tr("Saved"), this);
-  m_statusLabel->setStyleSheet("QLabel { color: #0a0; padding-left:8px; padding-right:8px; }");
+  m_statusLabel = new QLabel(this);
+  m_statusLabel->setFixedSize(12, 12);
+  m_statusLabel->setStyleSheet("QLabel { background-color: #0a0; border-radius: 6px; }");
+  m_statusLabel->setToolTip(tr("Saved"));
   header->addWidget(m_statusLabel);
   layout->addLayout(header);
 
@@ -47,8 +49,8 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
     QString text = m_editor->toPlainText();
     // Indicate save in-flight
     if (m_statusLabel) {
-      m_statusLabel->setText(tr("Saving..."));
-      m_statusLabel->setStyleSheet("QLabel { color: #e65a00; padding-left:8px; padding-right:8px; }");
+      m_statusLabel->setStyleSheet("QLabel { background-color: #e65a00; border-radius: 6px; }");
+      m_statusLabel->setToolTip(tr("Saving..."));
     }
     // Build GraphQL mutation with variables.
     QString mutation = QString(
@@ -74,8 +76,8 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
       reply->deleteLater();
       // Notify that the content was successfully saved.
       if (m_statusLabel) {
-        m_statusLabel->setText(tr("Saved"));
-        m_statusLabel->setStyleSheet("QLabel { color: #0a0; padding-left:8px; padding-right:8px; }");
+        m_statusLabel->setStyleSheet("QLabel { background-color: #0a0; border-radius: 6px; }");
+        m_statusLabel->setToolTip(tr("Saved"));
       }
     });
   });
@@ -85,8 +87,8 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
     if (m_loading) return;
     // Notify unsaved state and debounce saves
     if (m_statusLabel) {
-      m_statusLabel->setText(tr("Unsaved"));
-      m_statusLabel->setStyleSheet("QLabel { color: #c00; padding-left:8px; padding-right:8px; font-weight: bold; }");
+      m_statusLabel->setStyleSheet("QLabel { background-color: #c00; border-radius: 6px; }");
+      m_statusLabel->setToolTip(tr("Unsaved"));
     }
     m_saveTimer->start(1000);
   });
@@ -128,8 +130,8 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
                   m_loading = false;
                   // Loaded content is saved on disk; clear unsaved indicator
                   if (m_statusLabel) {
-                    m_statusLabel->setText(tr("Saved"));
-                    m_statusLabel->setStyleSheet("QLabel { color: #0a0; padding-left:8px; padding-right:8px; }");
+                    m_statusLabel->setStyleSheet("QLabel { background-color: #0a0; border-radius: 6px; }");
+                    m_statusLabel->setToolTip(tr("Saved"));
                   }
                 }
               }

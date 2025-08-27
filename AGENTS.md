@@ -26,6 +26,16 @@ Fields are a distinct concept from edges, which relate nodes.
   - **Schema lookups are authoritative:** All dynamic table and column names must be resolved via `_panorama_schema*` lookups to avoid SQL injection and to keep the translator simple and safe — never interpolate app or field names directly into SQL without a validated schema mapping.
   - **Tests & CI notes:** Tests create temporary DB files and rely on idempotent app installation; CI must allow these files to be created and removed. Add an integration test to assert that `setField` creates both a `nodes` row and the app field atomically.
   - **Concurrency hazards:** Concurrent writers that attempt to create the same node or schema entries can race — prefer `INSERT OR IGNORE` / `UPSERT` patterns or explicit transactions around the create+write sequence.
+  - **Runtime & integration details (not obvious from code):**
+    - **Backend endpoint & format:** The frontend talks to a local backend at `http://127.0.0.1:4141/graphql` using GraphQL JSON requests with an optional `variables` object.
+    - **Journal node ids:** Journal pages are keyed by ISO date strings (`YYYY-MM-DD`) and opened via URLs like `/journal/YYYY-MM-DD` (Qt uses `QDate::toString(Qt::ISODate)`).
+    - **Save flow & debounce:** Journal saves are debounced (1s) in the UI; the editor sends a `setField(nodeId: ..., app: "journal", field: "title", value: ...)` mutation to persist content. The UI expects the server to persist before showing `Saved`.
+    - **UI threading assumptions:** Qt widgets and signals run on the main thread; network replies are handled via `QNetworkAccessManager` callbacks — avoid heavy work on reply handlers and use the main thread for widget updates.
+    - **Optimistic vs authoritative state:** The UI treats a successful mutation reply as authoritative (marks `Saved`); it does not implement optimistic merges for concurrent edits.
+    - **Icon & resource fallback:** The calendar button uses `QIcon::fromTheme("calendar")` with a `QStyle` fallback; for consistent cross-platform icons consider bundling an SVG resource (`:/icons/...`).
+    - **Per-document indicator behavior:** Each `Journal` has a small inline dot that signals Saved/Saving/Unsaved. Programmatic loads suppress `textChanged` handling (`m_loading`) to avoid false unsaved states.
+    - **Routing & widget creation:** `MainWindow::openUrl` maps `/journal/<id>` to a new `Journal` widget inside a dock; the frontend relies on this routing contract.
+    - **SQL safety:** When writing dynamic tables, always resolve table/column via schema lookup and use parameter binding for values; prefer prepared statements/`sqlx` binding for all user content.
 
 - Implemented idempotent app installation (journal) in Rust:
 
