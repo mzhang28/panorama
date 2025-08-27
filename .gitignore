@@ -5,3 +5,4 @@
 .DS_Store
 .env*
 CMakeLists.txt.user
+/blobs

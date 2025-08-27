@@ -1,9 +1,23 @@
 #include <QApplication>
 #include <QCloseEvent>
+#include <QCryptographicHash>
+#include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QFile>
+#include <QFileInfo>
 #include <QFontDatabase>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QMessageBox>
+#include <QMimeData>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QSettings>
+#include <QUrl>
+#include <QUuid>
+#include <QVBoxLayout>
 
 #include "DockManager.h"
 #include "DockWidget.h"
@@ -11,10 +25,14 @@
 #include "Recents.h"
 #include "Toolbar.h"
 #include "ads_globals.h"
-#include "views/Journal.h"
 #include "stores/JournalStore.h"
+#include "views/FileView.h"
+#include "views/Journal.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
+  // Allow drag & drop of files onto the main window
+  setAcceptDrops(true);
+
   this->backendConn = new QNetworkAccessManager();
   // Provide the network manager to the centralized JournalStore
   JournalStore::instance()->setNetworkManager(this->backendConn);
@@ -66,10 +84,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // recentsDock->toggleView(false);
   m_DockManager->addAutoHideDockWidget(ads::SideBarLeft, recentsDock);
   // Open recent node when double-clicked in the Recents list
-  connect(recentsWidget, &Recents::openNode, this, [this](const QString &nodeId) {
-    QString url = QString("/journal/%1").arg(nodeId);
-    this->openUrl(url.toStdString(), ads::CenterDockWidgetArea);
-  });
+  connect(recentsWidget, &Recents::openNode, this,
+          [this](const QString &nodeId) {
+            QString url = QString("/journal/%1").arg(nodeId);
+            this->openUrl(url.toStdString(), ads::CenterDockWidgetArea);
+          });
 }
 
 MainWindow::~MainWindow() {
@@ -104,4 +123,115 @@ void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
     m_DockManager->addDockWidget(area, dockWidget);
     (void)journal; // no-op: Journal manages its own save indicator now
   }
+
+  if (url == "/importFile") {
+    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("import");
+    QWidget *w = new QWidget();
+    QVBoxLayout *l = new QVBoxLayout(w);
+    QLabel *label = new QLabel(tr("Importing file..."), w);
+    l->addWidget(label);
+    dockWidget->setWidget(w);
+    m_DockManager->addDockWidget(area, dockWidget);
+    return;
+  }
+
+  if (url.starts_with("/file/")) {
+    std::string_view id = url.substr(6);
+    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("file");
+    QString nid = QString::fromStdString(std::string(id));
+    FileView *view = new FileView(nid, this->backendConn, this);
+    dockWidget->setWidget(view);
+    m_DockManager->addDockWidget(area, dockWidget);
+    return;
+  }
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
+  if (event->mimeData()->hasUrls()) {
+    event->acceptProposedAction();
+  } else {
+    event->ignore();
+  }
+}
+
+void MainWindow::dropEvent(QDropEvent *event) {
+  if (!event->mimeData()->hasUrls()) {
+    event->ignore();
+    return;
+  }
+
+  // Open an import panel while we process the drop
+  openUrl("/importFile", ads::CenterDockWidgetArea);
+
+  // Handle the first file only for now
+  QList<QUrl> urls = event->mimeData()->urls();
+  if (urls.isEmpty())
+    return;
+  QUrl url = urls.first();
+  if (!url.isLocalFile())
+    return;
+  QString path = url.toLocalFile();
+
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+    return;
+  QByteArray data = f.readAll();
+  f.close();
+
+// Compute SHA256
+#include <QCryptographicHash>
+  QByteArray hash =
+      QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
+  QString hex = QString::fromUtf8(hash);
+
+  // Copy into blobs/<first2>/<hash>
+  QString blobsRoot = QDir::currentPath() + "/blobs";
+  QString prefix = hex.left(2);
+  QDir dir(blobsRoot);
+  if (!dir.exists())
+    dir.mkpath(".");
+  QString sub = blobsRoot + "/" + prefix;
+  QDir subdir(sub);
+  if (!subdir.exists())
+    subdir.mkpath(".");
+  QString targetPath = sub + "/" + hex;
+  if (!QFile::exists(targetPath)) {
+    QFile::copy(path, targetPath);
+  }
+
+  // Prepare GraphQL mutation to create node and set fields
+  QString nodeId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  qint64 size = data.size();
+
+  QJsonObject vars;
+  vars.insert("nodeId", nodeId);
+  vars.insert("sha", hex);
+  vars.insert("name", QFileInfo(path).fileName());
+  vars.insert("size", QString::number(size));
+
+  QString gql =
+      "mutation($nodeId: String!, $sha: String!, $name: String!, $size: "
+      "String!) {"
+      " setField(nodeId: $nodeId, app: \"file\", field: \"sha256\", value: "
+      "$sha)"
+      " setField(nodeId: $nodeId, app: \"file\", field: \"name\", value: $name)"
+      " setField(nodeId: $nodeId, app: \"file\", field: \"size\", value: $size)"
+      " }";
+
+  QJsonObject payload;
+  payload.insert("query", gql);
+  payload.insert("variables", vars);
+
+  QNetworkRequest req(QUrl("http://127.0.0.1:4141/graphql"));
+  req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+  QNetworkReply *reply =
+      backendConn->post(req, QJsonDocument(payload).toJson());
+  connect(reply, &QNetworkReply::finished, this, [this, reply, nodeId]() {
+    if (reply->error() == QNetworkReply::NoError) {
+      // Open the file panel for the newly created node
+      QString url = QString("/file/%1").arg(nodeId);
+      this->openUrl(url.toStdString(), ads::CenterDockWidgetArea);
+    }
+    reply->deleteLater();
+  });
 }

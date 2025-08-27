@@ -12,7 +12,7 @@ if(APPLE)
     set(CMAKE_DISABLE_FIND_PACKAGE_Vulkan ON)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -50,6 +50,7 @@ add_executable(PanoramaUi
     ui/main.cpp
     ui/resources.qrc
     ui/views/Journal.cpp
+    ui/views/FileView.cpp
     ui/stores/JournalStore.cpp
 )
 add_dependencies(PanoramaUi PanoramaCore)
@@ -67,6 +68,7 @@ target_include_directories(PanoramaUi PRIVATE
     "${RUST_TARGET_DIR}/cxxbridge"
 )
 target_link_libraries(PanoramaUi PRIVATE
+    Qt6::Core
     Qt6::Widgets
     Qt6::Network
     qtadvanceddocking-qt6
