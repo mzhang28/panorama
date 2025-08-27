@@ -14,8 +14,7 @@ public:
 
 private:
   QString m_nodeId;
-  QNetworkAccessManager *m_mgr;
-  QTimer *m_saveTimer{nullptr};
+  QNetworkAccessManager *m_mgr{nullptr};
   class QMarkdownTextEdit *m_editor{nullptr};
   bool m_loading{false};
   QLabel *m_statusLabel{nullptr};

@@ -12,9 +12,12 @@
 #include "Toolbar.h"
 #include "ads_globals.h"
 #include "views/Journal.h"
+#include "stores/JournalStore.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   this->backendConn = new QNetworkAccessManager();
+  // Provide the network manager to the centralized JournalStore
+  JournalStore::instance()->setNetworkManager(this->backendConn);
 
   // Load window state
   QSettings settings("mzhang", "panorama");

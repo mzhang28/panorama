@@ -6,6 +6,7 @@
 
 #include "Journal.h"
 #include "qmarkdowntextedit.h"
+#include "../stores/JournalStore.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -40,105 +41,50 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
   m_editor = new QMarkdownTextEdit();
   layout->addWidget(m_editor);
 
-  m_saveTimer = new QTimer(this);
-  m_saveTimer->setSingleShot(true);
-  connect(m_saveTimer, &QTimer::timeout, this, [this]() {
-    // On timeout, send mutation to backend
-    if (!m_mgr)
-      return;
-    QString text = m_editor->toPlainText();
-    // Indicate save in-flight
-    if (m_statusLabel) {
+  // Use the centralized JournalStore to load/save content and coordinate
+  JournalStore *store = JournalStore::instance();
+  // Ensure the store has a network manager if our MainWindow provided one
+  if (m_mgr)
+    store->setNetworkManager(m_mgr);
+
+  // React to content updates from the store (including our own edits from other windows)
+  connect(store, &JournalStore::contentChanged, this, [this](const QString &id, const QString &content) {
+    if (id != m_nodeId) return;
+    // If our editor already has the same text, avoid calling setPlainText
+    // which would reset the cursor (this prevents the "jump to start" issue).
+    if (m_editor->toPlainText() == content) return;
+    // Programmatic update: avoid triggering save
+    m_loading = true;
+    m_editor->setPlainText(content);
+    m_loading = false;
+  });
+
+  // Update the status indicator when the store emits status changes
+  connect(store, &JournalStore::statusChanged, this, [this](const QString &id, const QString &status) {
+    if (id != m_nodeId) return;
+    if (!m_statusLabel) return;
+    if (status == "saving") {
       m_statusLabel->setStyleSheet("QLabel { background-color: #e65a00; border-radius: 6px; }");
       m_statusLabel->setToolTip(tr("Saving..."));
-    }
-    // Build GraphQL mutation with variables.
-    QString mutation = QString(
-        "mutation($nodeId: String!, $value: String!) { setField(nodeId: "
-        "$nodeId, app: \"journal\", field: \"title\", value: $value) }");
-
-    QJsonObject vars;
-    vars.insert("nodeId", QJsonValue(m_nodeId));
-    vars.insert("value", QJsonValue(text));
-
-    QJsonObject body;
-    body.insert("query", mutation);
-    body.insert("variables", vars);
-    QNetworkRequest req(QUrl("http://127.0.0.1:4141/graphql"));
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-
-    QJsonDocument doc(body);
-    QByteArray data = doc.toJson();
-    auto *reply = m_mgr->post(req, data);
-    connect(reply, &QNetworkReply::finished, reply, [reply, this]() {
-      // Read response and ignore for now
-      QByteArray resp = reply->readAll();
-      reply->deleteLater();
-      // Notify that the content was successfully saved.
-      if (m_statusLabel) {
-        m_statusLabel->setStyleSheet("QLabel { background-color: #0a0; border-radius: 6px; }");
-        m_statusLabel->setToolTip(tr("Saved"));
-      }
-    });
-  });
-
-  connect(m_editor, &QMarkdownTextEdit::textChanged, this, [this]() {
-    // Ignore events while programmatically loading content
-    if (m_loading) return;
-    // Notify unsaved state and debounce saves
-    if (m_statusLabel) {
+    } else if (status == "saved") {
+      m_statusLabel->setStyleSheet("QLabel { background-color: #0a0; border-radius: 6px; }");
+      m_statusLabel->setToolTip(tr("Saved"));
+    } else if (status == "unsaved") {
       m_statusLabel->setStyleSheet("QLabel { background-color: #c00; border-radius: 6px; }");
       m_statusLabel->setToolTip(tr("Unsaved"));
+    } else {
+      m_statusLabel->setStyleSheet("QLabel { background-color: #666; border-radius: 6px; }");
+      m_statusLabel->setToolTip(tr("Unknown"));
     }
-    m_saveTimer->start(1000);
   });
 
-  // On load, fetch the latest content for this node
-  if (m_mgr) {
-    QString query = QString(
-        "query($id: String!) { nodes(id: $id) { id journal { title } } }");
-    QJsonObject vars2;
-    vars2.insert("id", QJsonValue(m_nodeId));
-    QJsonObject body2;
-    body2.insert("query", query);
-    body2.insert("variables", vars2);
-    QNetworkRequest req2(QUrl("http://127.0.0.1:4141/graphql"));
-    req2.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    QJsonDocument doc2(body2);
-    QByteArray data2 = doc2.toJson();
-    auto *reply2 = m_mgr->post(req2, data2);
-    connect(reply2, &QNetworkReply::finished, reply2, [reply2, this]() {
-      QByteArray resp = reply2->readAll();
-      qDebug() << resp;
-      reply2->deleteLater();
-      QJsonParseError err;
-      QJsonDocument rdoc = QJsonDocument::fromJson(resp, &err);
-      if (err.error == QJsonParseError::NoError && rdoc.isObject()) {
-        QJsonObject obj = rdoc.object();
-        if (obj.contains("data")) {
-          QJsonObject data = obj.value("data").toObject();
-          if (data.contains("nodes")) {
-            QJsonArray nodes = data.value("nodes").toArray();
-            if (!nodes.isEmpty()) {
-              QJsonObject first = nodes.at(0).toObject();
-              if (first.contains("journal")) {
-                QJsonObject journal = first.value("journal").toObject();
-                if (journal.contains("title")) {
-                  QString title = journal.value("title").toString();
-                  m_loading = true;
-                  m_editor->setPlainText(title);
-                  m_loading = false;
-                  // Loaded content is saved on disk; clear unsaved indicator
-                  if (m_statusLabel) {
-                    m_statusLabel->setStyleSheet("QLabel { background-color: #0a0; border-radius: 6px; }");
-                    m_statusLabel->setToolTip(tr("Saved"));
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    });
-  }
+  // Local edits update the store; the store will debounce and broadcast saves
+  connect(m_editor, &QMarkdownTextEdit::textChanged, this, [this, store]() {
+    if (m_loading) return;
+    QString text = m_editor->toPlainText();
+    store->setContent(m_nodeId, text);
+  });
+
+  // Ask the store to ensure we have the latest data for this node
+  store->ensureLoaded(m_nodeId);
 }

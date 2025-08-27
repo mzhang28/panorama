@@ -50,6 +50,7 @@ add_executable(PanoramaUi
     ui/main.cpp
     ui/resources.qrc
     ui/views/Journal.cpp
+    ui/stores/JournalStore.cpp
 )
 add_dependencies(PanoramaUi PanoramaCore)
 
