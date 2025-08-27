@@ -10,6 +10,7 @@ mod server;
 pub use apps::install_default_apps;
 pub use db::Dal;
 pub use crate::graphql::graphql_query_to_sql_query;
+pub use crate::graphql::process_graphql_request;
 
 use std::ffi::{CStr, c_char};
 

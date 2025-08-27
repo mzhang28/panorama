@@ -3,6 +3,8 @@ use graphql_parser::query::{Definition, OperationDefinition, Selection};
 use sqlx::{QueryBuilder, Row, Sqlite};
 
 use crate::db::Dal;
+use graphql_parser::query::Value as GqlValue;
+use serde_json::json;
 
 /// Translate a simple GraphQL document into a SQL QueryBuilder.
 ///
@@ -13,20 +15,15 @@ use crate::db::Dal;
 pub async fn graphql_query_to_sql_query(
     dal: Dal,
     query: String,
-) -> Result<QueryBuilder<'static, Sqlite>> {
+) -> Result<(QueryBuilder<'static, Sqlite>, Vec<String>, Vec<String>)> {
     let doc = graphql_parser::parse_query::<String>(&query)?;
-    // Ensure single selection set
-    assert!(
-        doc.definitions
-            .iter()
-            .filter(|def| matches!(
-                def,
-                Definition::Operation(OperationDefinition::SelectionSet(_))
-            ))
-            .count()
-            == 1,
-        "Multiple selection sets are not supported"
-    );
+    // Ensure exactly one operation definition is present
+    let op_count = doc
+        .definitions
+        .iter()
+        .filter(|def| matches!(def, Definition::Operation(_)))
+        .count();
+    assert!(op_count == 1, "Multiple selection sets are not supported");
 
     // We'll collect requested node scalar columns and app keys
     let mut node_cols: Vec<String> = vec![];
@@ -69,19 +66,51 @@ pub async fn graphql_query_to_sql_query(
                     }
                 }
             }
+            Definition::Operation(OperationDefinition::Query(q)) => {
+                for item in q.selection_set.items {
+                    match item {
+                        Selection::Field(field) => {
+                            if field.name == "nodes" {
+                                for sel in field.selection_set.items {
+                                    match sel {
+                                        Selection::Field(f) => {
+                                            if f.selection_set.items.is_empty() {
+                                                node_cols.push(f.name.to_string());
+                                            } else {
+                                                let app_name = f.name;
+                                                for nested in f.selection_set.items {
+                                                    if let Selection::Field(nf) = nested {
+                                                        let key =
+                                                            format!("{}/{}", app_name, nf.name);
+                                                        app_keys.push(key);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        Selection::FragmentSpread(_) => todo!(),
+                        Selection::InlineFragment(_) => todo!(),
+                    }
+                }
+            }
             Definition::Operation(_) => todo!(),
             Definition::Fragment(_) => todo!(),
         }
     }
 
-    // Start building select parts
+    // Start building select parts (we'll alias columns to stable names)
     let mut select_parts: Vec<String> = Vec::new();
-    select_parts.push("nodes.id".to_string());
+    // id as "id"
+    select_parts.push("nodes.id as id".to_string());
     for col in node_cols.iter() {
         if col.as_str() == "id" {
             continue;
         }
-        select_parts.push(format!("nodes.{}", col));
+        select_parts.push(format!("nodes.\"{}\" as \"{}\"", col, col));
     }
 
     // We'll need LEFT JOINs for each distinct sqlite_table_name
@@ -112,16 +141,41 @@ pub async fn graphql_query_to_sql_query(
         // Build joins and add selected columns with aliases
         let mut joins: Vec<String> = Vec::new();
         let mut join_idx = 0usize;
+        // We'll also need to map app key -> alias name for results
+        let mut app_keys_out: Vec<String> = Vec::new();
+        let mut _table_idx = 0usize;
         for (table, cols) in table_cols.into_iter() {
             let alias = format!("t{}", join_idx);
             for c in cols.iter() {
-                select_parts.push(format!("\"{}\".\"{}\"", alias, c));
+                // find the original key for this column by looking up in rows
+                // We need to find which key had this table/column. Query the schema again.
+                // For simplicity, construct an alias name based on table_idx and column.
+                // But we actually want to map original key -> alias. We'll reconstruct keys by querying _panorama_schema_columns.
+                // To keep mapping stable, fetch keys for this table/column
+                let mut qb_k = QueryBuilder::new(
+                    "select key from _panorama_schema_columns where sqlite_table_name = ? and sqlite_column_name = ?",
+                );
+                let qbk = qb_k.build();
+                let rec = qbk.bind(&table).bind(&c).fetch_optional(&dal.pool).await?;
+                let key: String = if let Some(r) = rec {
+                    r.get::<String, _>(0)
+                } else {
+                    format!("{}::{}", table, c)
+                };
+
+                // sanitize key for alias
+                let mut alias_key = key.replace("/", "__");
+                alias_key = alias_key.replace(|ch: char| !ch.is_alphanumeric() && ch != '_', "_");
+                let alias_name = format!("__app_{}", alias_key);
+                select_parts.push(format!("\"{}\".\"{}\" as \"{}\"", alias, c, alias_name));
+                app_keys_out.push(key);
             }
             joins.push(format!(
                 "left join \"{}\" as \"{}\" on \"{}\".node_id = nodes.id",
                 table, alias, alias
             ));
             join_idx += 1;
+            _table_idx += 1;
         }
 
         let sql = format!(
@@ -130,10 +184,212 @@ pub async fn graphql_query_to_sql_query(
             joins.join(" ")
         );
         let final_qb = QueryBuilder::new(sql);
-        return Ok(final_qb);
+        return Ok((final_qb, node_cols, app_keys_out));
     }
 
     // No app fields, just select from nodes
     let sql = format!("select {} from nodes", select_parts.join(", "));
-    Ok(QueryBuilder::new(sql))
+    Ok((QueryBuilder::new(sql), node_cols, vec![]))
+}
+
+/// Process a GraphQL request for both queries and simple mutations.
+///
+/// Supported mutation: `setField(nodeId: "...", app: "journal", field: "title", value: "...")`
+pub async fn process_graphql_request(
+    dal: Dal,
+    query: String,
+    variables: Option<serde_json::Value>,
+) -> Result<serde_json::Value> {
+    let doc = graphql_parser::parse_query::<String>(&query)?;
+
+    // Helper to resolve an incoming GraphQL argument value into a string,
+    // supporting both string literals and variables (looked up from `variables`).
+    fn resolve_gql_value(
+        val: &graphql_parser::query::Value<String>,
+        variables: Option<&serde_json::Value>,
+    ) -> Option<String> {
+        use graphql_parser::query::Value as V;
+        match val {
+            V::String(s) => Some(s.clone()),
+            V::Boolean(b) => Some(b.to_string()),
+            V::Variable(var_name) => {
+                if let Some(vars) = variables {
+                    match vars.get(var_name) {
+                        Some(serde_json::Value::String(s)) => Some(s.clone()),
+                        Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+                        Some(serde_json::Value::Bool(b)) => Some(b.to_string()),
+                        Some(v) => Some(v.to_string()),
+                        None => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            // Fallbacks for numeric literals: use Debug formatting
+            V::Int(i) => Some(format!("{:?}", i)),
+            V::Float(f) => Some(format!("{:?}", f)),
+            _ => None,
+        }
+    }
+
+    // If there's any mutation operation, handle mutations.
+    for def in doc.definitions.iter() {
+        if let Definition::Operation(OperationDefinition::Mutation(m)) = def {
+            // Iterate each top-level field (each mutation)
+            let mut results = vec![];
+            for sel in m.selection_set.items.iter() {
+                if let Selection::Field(f) = sel {
+                    let name = f.name.as_str();
+                    if name == "setField" {
+                        // Extract args
+                        let mut node_id: Option<String> = None;
+                        let mut app: Option<String> = None;
+                        let mut field: Option<String> = None;
+                        let mut value: Option<String> = None;
+                        for (arg_name, arg_val) in f.arguments.iter() {
+                            let resolved = resolve_gql_value(arg_val, variables.as_ref());
+                            match arg_name.as_str() {
+                                "nodeId" => node_id = resolved,
+                                "app" => app = resolved,
+                                "field" => field = resolved,
+                                "value" => value = resolved,
+                                _ => {}
+                            }
+                        }
+
+                        let node_id = node_id.ok_or_else(|| anyhow::anyhow!("missing nodeId"))?;
+                        let app = app.ok_or_else(|| anyhow::anyhow!("missing app"))?;
+                        let field = field.ok_or_else(|| anyhow::anyhow!("missing field"))?;
+                        let value = value.ok_or_else(|| anyhow::anyhow!("missing value"))?;
+
+                        let key = format!("{}/{}", app, field);
+                        let rec = dal.schema_entry(&key).await?;
+                        let (table, col) =
+                            rec.ok_or_else(|| anyhow::anyhow!("unknown schema key"))?;
+
+                        // Ensure the node exists. If it doesn't, insert a new node with the
+                        // app name as its type and current timestamps. This is currently
+                        // non-transactional (two separate statements) — TODO: wrap in a
+                        // single DB transaction so creation + upsert are atomic.
+                        let exists: Option<(i64,)> = sqlx::query_as("select 1 from nodes where id = ? limit 1")
+                            .bind(&node_id)
+                            .fetch_optional(&dal.pool)
+                            .await?;
+                        if exists.is_none() {
+                            let insert_node_sql = "insert into nodes (id, type, created_at, updated_at, extra) values (?, ?, datetime('now'), datetime('now'), '{}')";
+                            sqlx::query(insert_node_sql)
+                                .bind(&node_id)
+                                .bind(&app)
+                                .execute(&dal.pool)
+                                .await?;
+                        }
+
+                        // Build SQL to upsert the value into the dynamic table
+                        let sql = format!(
+                            "insert into \"{}\" (node_id, \"{}\") values (?, ?) on conflict(node_id) do update set \"{}\" = excluded.\"{}\"",
+                            table, col, col, col
+                        );
+                        println!("Executing SQL: {}", sql);
+                        sqlx::query(&sql)
+                            .bind(node_id.clone())
+                            .bind(value.clone())
+                            .execute(&dal.pool)
+                            .await?;
+
+                        results.push(
+                            json!({"ok": true, "nodeId": node_id, "app": app, "field": field}),
+                        );
+                    } else {
+                        return Err(anyhow::anyhow!("unsupported mutation: {}", name));
+                    }
+                }
+            }
+            return Ok(json!({"data": {"mutations": results}}));
+        }
+    }
+
+    // Otherwise, treat as a query: detect simple node id filter, build SQL, execute it, and map back to GraphQL-shaped JSON
+    // Detect nodes(id: "..." or id: $var) argument if present
+    let mut id_filter: Option<String> = None;
+    for def in doc.definitions.iter() {
+        if let Definition::Operation(OperationDefinition::SelectionSet(selection_set)) = def {
+            for item in selection_set.items.iter() {
+                if let Selection::Field(f) = item {
+                    if f.name == "nodes" {
+                        for (arg_name, arg_val) in f.arguments.iter() {
+                            if arg_name == "id" {
+                                if let Some(res) = resolve_gql_value(arg_val, variables.as_ref()) {
+                                    id_filter = Some(res);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let (qb, node_cols, app_keys) = graphql_query_to_sql_query(dal.clone(), query).await?;
+    let mut sql = qb.sql().to_string();
+    println!("SQL: {}", sql);
+    let rows = if let Some(id) = id_filter {
+        sql.push_str(" where nodes.id = ?");
+        sqlx::query(&sql).bind(id).fetch_all(&dal.pool).await?
+    } else {
+        sqlx::query(&sql).fetch_all(&dal.pool).await?
+    };
+
+    let mut nodes_json: Vec<serde_json::Value> = Vec::new();
+    for row in rows.iter() {
+        use serde_json::Value as Jv;
+        use std::collections::HashMap;
+        let mut obj = serde_json::Map::new();
+
+        // id
+        let id: Option<String> = row.try_get("id").ok();
+        if let Some(v) = id {
+            obj.insert("id".to_string(), Jv::String(v));
+        }
+
+        // node scalar cols
+        for col in node_cols.iter() {
+            if col == "id" {
+                continue;
+            }
+            if let Ok(val_opt) = row.try_get::<Option<String>, _>(col.as_str()) {
+                if let Some(v) = val_opt {
+                    obj.insert(col.clone(), Jv::String(v));
+                }
+            }
+        }
+
+        // app fields
+        // app_keys correspond to aliases we used: __app_<sanitized>
+        let mut apps: HashMap<String, serde_json::Map<String, Jv>> = HashMap::new();
+        for key in app_keys.iter() {
+            let mut alias_key = key.replace("/", "__");
+            alias_key = alias_key.replace(|ch: char| !ch.is_alphanumeric() && ch != '_', "_");
+            let alias_name = format!("__app_{}", alias_key);
+            if let Ok(val_opt) = row.try_get::<Option<String>, _>(alias_name.as_str()) {
+                if let Some(v) = val_opt {
+                    // split key into app and field
+                    if let Some((app, field)) = key.split_once('/') {
+                        let entry = apps
+                            .entry(app.to_string())
+                            .or_insert_with(|| serde_json::Map::new());
+                        entry.insert(field.to_string(), Jv::String(v));
+                    }
+                }
+            }
+        }
+
+        // insert apps as nested objects
+        for (app, map) in apps.into_iter() {
+            obj.insert(app, Jv::Object(map));
+        }
+
+        nodes_json.push(Jv::Object(obj));
+    }
+
+    Ok(json!({"data": {"nodes": nodes_json}}))
 }

@@ -89,7 +89,8 @@ void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
   if (url.starts_with("/journal/")) {
     std::string_view id = url.substr(9);
     ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("journal");
-    Journal *journal = new Journal(this);
+    QString nid = QString::fromStdString(std::string(id));
+    Journal *journal = new Journal(nid, this->backendConn, this);
     dockWidget->setWidget(journal);
     m_DockManager->addDockWidget(area, dockWidget);
   }

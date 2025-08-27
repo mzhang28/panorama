@@ -19,7 +19,7 @@ async fn test_graphql_to_sql_simple() -> Result<()> {
     install_default_apps(dal.clone()).await?;
 
     let query = "{ nodes { id type journal { title } } }".to_string();
-    let qb = panorama_core::graphql_query_to_sql_query(dal.clone(), query).await?;
+    let (qb, _node_cols, _app_keys) = panorama_core::graphql_query_to_sql_query(dal.clone(), query).await?;
 
     // Get the sqlite names for journal/title
     let rec = dal.schema_entry("journal/title").await?;

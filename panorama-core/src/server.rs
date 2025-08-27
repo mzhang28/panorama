@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
 };
 
-use crate::{db::Dal, graphql::graphql_query_to_sql_query};
+use crate::db::Dal;
 
 pub async fn server_main(dal: Dal) -> Result<()> {
     println!("Server main");
@@ -30,14 +30,23 @@ struct AppState {
 #[derive(Debug, Deserialize)]
 struct PostGraphqlReq {
     query: String,
+    variables: Option<serde_json::Value>,
 }
 
-async fn post_graphql(state: State<AppState>, request: Json<PostGraphqlReq>) {
+async fn post_graphql(
+    State(state): State<AppState>,
+    request: Json<PostGraphqlReq>,
+) -> axum::response::Json<serde_json::Value> {
     println!("request: {:?}", request);
 
-    let qb = match graphql_query_to_sql_query(state.dal.clone(), request.query.clone()).await {
-        Ok(qb) => qb,
-        Err(e) => todo!("failed to turn into sql: {e:?}"),
-    };
-    println!("SQL: {:?}", qb.sql());
+    match crate::graphql::process_graphql_request(
+        state.dal.clone(),
+        request.query.clone(),
+        request.variables.clone(),
+    )
+    .await
+    {
+        Ok(v) => axum::response::Json(v),
+        Err(e) => axum::response::Json(serde_json::json!({"error": format!("{e:?}")})),
+    }
 }
