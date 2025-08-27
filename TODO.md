@@ -1,0 +1,4 @@
+- [ ] Implement the logic for translating frontend queries to SQL. Frontend queries are done in GraphQL, and should be translated in the backend into SQL calls by first parsing the GraphQL query, determining which keys need to be fetched, and then fetching which REAL database tables those keys lie in. Then, you can join the nodes table by those and fetch all the appropriate information to reconstruct the response back to the client.
+  - Check `panorama-core/src/graphql.rs` for a starting point.
+  - [ ] In `panorama-core/src/apps.rs`, a journal app is starting to be created. Complete this. Make sure the journal fields are ONLY being created if they don't already exist. This logic hasn't been implemented yet, so you will need to do that too.
+  - [ ] Write a small test to test this functionality.
