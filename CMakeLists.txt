@@ -63,16 +63,19 @@ target_link_libraries(PanoramaUi PRIVATE PanoramaCoreLib)
 target_include_directories(PanoramaUi PRIVATE
     "${ads_SOURCE_DIR}/src"
     "${qmarkdowntextedit_SOURCE_DIR}"
-    "${CMAKE_BINARY_DIR}/panorama-core/target/x86_64-pc-windows-gnu/cxxbridge"
+    "${RUST_TARGET_DIR}/cxxbridge"
 )
 target_link_libraries(PanoramaUi PRIVATE
     Qt6::Widgets
     Qt6::Network
     qtadvanceddocking-qt6
     qmarkdowntextedit
-
-    # Win libs ???
-    bcrypt
-    advapi32
-    ntdll
 )
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    target_link_libraries(PanoramaUi PRIVATE
+        bcrypt
+        advapi32
+        ntdll
+    )
+endif()

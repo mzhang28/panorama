@@ -14,30 +14,25 @@ else()
     set(CARGO_BUILD_TYPE_FLAG "--release")
 endif()
 
-set(RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/target/x86_64-pc-windows-gnu/${RUST_BUILD_TYPE}")
-set(RUST_LIB_NAME panorama_core)
-set(RUST_BRIDGE_FILE "${CMAKE_CURRENT_BINARY_DIR}/target/x86_64-pc-windows-gnu/cxxbridge/panorama-core/src/lib.rs.cc")
-
-set(RUST_TARGET_FLAG "")
-set(RUST_LIB_FILE "${RUST_TARGET_DIR}/libpanorama_core.a")
-set(RUST_LIB_FILE "${RUST_LIB_FILE}" PARENT_SCOPE)
+set(RUST_TARGET_SUFFIX "")
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(RUST_TARGET_FLAG "--target" "x86_64-pc-windows-gnu")
-    #    set(RUST_LIB_FILE "${RUST_TARGET_DIR}/panorama_core.lib")
+    set(RUST_TARGET_SUFFIX "/x86_64-pc-windows-gnu")
 else()
 endif()
+
+set(RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/target${RUST_TARGET_SUFFIX}")
+set(RUST_TARGET_DIR "${RUST_TARGET_DIR}" PARENT_SCOPE)
+set(RUST_LIB_NAME panorama_core)
+set(RUST_BRIDGE_FILE "${CMAKE_CURRENT_BINARY_DIR}/target${RUST_TARGET_SUFFIX}/${RUST_BUILD_TYPE}/cxxbridge/panorama-core/src/lib.rs.cc")
+
+set(RUST_TARGET_FLAG "")
+set(RUST_LIB_FILE "${RUST_TARGET_DIR}/${RUST_BUILD_TYPE}/libpanorama_core.a")
+set(RUST_LIB_FILE "${RUST_LIB_FILE}" PARENT_SCOPE)
 
 file(GLOB_RECURSE RUST_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.rs"
 )
-
-message(STATUS "WIN32 = ${WIN32}")
-message(STATUS "CMAKE_SYSTEM_NAME = ${CMAKE_SYSTEM_NAME}")
-
-message(STATUS "CARGO_BUILD_TYPE_FLAG = ${RUST_BUILD_TYPE_FLAG}")
-message(STATUS "CARGO_TARGET_FLAG = ${RUST_TARGET_FLAG}")
-message(STATUS "RUST_LIB_FILE = ${RUST_LIB_FILE}")
-message(STATUS "RUST_BRIDGE_FILE = ${RUST_BRIDGE_FILE}")
 
 add_custom_command(
     OUTPUT "${RUST_LIB_FILE}" "${RUST_BRIDGE_FILE}"
@@ -49,5 +44,4 @@ add_custom_command(
 
 add_custom_target(PanoramaCore ALL
     DEPENDS "${RUST_LIB_FILE}" "${RUST_BRIDGE_FILE}"
-#    "${RUST_TARGET_DIR}/lib${RUST_LIB_NAME}.a"
 )
