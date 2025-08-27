@@ -5,6 +5,7 @@
 
 class QTimer;
 class QLabel;
+class MarkdownEdit;
 
 class Journal : public QWidget {
   Q_OBJECT
@@ -15,7 +16,7 @@ public:
 private:
   QString m_nodeId;
   QNetworkAccessManager *m_mgr{nullptr};
-  class QMarkdownTextEdit *m_editor{nullptr};
+  class MarkdownEdit *m_editor{nullptr};
   bool m_loading{false};
   QLabel *m_statusLabel{nullptr};
 };

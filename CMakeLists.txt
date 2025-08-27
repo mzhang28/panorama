@@ -52,6 +52,7 @@ add_executable(PanoramaUi
     ui/views/Journal.cpp
     ui/views/FileView.cpp
     ui/stores/JournalStore.cpp
+    ui/widgets/MarkdownEdit.cpp
 )
 add_dependencies(PanoramaUi PanoramaCore)
 
