@@ -15,6 +15,7 @@
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   this->backendConn = new QNetworkAccessManager();
 
+
   // Load window state
   QSettings settings("mzhang", "panorama");
   restoreGeometry(settings.value("geometry").toByteArray());
@@ -31,6 +32,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
       ":/fonts/Inter-VariableFont_opsz,wght.ttf");
   QString family = QFontDatabase::applicationFontFamilies(id).at(0);
   QFont font(family, 12);
+  font.setStyleStrategy(QFont::PreferAntialias);
   QApplication::setFont(font);
 
   // Create the dock manager

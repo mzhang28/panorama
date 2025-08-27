@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
 
+#include "panorama-core/src/lib.rs.cc"
 #include "panorama-core/src/lib.rs.h"
 
 int main(int argc, char *argv[]) {
