@@ -16,6 +16,16 @@ Fields are a distinct concept from edges, which relate nodes.
 
 - Your modifications are not complete until both Rust and C++ sides compile. This is done by running `ninja -C build` from the root directory of this repository.
 
+# Remaining tasking
+
+- Add an atomic `importFile` backend mutation to create the `nodes` row and all `file/*` fields in a single DB transaction.
+- Add `file/uploaded_at` (timestamp) field and populate it on import.
+- Deduplicate and validate blobs before copy; surface corruption checks and return deterministic paths.
+- Make blob store path configurable (avoid hardcoding `blobs/`) and centralize blob helper utilities.
+- Improve UI: support multi-file drops, an import queue panel with progress/errors, and nicer import UX than the temporary placeholder.
+- Add integration tests: verify `importFile` (or multi-`setField`) creates `nodes` row and app fields atomically and that blob files are written to the tiered path.
+- Extend GraphQL execution: run translator SQL, map rows into GraphQL-shaped JSON, and add support for filters/arguments/fragments.
+
 # Development log
 
 - Important context:
@@ -71,6 +81,7 @@ Fields are a distinct concept from edges, which relate nodes.
   - Run Rust crate tests: `cd panorama-core && cargo test`
 
 - Misc notes:
+
   - Build produced several unrelated warnings (unused imports/unused vars) and some macOS linker warnings about SDK versions; these are orthogonal to the implemented features and can be cleaned up separately.
 
 - Recent JournalStore learnings:
