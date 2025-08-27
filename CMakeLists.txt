@@ -56,8 +56,8 @@ add_dependencies(PanoramaUi PanoramaCore)
 add_library(PanoramaCoreLib STATIC IMPORTED GLOBAL)
 set_target_properties(PanoramaCoreLib PROPERTIES
     IMPORTED_LOCATION "${RUST_LIB_FILE}"
-    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}/panorama-core/target/x86_64-pc-windows-gnu/cxxbridge"
 )
+add_dependencies(PanoramaCoreLib PanoramaCore)
 target_link_libraries(PanoramaUi PRIVATE PanoramaCoreLib)
 
 target_include_directories(PanoramaUi PRIVATE

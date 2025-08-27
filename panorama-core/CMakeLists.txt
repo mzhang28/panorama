@@ -19,10 +19,11 @@ set(RUST_LIB_NAME panorama_core)
 set(RUST_BRIDGE_FILE "${CMAKE_CURRENT_BINARY_DIR}/target/x86_64-pc-windows-gnu/cxxbridge/panorama-core/src/lib.rs.cc")
 
 set(RUST_TARGET_FLAG "")
-set(RUST_LIB_FILE "${RUST_TARGET_DIR}/libpanorama_core.a" PARENT_SCOPE)
+set(RUST_LIB_FILE "${RUST_TARGET_DIR}/libpanorama_core.a")
+set(RUST_LIB_FILE "${RUST_LIB_FILE}" PARENT_SCOPE)
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(RUST_TARGET_FLAG "--target" "x86_64-pc-windows-gnu")
-#    set(RUST_LIB_FILE "${RUST_TARGET_DIR}/panorama_core.lib")
+    #    set(RUST_LIB_FILE "${RUST_TARGET_DIR}/panorama_core.lib")
 else()
 endif()
 
