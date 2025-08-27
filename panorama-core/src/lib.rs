@@ -1,23 +1,24 @@
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
+mod macros;
+
 mod apps;
 mod background;
 mod db;
 mod graphql;
 mod server;
 
+pub use crate::graphql::process_graphql_request;
 pub use apps::install_default_apps;
 pub use db::Dal;
-pub use crate::graphql::process_graphql_request;
 
 use std::ffi::{CStr, c_char};
 
 use anyhow::Result;
 use clap::Parser;
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use tokio::runtime::Runtime;
 
 use crate::server::server_main;

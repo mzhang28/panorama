@@ -54,68 +54,91 @@ impl GraphProcessor {
     ///
     /// Returns `(node_cols, app_keys)` where `app_keys` are strings like `journal/title`.
     pub fn collect_query_fields(&self, doc: &Document<'_, String>) -> (Vec<String>, Vec<String>) {
-        let mut node_cols: Vec<String> = vec![];
-        let mut app_keys: Vec<String> = vec![];
+        // Collect node scalar columns and app keys using iterator chains
+        let mut node_cols: Vec<String> = Vec::new();
+        let mut app_keys: Vec<String> = Vec::new();
 
         for def in doc.definitions.iter() {
-            match def {
-                Definition::Operation(OperationDefinition::SelectionSet(selection_set)) => {
-                    for item in selection_set.items.iter() {
-                        if let Selection::Field(field) = item {
-                            if field.name == "nodes" {
-                                for sel in field.selection_set.items.iter() {
-                                    if let Selection::Field(f) = sel {
-                                        if f.selection_set.items.is_empty() {
-                                            node_cols.push(f.name.to_string());
-                                        } else {
-                                            let app_name = f.name.clone();
-                                            for nested in f.selection_set.items.iter() {
-                                                if let Selection::Field(nf) = nested {
-                                                    let key = format!("{}/{}", app_name, nf.name);
-                                                    app_keys.push(key);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+            // Normalize to an iterator over top-level selections for this definition
+            let top_items = match def {
+                Definition::Operation(OperationDefinition::SelectionSet(s)) => {
+                    s.items.iter().collect::<Vec<_>>()
                 }
                 Definition::Operation(OperationDefinition::Query(q)) => {
-                    for item in q.selection_set.items.iter() {
-                        if let Selection::Field(field) = item {
-                            if field.name == "nodes" {
-                                for sel in field.selection_set.items.iter() {
-                                    if let Selection::Field(f) = sel {
-                                        if f.selection_set.items.is_empty() {
-                                            node_cols.push(f.name.to_string());
-                                        } else {
-                                            let app_name = f.name.clone();
-                                            for nested in f.selection_set.items.iter() {
-                                                if let Selection::Field(nf) = nested {
-                                                    let key = format!("{}/{}", app_name, nf.name);
-                                                    app_keys.push(key);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    q.selection_set.items.iter().collect::<Vec<_>>()
                 }
-                _ => {}
-            }
+                _ => Vec::new(),
+            };
+
+            top_items.into_iter().filter_map(pred_matches!(Selection::Field(field) => field)).for_each(|field| {
+                if field.name == "nodes" {
+                    // For each field requested on `nodes`, decide whether it's a node scalar
+                    // or an app object and push into the corresponding vec.
+                    field.selection_set.items.iter().filter_map(pred_matches!(Selection::Field(f) => f)).for_each(|f| {
+                        if f.selection_set.items.is_empty() {
+                            node_cols.push(f.name.to_string());
+                        } else {
+                            let app_name = f.name.clone();
+                            f.selection_set.items.iter().filter_map(pred_matches!(Selection::Field(nf) => nf)).for_each(|nf| {
+                                app_keys.push(format!("{}/{}", app_name, nf.name));
+                            });
+                        }
+                    });
+                }
+            });
         }
 
         (node_cols, app_keys)
     }
 
+    /// Convert a schema key like `app/field` into a safe alias name used in
+    /// SQL result column aliases (non-alphanumeric replaced with `_`).
+    fn alias_name_for_key(key: &str) -> String {
+        let mut alias_key = key.replace("/", "__");
+        alias_key = alias_key.replace(|ch: char| !ch.is_alphanumeric() && ch != '_', "_");
+        format!("__app_{}", alias_key)
+    }
+
+    /// For a logical schema key like `app/field` return the SQL alias and the
+    /// split parts `(alias, app, field)`. Returns `None` if the key cannot be
+    /// split into two parts.
+    fn alias_and_parts_for_key(key: &str) -> Option<(String, String, String)> {
+        if let Some((app, field)) = key.split_once('/') {
+            Some((Self::alias_name_for_key(key), app.to_string(), field.to_string()))
+        } else {
+            None
+        }
+    }
+
+    /// Given a sqlite table and column, look up the corresponding schema `key`
+    /// in `_panorama_schema_columns`. If not found, fall back to a
+    /// `"table::column"` synthetic key.
+    async fn schema_key_for_table_col(&self, table: &str, col: &str) -> Result<String> {
+        let mut qb_k = QueryBuilder::new(
+            "select key from _panorama_schema_columns where sqlite_table_name = ? and sqlite_column_name = ?",
+        );
+        let qbk = qb_k.build();
+        let rec = qbk
+            .bind(table)
+            .bind(col)
+            .fetch_optional(&self.dal.pool)
+            .await?;
+        let key: String = if let Some(r) = rec {
+            r.get::<String, _>(0)
+        } else {
+            format!("{}::{}", table, col)
+        };
+        Ok(key)
+    }
+
     /// Build a SQL `SELECT` statement string and return also the resolved
     /// `app_keys_out` (the original keys used to map result aliases back to
     /// app fields).
-    pub async fn build_select_sql(&self, node_cols: &[String], app_keys: &[String]) -> Result<(String, Vec<String>)> {
+    pub async fn build_select_sql(
+        &self,
+        node_cols: &[String],
+        app_keys: &[String],
+    ) -> Result<(String, Vec<String>)> {
         // Start building select parts (we'll alias columns to stable names)
         let mut select_parts: Vec<String> = Vec::new();
         // id as "id"
@@ -148,45 +171,37 @@ impl GraphProcessor {
 
         // Map table -> columns
         use std::collections::HashMap;
-        let mut table_cols: HashMap<String, Vec<String>> = HashMap::new();
-        for row in rows.iter() {
-            let _key: String = row.get::<String, _>(0);
-            let table: String = row.get::<String, _>(1);
-            let col: String = row.get::<String, _>(2);
-            table_cols.entry(table).or_default().push(col);
-        }
+        // Fold rows into a map of table -> columns for clearer intent
+        let table_cols: HashMap<String, Vec<String>> =
+            rows.iter().fold(HashMap::new(), |mut acc, row| {
+                let _key: String = row.get::<String, _>(0);
+                let table: String = row.get::<String, _>(1);
+                let col: String = row.get::<String, _>(2);
+                acc.entry(table).or_default().push(col);
+                acc
+            });
 
-        // Build joins and add selected columns with aliases
+        // Build joins and add selected columns with aliases. For clarity we
+        // enumerate tables so aliases are predictable (t0, t1, ...).
         let mut joins: Vec<String> = Vec::new();
-        let mut join_idx = 0usize;
         let mut app_keys_out: Vec<String> = Vec::new();
-        for (table, cols) in table_cols.into_iter() {
-            let alias = format!("t{}", join_idx);
-            for c in cols.iter() {
-                // fetch key for this table/column
-                let mut qb_k = QueryBuilder::new(
-                    "select key from _panorama_schema_columns where sqlite_table_name = ? and sqlite_column_name = ?",
-                );
-                let qbk = qb_k.build();
-                let rec = qbk.bind(&table).bind(&c).fetch_optional(&self.dal.pool).await?;
-                let key: String = if let Some(r) = rec {
-                    r.get::<String, _>(0)
-                } else {
-                    format!("{}::{}", table, c)
-                };
 
-                // sanitize key for alias
-                let mut alias_key = key.replace("/", "__");
-                alias_key = alias_key.replace(|ch: char| !ch.is_alphanumeric() && ch != '_', "_");
-                let alias_name = format!("__app_{}", alias_key);
+        for (join_idx, (table, cols)) in table_cols.into_iter().enumerate() {
+            let alias = format!("t{}", join_idx);
+
+            // For each column in this table produce a select part and resolve
+            // the logical schema key (used to map results back to app fields).
+            for c in cols.iter() {
+                let key = self.schema_key_for_table_col(&table, &c).await?;
+                let alias_name = Self::alias_name_for_key(&key);
                 select_parts.push(format!("\"{}\".\"{}\" as \"{}\"", alias, c, alias_name));
                 app_keys_out.push(key);
             }
+
             joins.push(format!(
                 "left join \"{}\" as \"{}\" on \"{}\".node_id = nodes.id",
                 table, alias, alias
             ));
-            join_idx += 1;
         }
 
         let sql = format!(
@@ -209,7 +224,10 @@ impl GraphProcessor {
         let mut sql_owned = sql.to_string();
         let rows = if let Some(id) = id_filter {
             sql_owned.push_str(" where nodes.id = ?");
-            sqlx::query(&sql_owned).bind(id).fetch_all(&self.dal.pool).await?
+            sqlx::query(&sql_owned)
+                .bind(id)
+                .fetch_all(&self.dal.pool)
+                .await?
         } else {
             sqlx::query(&sql_owned).fetch_all(&self.dal.pool).await?
         };
@@ -240,21 +258,21 @@ impl GraphProcessor {
 
             // app fields
             let mut apps: HashMap<String, serde_json::Map<String, Jv>> = HashMap::new();
-            for key in app_keys.iter() {
-                let mut alias_key = key.replace("/", "__");
-                alias_key = alias_key.replace(|ch: char| !ch.is_alphanumeric() && ch != '_', "_");
-                let alias_name = format!("__app_{}", alias_key);
-                if let Ok(val_opt) = row.try_get::<Option<String>, _>(alias_name.as_str()) {
-                    if let Some(v) = val_opt {
-                        if let Some((app, field)) = key.split_once('/') {
-                            let entry = apps
-                                .entry(app.to_string())
-                                .or_insert_with(|| serde_json::Map::new());
-                            entry.insert(field.to_string(), Jv::String(v));
-                        }
+
+            app_keys.iter().filter_map(|key| {
+                // compute alias name and parts
+                if let Some((alias_name, app, field)) = Self::alias_and_parts_for_key(key) {
+                    match row.try_get::<Option<String>, _>(alias_name.as_str()) {
+                        Ok(Some(v)) => Some((app, field, v)),
+                        _ => None,
                     }
+                } else {
+                    None
                 }
-            }
+            }).for_each(|(app, field, v)| {
+                let entry = apps.entry(app).or_insert_with(|| serde_json::Map::new());
+                entry.insert(field, Jv::String(v));
+            });
 
             // insert apps as nested objects
             for (app, map) in apps.into_iter() {
@@ -269,17 +287,21 @@ impl GraphProcessor {
 
     /// Handle a `Mutation` operation by iterating the top-level fields and
     /// executing supported mutations. Currently supports `setField`.
-    pub async fn process_mutation(&self, m: &graphql_parser::query::Mutation<'_, String>) -> Result<serde_json::Value> {
+    pub async fn process_mutation(
+        &self,
+        m: &graphql_parser::query::Mutation<'_, String>,
+    ) -> Result<serde_json::Value> {
         let mut results = vec![];
-        for sel in m.selection_set.items.iter() {
-            if let Selection::Field(f) = sel {
-                let name = f.name.as_str();
-                if name == "setField" {
-                    // Extract args
+        // Iterate only over Selection::Field entries for clarity
+        for f in m.selection_set.items.iter().filter_map(pred_matches!(Selection::Field(f) => f)) {
+            match f.name.as_str() {
+                "setField" => {
+                    // Extract args succinctly
                     let mut node_id: Option<String> = None;
                     let mut app: Option<String> = None;
                     let mut field: Option<String> = None;
                     let mut value: Option<String> = None;
+
                     for (arg_name, arg_val) in f.arguments.iter() {
                         let resolved = self.resolve_gql_value(arg_val);
                         match arg_name.as_str() {
@@ -301,10 +323,11 @@ impl GraphProcessor {
                     let (table, col) = rec.ok_or_else(|| anyhow::anyhow!("unknown schema key"))?;
 
                     // Ensure the node exists.
-                    let exists: Option<(i64,)> = sqlx::query_as("select 1 from nodes where id = ? limit 1")
-                        .bind(&node_id)
-                        .fetch_optional(&self.dal.pool)
-                        .await?;
+                    let exists: Option<(i64,)> =
+                        sqlx::query_as("select 1 from nodes where id = ? limit 1")
+                            .bind(&node_id)
+                            .fetch_optional(&self.dal.pool)
+                            .await?;
                     if exists.is_none() {
                         let insert_node_sql = "insert into nodes (id, type, created_at, updated_at, extra) values (?, ?, datetime('now'), datetime('now'), '{}')";
                         sqlx::query(insert_node_sql)
@@ -327,25 +350,13 @@ impl GraphProcessor {
                         .await?;
 
                     results.push(json!({"ok": true, "nodeId": node_id, "app": app, "field": field}));
-                } else {
-                    return Err(anyhow::anyhow!("unsupported mutation: {}", name));
                 }
+                other => return Err(anyhow::anyhow!("unsupported mutation: {}", other)),
             }
         }
         Ok(json!({ "data": { "mutations": results } }))
     }
 }
-
-/// Translate a simple GraphQL document into a SQL QueryBuilder.
-///
-/// Supported subset:
-/// - Single top-level selection (e.g. `{ nodes { id type journal { title } } }`)
-/// - Node scalars from the `nodes` table: `id`, `type`, `created_at`, `updated_at`
-/// - App fields as nested objects: `journal { title }` which map to keys like `journal/title` in the schema.
-// NOTE: The previous `graphql_query_to_sql_query` translator has been merged
-// into `process_graphql_request` below. Translation and execution now live
-// together because multiple DB queries (schema lookups + select) are required
-// and it's simpler to keep them in one place.
 
 /// Process a GraphQL request for both queries and simple mutations.
 ///
@@ -368,44 +379,29 @@ pub async fn process_graphql_request(
 
     // Query path: collect fields, build SQL, execute and map results
     let (node_cols, app_keys) = processor.collect_query_fields(&doc);
-    // detect nodes(id: ...) filter
+    // detect nodes(id: ...) filter using iterator helpers
     let mut id_filter: Option<String> = None;
-    for def in doc.definitions.iter() {
-        match def {
-            Definition::Operation(OperationDefinition::SelectionSet(selection_set)) => {
-                for item in selection_set.items.iter() {
-                    if let Selection::Field(f) = item {
-                        if f.name == "nodes" {
-                            for (arg_name, arg_val) in f.arguments.iter() {
-                                if arg_name == "id" {
-                                    if let Some(res) = processor.resolve_gql_value(arg_val) {
-                                        id_filter = Some(res);
-                                    }
-                                }
-                            }
-                        }
-                    }
+    'outer: for def in doc.definitions.iter() {
+        let top_items = match def {
+            Definition::Operation(OperationDefinition::SelectionSet(s)) => s.items.iter().collect::<Vec<_>>(),
+            Definition::Operation(OperationDefinition::Query(q)) => q.selection_set.items.iter().collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+
+        for f in top_items.into_iter().filter_map(pred_matches!(Selection::Field(f) => f)) {
+                if f.name == "nodes" {
+                if let Some(val) = f.arguments.iter().find_map(|(arg_name, arg_val)| {
+                    if arg_name == "id" { processor.resolve_gql_value(arg_val) } else { None }
+                }) {
+                    id_filter = Some(val);
+                    break 'outer;
                 }
             }
-            Definition::Operation(OperationDefinition::Query(q)) => {
-                for item in q.selection_set.items.iter() {
-                    if let Selection::Field(f) = item {
-                        if f.name == "nodes" {
-                            for (arg_name, arg_val) in f.arguments.iter() {
-                                if arg_name == "id" {
-                                    if let Some(res) = processor.resolve_gql_value(arg_val) {
-                                        id_filter = Some(res);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
         }
     }
 
     let (sql, app_keys_out) = processor.build_select_sql(&node_cols, &app_keys).await?;
-    processor.execute_select(&sql, id_filter, &node_cols, &app_keys_out).await
+    processor
+        .execute_select(&sql, id_filter, &node_cols, &app_keys_out)
+        .await
 }
