@@ -18,6 +18,15 @@ Fields are a distinct concept from edges, which relate nodes.
 
 # Development log
 
+- Important context:
+
+  - **`nodes` vs app tables:** The system models a single `nodes` table plus many dynamically-managed app-specific tables (tracked via `_panorama_schema*`). A node must have a `nodes` row for GraphQL lookups by id to succeed; app-table writes should normally create or ensure the corresponding `nodes` row exists.
+  - **Mutations must be transactional:** When a mutation (e.g. `setField`) creates or updates app-specific data it should also create the `nodes` row in the same DB transaction to avoid races where the frontend queries a node by id immediately after the mutation.
+  - **Translator vs execution:** The GraphQL -> SQL translator emits SQL for requested shapes but does not execute the SQL or reconstruct GraphQL-shaped JSON; the execution layer must run the SQL and map rows back into the GraphQL response structure.
+  - **Schema lookups are authoritative:** All dynamic table and column names must be resolved via `_panorama_schema*` lookups to avoid SQL injection and to keep the translator simple and safe — never interpolate app or field names directly into SQL without a validated schema mapping.
+  - **Tests & CI notes:** Tests create temporary DB files and rely on idempotent app installation; CI must allow these files to be created and removed. Add an integration test to assert that `setField` creates both a `nodes` row and the app field atomically.
+  - **Concurrency hazards:** Concurrent writers that attempt to create the same node or schema entries can race — prefer `INSERT OR IGNORE` / `UPSERT` patterns or explicit transactions around the create+write sequence.
+
 - Implemented idempotent app installation (journal) in Rust:
 
   - `install_default_apps` now checks `_panorama_schema_columns` before creating new dynamic tables.
