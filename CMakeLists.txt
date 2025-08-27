@@ -12,7 +12,7 @@ if(APPLE)
     set(CMAKE_DISABLE_FIND_PACKAGE_Vulkan ON)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -72,6 +72,8 @@ target_link_libraries(PanoramaUi PRIVATE
     Qt6::Core
     Qt6::Widgets
     Qt6::Network
+    Qt6::Pdf
+    Qt6::PdfWidgets
     qtadvanceddocking-qt6
     qmarkdowntextedit
 )
