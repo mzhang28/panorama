@@ -371,20 +371,38 @@ pub async fn process_graphql_request(
     // detect nodes(id: ...) filter
     let mut id_filter: Option<String> = None;
     for def in doc.definitions.iter() {
-        if let Definition::Operation(OperationDefinition::SelectionSet(selection_set)) = def {
-            for item in selection_set.items.iter() {
-                if let Selection::Field(f) = item {
-                    if f.name == "nodes" {
-                        for (arg_name, arg_val) in f.arguments.iter() {
-                            if arg_name == "id" {
-                                if let Some(res) = processor.resolve_gql_value(arg_val) {
-                                    id_filter = Some(res);
+        match def {
+            Definition::Operation(OperationDefinition::SelectionSet(selection_set)) => {
+                for item in selection_set.items.iter() {
+                    if let Selection::Field(f) = item {
+                        if f.name == "nodes" {
+                            for (arg_name, arg_val) in f.arguments.iter() {
+                                if arg_name == "id" {
+                                    if let Some(res) = processor.resolve_gql_value(arg_val) {
+                                        id_filter = Some(res);
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+            Definition::Operation(OperationDefinition::Query(q)) => {
+                for item in q.selection_set.items.iter() {
+                    if let Selection::Field(f) = item {
+                        if f.name == "nodes" {
+                            for (arg_name, arg_val) in f.arguments.iter() {
+                                if arg_name == "id" {
+                                    if let Some(res) = processor.resolve_gql_value(arg_val) {
+                                        id_filter = Some(res);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 

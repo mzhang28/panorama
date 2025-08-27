@@ -22,7 +22,8 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
   layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(0);
 
-  QLabel *label = new QLabel("Journal Entry", this);
+  QString title = QString("Journal Entry %1").arg(nodeId);
+  QLabel *label = new QLabel(title, this);
   layout->addWidget(label);
 
   m_editor = new QMarkdownTextEdit();
