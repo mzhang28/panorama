@@ -16,7 +16,7 @@ pub async fn server_main(dal: Dal) -> Result<()> {
         .with_state(state);
 
     // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:4141").await?;
     axum::serve(listener, app).await?;
 
     Ok(())
@@ -35,13 +35,7 @@ struct PostGraphqlReq {
 async fn post_graphql(state: State<AppState>, request: Json<PostGraphqlReq>) {
     println!("request: {:?}", request);
 
-    let parsed = match graphql_parser::parse_query::<&str>(&request.query) {
-        Ok(doc) => doc,
-        Err(e) => todo!("fucked up: {e:?}"),
-    };
-    println!("Parsed: {parsed:?}");
-
-    let qb = match graphql_query_to_sql_query(parsed) {
+    let qb = match graphql_query_to_sql_query(state.dal.clone(), request.query.clone()).await {
         Ok(qb) => qb,
         Err(e) => todo!("failed to turn into sql: {e:?}"),
     };

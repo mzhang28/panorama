@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use serde_json::Value as JsonValue;
-use sqlx::{Execute, QueryBuilder, SqlitePool, Type, sqlite::SqliteTypeInfo};
+use sqlx::{Execute, QueryBuilder, SqlitePool};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -11,6 +11,10 @@ pub struct Dal {
 }
 
 impl Dal {
+    pub fn new(pool: SqlitePool) -> Self {
+        Dal { pool }
+    }
+
     pub async fn migrate(&self) -> Result<()> {
         sqlx::migrate!().run(&self.pool).await?;
         Ok(())
@@ -37,7 +41,7 @@ impl Dal {
         s.push_unseparated("primary key (node_id))");
         let query = qb.build();
         println!("Query: {:?}", query.sql());
-        let result = query.execute(&self.pool).await?;
+        let _result = query.execute(&self.pool).await?;
 
         // Document the updates into the schema table
         let mut qb = QueryBuilder::new(
@@ -54,6 +58,30 @@ impl Dal {
         qb.build().execute(&self.pool).await?;
 
         Ok(())
+    }
+
+    pub async fn has_schema_key(&self, key: &str) -> Result<bool> {
+        let rec: Option<(String,)> = sqlx::query_as("select key from _panorama_schema_columns where key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(rec.is_some())
+    }
+
+    pub async fn schema_count(&self, key: &str) -> Result<i64> {
+        let rec: (i64,) = sqlx::query_as("select count(1) from _panorama_schema_columns where key = ?")
+            .bind(key)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(rec.0)
+    }
+
+    pub async fn schema_entry(&self, key: &str) -> Result<Option<(String, String)>> {
+        let rec: Option<(String, String)> = sqlx::query_as("select sqlite_table_name, sqlite_column_name from _panorama_schema_columns where key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(rec)
     }
 
     pub async fn insert_nodes(&self, nodes: Vec<InsertNode>) -> Result<Vec<String>> {

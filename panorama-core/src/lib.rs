@@ -7,18 +7,20 @@ mod db;
 mod graphql;
 mod server;
 
+pub use apps::install_default_apps;
+pub use db::Dal;
+pub use crate::graphql::graphql_query_to_sql_query;
+
 use std::ffi::{CStr, c_char};
 
 use anyhow::Result;
 use clap::Parser;
-use cxx::{CxxString, CxxVector};
 use sqlx::{
-    SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
 use tokio::runtime::Runtime;
 
-use crate::{apps::install_default_apps, db::Dal, server::server_main};
+use crate::server::server_main;
 
 #[cxx::bridge]
 mod ffi {

@@ -5,9 +5,21 @@ use anyhow::Result;
 use crate::db::Dal;
 
 pub async fn install_default_apps(dal: Dal) -> Result<()> {
-    let mut fields = HashMap::new();
-    fields.insert(format!("journal/title"), format!("TEXT"));
-    dal.create_table("journal", fields).await?;
+    // Desired journal fields
+    let mut desired = HashMap::new();
+    desired.insert("journal/title".to_string(), "TEXT".to_string());
+
+    // Determine which keys are missing from _panorama_schema_columns
+    let mut missing = HashMap::new();
+    for (key, ty) in desired.into_iter() {
+        if !dal.has_schema_key(&key).await? {
+            missing.insert(key, ty);
+        }
+    }
+
+    if !missing.is_empty() {
+        dal.create_table("journal", missing).await?;
+    }
 
     Ok(())
 }
