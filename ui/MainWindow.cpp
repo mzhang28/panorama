@@ -1,10 +1,11 @@
+#include <QApplication>
 #include <QCloseEvent>
 #include <QFontDatabase>
 #include <QLabel>
+#include <QMessageBox>
 #include <QSettings>
 
 #include "DockManager.h"
-#include "DockOverlay.h"
 #include "DockWidget.h"
 #include "MainWindow.h"
 #include "Recents.h"
@@ -15,17 +16,17 @@
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   this->backendConn = new QNetworkAccessManager();
 
-
   // Load window state
   QSettings settings("mzhang", "panorama");
   restoreGeometry(settings.value("geometry").toByteArray());
   restoreState(settings.value("windowState").toByteArray());
 
-  MainToolBar *toolbar = new MainToolBar(this);
-  addToolBar(toolbar);
-  connect(toolbar, &MainToolBar::buttonClicked, this, [](const QString &name) {
-    QMessageBox::information(nullptr, "Toolbar", name + " clicked");
-  });
+  m_toolbar = new MainToolBar(this);
+  addToolBar(m_toolbar);
+  connect(m_toolbar, &MainToolBar::buttonClicked, this,
+          [](const QString &name) {
+            QMessageBox::information(nullptr, "Toolbar", name + " clicked");
+          });
 
   // Set font
   int id = QFontDatabase::addApplicationFont(
@@ -93,5 +94,6 @@ void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
     Journal *journal = new Journal(nid, this->backendConn, this);
     dockWidget->setWidget(journal);
     m_DockManager->addDockWidget(area, dockWidget);
+    (void)journal; // no-op: Journal manages its own save indicator now
   }
 }

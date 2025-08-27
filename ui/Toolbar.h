@@ -1,13 +1,12 @@
 #pragma once
 
 #include <QAction>
-#include <QApplication>
-#include <QIcon>
-#include <QMainWindow>
-#include <QMessageBox>
+#include <QString>
 #include <QToolBar>
 
-#include "MainWindow.h"
+// Forward-declare MainWindow to avoid including the header here and
+// creating an unnecessary circular dependency.
+class MainWindow;
 
 class MainToolBar : public QToolBar {
   Q_OBJECT

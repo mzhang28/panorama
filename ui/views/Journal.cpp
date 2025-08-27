@@ -1,4 +1,5 @@
 #include <QLabel>
+#include <QHBoxLayout>
 #include <QTextEdit>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -24,7 +25,15 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
 
   QString title = QString("Journal Entry %1").arg(nodeId);
   QLabel *label = new QLabel(title, this);
-  layout->addWidget(label);
+  // Header: title on the left, save status on the right
+  QHBoxLayout *header = new QHBoxLayout();
+  header->setContentsMargins(0, 0, 0, 0);
+  header->addWidget(label);
+  header->addStretch();
+  m_statusLabel = new QLabel(tr("Saved"), this);
+  m_statusLabel->setStyleSheet("QLabel { color: #0a0; padding-left:8px; padding-right:8px; }");
+  header->addWidget(m_statusLabel);
+  layout->addLayout(header);
 
   m_editor = new QMarkdownTextEdit();
   layout->addWidget(m_editor);
@@ -36,6 +45,11 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
     if (!m_mgr)
       return;
     QString text = m_editor->toPlainText();
+    // Indicate save in-flight
+    if (m_statusLabel) {
+      m_statusLabel->setText(tr("Saving..."));
+      m_statusLabel->setStyleSheet("QLabel { color: #e65a00; padding-left:8px; padding-right:8px; }");
+    }
     // Build GraphQL mutation with variables.
     QString mutation = QString(
         "mutation($nodeId: String!, $value: String!) { setField(nodeId: "
@@ -58,11 +72,22 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
       // Read response and ignore for now
       QByteArray resp = reply->readAll();
       reply->deleteLater();
+      // Notify that the content was successfully saved.
+      if (m_statusLabel) {
+        m_statusLabel->setText(tr("Saved"));
+        m_statusLabel->setStyleSheet("QLabel { color: #0a0; padding-left:8px; padding-right:8px; }");
+      }
     });
   });
 
   connect(m_editor, &QMarkdownTextEdit::textChanged, this, [this]() {
-    // Debounce saves
+    // Ignore events while programmatically loading content
+    if (m_loading) return;
+    // Notify unsaved state and debounce saves
+    if (m_statusLabel) {
+      m_statusLabel->setText(tr("Unsaved"));
+      m_statusLabel->setStyleSheet("QLabel { color: #c00; padding-left:8px; padding-right:8px; font-weight: bold; }");
+    }
     m_saveTimer->start(1000);
   });
 
@@ -98,7 +123,14 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
                 QJsonObject journal = first.value("journal").toObject();
                 if (journal.contains("title")) {
                   QString title = journal.value("title").toString();
+                  m_loading = true;
                   m_editor->setPlainText(title);
+                  m_loading = false;
+                  // Loaded content is saved on disk; clear unsaved indicator
+                  if (m_statusLabel) {
+                    m_statusLabel->setText(tr("Saved"));
+                    m_statusLabel->setStyleSheet("QLabel { color: #0a0; padding-left:8px; padding-right:8px; }");
+                  }
                 }
               }
             }

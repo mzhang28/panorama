@@ -9,6 +9,7 @@
 #include <QStyle>
 #include <QToolButton>
 #include <QWidgetAction>
+#include <QLabel>
 
 MainToolBar::MainToolBar(MainWindow *parent)
     : QToolBar("Main Toolbar", parent) {

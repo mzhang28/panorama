@@ -4,6 +4,7 @@
 #include <QtNetwork/QNetworkAccessManager>
 
 class QTimer;
+class QLabel;
 
 class Journal : public QWidget {
   Q_OBJECT
@@ -16,4 +17,6 @@ private:
   QNetworkAccessManager *m_mgr;
   QTimer *m_saveTimer{nullptr};
   class QMarkdownTextEdit *m_editor{nullptr};
+  bool m_loading{false};
+  QLabel *m_statusLabel{nullptr};
 };
