@@ -97,48 +97,15 @@ FileView::FileView(const QString &nodeId, QNetworkAccessManager *mgr,
       // Embed the PDF by rendering all pages into a scrollable view.
       QPdfDocument *doc = new QPdfDocument(this);
       QPdfDocument::Error error = doc->load(blobPath);
-      if (error == QPdfDocument::Error::None) {
-        int pages = doc->pageCount();
 
-        QScrollArea *scroll = new QScrollArea(this);
-        scroll->setWidgetResizable(true);
-        QWidget *container = new QWidget();
-        QVBoxLayout *vlay = new QVBoxLayout(container);
-        vlay->setContentsMargins(8, 8, 8, 8);
-        vlay->setSpacing(12);
-
-        const double dpi = 150.0; // rendering DPI
-        for (int i = 0; i < pages; ++i) {
-          QSizeF pts = doc->pagePointSize(i);
-          QSize imgSize(std::max(1, int(std::ceil(pts.width() * dpi / 72.0))),
-                        std::max(1, int(std::ceil(pts.height() * dpi / 72.0))));
-          // QImage image(imgSize, QImage::Format_ARGB32);
-          // image.fill(Qt::white);
-          // // Render page into the image (API: render(page, QImage*))
-          // doc->render(i, &image);
-          QImage image = doc->render(i, imgSize);
-          if (image.isNull())
-            continue;
-          QLabel *p = new QLabel();
-          p->setAlignment(Qt::AlignCenter);
-          p->setPixmap(QPixmap::fromImage(image));
-          vlay->addWidget(p);
-        }
-
-        container->setLayout(vlay);
-        scroll->setWidget(container);
-        this->layout()->addWidget(scroll);
-        m_info->setText(text + "\n\nDisplayed embedded PDF (all pages).");
-      } else {
-        // Fallback to single-page QPdfView if document loading failed.
-        QPdfView *pdf = new QPdfView(this);
-        QPdfDocument *doc2 = new QPdfDocument(pdf);
-        doc2->load(blobPath);
-        pdf->setDocument(doc2);
-        pdf->setZoomMode(QPdfView::ZoomMode::FitInView);
-        this->layout()->addWidget(pdf);
-        m_info->setText(text + "\n\nDisplayed embedded PDF (fallback view).");
-      }
+      QPdfView *pdf = new QPdfView(this);
+      QPdfDocument *doc2 = new QPdfDocument(pdf);
+      doc2->load(blobPath);
+      pdf->setDocument(doc2);
+      pdf->setZoomMode(QPdfView::ZoomMode::FitInView);
+      pdf->setPageMode(QPdfView::PageMode::MultiPage);
+      this->layout()->addWidget(pdf);
+      m_info->setText(text + "\n\nDisplayed embedded PDF (fallback view).");
     }
   });
 }

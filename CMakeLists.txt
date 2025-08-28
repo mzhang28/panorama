@@ -19,7 +19,11 @@ endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets)
 
+#---------------------------------------------------------------------------------------------------------
+# Dependencies
+
 include(FetchContent)
+
 FetchContent_Declare(
     ADS
     GIT_REPOSITORY https://github.com/githubuser0xFFFF/Qt-Advanced-Docking-System.git

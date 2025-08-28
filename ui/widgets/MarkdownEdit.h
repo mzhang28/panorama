@@ -67,12 +67,5 @@ protected:
   // Prefer overriding QMarkdownTextEdit::openUrl which the upstream editor
   // calls when a link is activated. Provide both QString and QUrl entry
   // points to be robust against varying signatures.
-  void openUrl(const QUrl &url) {
-    QString href = url.toString();
-    if (href.startsWith("panorama://")) {
-      emit panoramaLinkActivated(href);
-      return;
-    }
-    QDesktopServices::openUrl(url);
-  }
+  void openUrl(const QString &url) override;
 };
