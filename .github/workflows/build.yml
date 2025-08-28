@@ -15,7 +15,14 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - <<: *common-setup
+      - uses: actions/checkout@v4
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v1
+      - name: Set up Qt6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: 6.5.0
+          modules: qtpdf
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -35,7 +42,14 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - <<: *common-setup
+      - uses: actions/checkout@v4
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v1
+      - name: Set up Qt6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: 6.5.0
+          modules: qtpdf
       - name: Install dependencies
         run: |
           brew update
@@ -53,7 +67,14 @@ jobs:
       matrix:
         build_type: [portable, installer]
     steps:
-      - <<: *common-setup
+      - uses: actions/checkout@v4
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v1
+      - name: Set up Qt6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: 6.5.0
+          modules: qtpdf
       - name: Install dependencies
         run: |
           choco install ninja rustup.install
@@ -79,14 +100,3 @@ jobs:
             build/*.exe
             build/*.dmg
             build/PanoramaUi
-
-# Common setup steps anchor
-common-setup: &common-setup
-  - uses: actions/checkout@v4
-  - name: Set up CMake
-    uses: jwlawson/actions-setup-cmake@v1
-  - name: Set up Qt6
-    uses: jurplel/install-qt-action@v3
-    with:
-      version: 6.5.0
-      modules: qtpdf
