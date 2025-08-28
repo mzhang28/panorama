@@ -53,14 +53,14 @@ set(CMAKE_AUTOUIC ON)
 
 add_executable(PanoramaUi
     ui/MainWindow.cpp
-    ui/Recents.cpp
     ui/RecentNodeStore.cpp
+    ui/Recents.cpp
     ui/Toolbar.cpp
     ui/main.cpp
     ui/resources.qrc
-    ui/views/Journal.cpp
-    ui/views/FileView.cpp
     ui/stores/JournalStore.cpp
+    ui/views/Journal.cpp
+    ui/widgets/FileView.cpp
     ui/widgets/MarkdownEdit.cpp
 )
 add_dependencies(PanoramaUi PanoramaCore)

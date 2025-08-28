@@ -28,8 +28,8 @@
 #include "Toolbar.h"
 #include "ads_globals.h"
 #include "stores/JournalStore.h"
-#include "views/FileView.h"
 #include "views/Journal.h"
+#include "widgets/FileView.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Allow drag & drop of files onto the main window
