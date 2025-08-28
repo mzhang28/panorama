@@ -1,0 +1,90 @@
+name: Build Panorama
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build qt6-base-dev qt6-tools-dev qt6-tools-dev-tools libqt6network6 libqt6pdf6 libqt6pdfwidgets6
+          rustup update stable
+          rustup default stable
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja
+          ninja -C build
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja qt@6 rustup
+          rustup update stable
+          rustup default stable
+
+      - name: Set Qt environment
+        run: |
+          echo "QT_PLUGIN_PATH=$(brew --prefix qt@6)/plugins" >> $GITHUB_ENV
+          echo "PATH=$(brew --prefix qt@6)/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=$(brew --prefix qt@6)
+          ninja -C build
+
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        build_type: [portable, installer]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          choco install cmake ninja qt6-base rustup.install
+          rustup update stable
+          rustup default stable
+
+      - name: Set Qt environment
+        run: |
+          echo "QT_PLUGIN_PATH=C:\Program Files\Qt\6.5.0\msvc2019_64\plugins" >> $env:GITHUB_ENV
+          echo "PATH=C:\Program Files\Qt\6.5.0\msvc2019_64\bin;$env:PATH" >> $env:GITHUB_ENV
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="C:/Program Files/Qt/6.5.0/msvc2019_64"
+
+      - name: Build
+        run: ninja -C build
+
+      - name: Build Installer (only for installer build)
+        if: matrix.build_type == 'installer'
+        run: |
+          # Replace with your installer generation command, e.g. using NSIS or WiX
+          echo "TODO: Add installer build step here"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: panorama-${{ matrix.build_type }}-${{ runner.os }}
+          path: |
+            build/PanoramaUi.exe
+            build/*.msi
+            build/*.exe
+            build/*.dmg
+            build/PanoramaUi
