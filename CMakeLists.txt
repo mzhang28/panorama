@@ -27,7 +27,7 @@ include(FetchContent)
 FetchContent_Declare(
     ADS
     GIT_REPOSITORY https://github.com/githubuser0xFFFF/Qt-Advanced-Docking-System.git
-    GIT_TAG        4.4.0
+    GIT_TAG        4.4.1
 )
 FetchContent_MakeAvailable(ADS)
 
