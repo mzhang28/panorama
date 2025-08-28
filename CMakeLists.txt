@@ -12,6 +12,11 @@ if(APPLE)
     set(CMAKE_DISABLE_FIND_PACKAGE_Vulkan ON)
 endif()
 
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address -fno-omit-frame-pointer -g")
+    set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address")
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets)
 
 include(FetchContent)

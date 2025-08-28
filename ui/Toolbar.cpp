@@ -5,11 +5,11 @@
 #include <QCalendarWidget>
 #include <QDate>
 #include <QIcon>
+#include <QLabel>
 #include <QMenu>
 #include <QStyle>
 #include <QToolButton>
 #include <QWidgetAction>
-#include <QLabel>
 
 MainToolBar::MainToolBar(MainWindow *parent)
     : QToolBar("Main Toolbar", parent) {
@@ -31,7 +31,7 @@ MainToolBar::MainToolBar(MainWindow *parent)
   connect(openToday, &QAction::triggered, parent, [parent]() {
     auto today = QDate::currentDate();
     auto url = QStringLiteral("/journal/%1").arg(today.toString(Qt::ISODate));
-    parent->openUrl(url.toStdString(), ads::DockWidgetArea::LeftDockWidgetArea);
+    parent->openUrl(url.toStdString());
   });
 
   // Calendar in a popup menu to pick arbitrary dates
@@ -47,8 +47,7 @@ MainToolBar::MainToolBar(MainWindow *parent)
             qDebug() << "Selected date: " << date.toString(Qt::ISODate);
             auto url =
                 QStringLiteral("/journal/%1").arg(date.toString(Qt::ISODate));
-            parent->openUrl(url.toStdString(),
-                            ads::DockWidgetArea::LeftDockWidgetArea);
+            parent->openUrl(url.toStdString());
             menu->hide();
           });
 

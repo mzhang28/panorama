@@ -1,16 +1,16 @@
 #pragma once
 
 #include "qmarkdowntextedit.h"
+#include <QDesktopServices>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFileInfo>
 #include <QList>
 #include <QMimeData>
 #include <QString>
 #include <QTextCursor>
 #include <QUrl>
 #include <QUuid>
-#include <QFileInfo>
-#include <QDesktopServices>
 
 class MarkdownEdit : public QMarkdownTextEdit {
   Q_OBJECT
@@ -57,7 +57,8 @@ protected:
 
     QString uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
     QString filename = QFileInfo(path).fileName();
-    QString placeholder = QString("[Uploading %1](uploading://%2)").arg(filename).arg(uuid);
+    QString placeholder =
+        QString("[Uploading %1](uploading://%2)").arg(filename).arg(uuid);
     QTextCursor cursor = textCursor();
     cursor.insertText(placeholder);
     emit fileDropped(placeholder, path);
@@ -73,9 +74,5 @@ protected:
       return;
     }
     QDesktopServices::openUrl(url);
-  }
-
-  void openUrl(const QString &href) {
-    openUrl(QUrl(href));
   }
 };

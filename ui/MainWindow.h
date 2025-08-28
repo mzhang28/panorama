@@ -21,7 +21,7 @@ public:
 public slots:
   /** Open the given URL as a new window with the given dock widget */
   void openUrl(std::string_view url,
-               ads::DockWidgetArea area = ads::TopDockWidgetArea);
+               ads::DockWidgetArea area = ads::CenterDockWidgetArea);
 
 protected:
   void closeEvent(QCloseEvent *event) override;

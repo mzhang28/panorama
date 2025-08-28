@@ -19,6 +19,8 @@
 #include <QUuid>
 #include <QVBoxLayout>
 
+#include "AutoHideDockContainer.h"
+#include "DockAreaWidget.h"
 #include "DockManager.h"
 #include "DockWidget.h"
 #include "MainWindow.h"
@@ -79,10 +81,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // Left sidebar
   Recents *recentsWidget = new Recents(this);
-  ads::CDockWidget *recentsDock = m_DockManager->createDockWidget("recents");
+  ads::CDockWidget *recentsDock =
+      m_DockManager->createDockWidget("RecentsDock");
+  recentsDock->setMinimumWidth(240);
+  recentsDock->setMaximumWidth(300);
   recentsDock->setWidget(recentsWidget);
+  m_DockManager->addDockWidget(ads::LeftDockWidgetArea, recentsDock);
+  if (auto left = recentsDock->dockAreaWidget()) {
+    left->setMinimumWidth(240);
+    left->setMaximumWidth(300);
+  }
+
   // recentsDock->toggleView(false);
-  m_DockManager->addAutoHideDockWidget(ads::SideBarLeft, recentsDock);
+  // auto container =
+  //     m_DockManager->addAutoHideDockWidget(ads::SideBarLeft, recentsDock);
+  // container->collapseView(false);
+  // container->toggleView(true);
   // Open recent node when double-clicked in the Recents list
   connect(recentsWidget, &Recents::openNode, this,
           [this](const QString &nodeId) {
@@ -108,6 +122,7 @@ void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
   std::cout << "openge " << url << std::endl;
 
   // TODO: Replace this with some proper routing
+  ads::CDockWidget *newWidget;
 
   if (url.starts_with("/node/")) {
     std::string_view id = url.substr(6);
@@ -116,34 +131,26 @@ void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
 
   if (url.starts_with("/journal/")) {
     std::string_view id = url.substr(9);
-    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("journal");
+    newWidget = m_DockManager->createDockWidget("journal");
     QString nid = QString::fromStdString(std::string(id));
     Journal *journal = new Journal(nid, this->backendConn, this);
-    dockWidget->setWidget(journal);
-    m_DockManager->addDockWidget(area, dockWidget);
-    (void)journal; // no-op: Journal manages its own save indicator now
-  }
-
-  if (url == "/importFile") {
-    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("import");
+    newWidget->setWidget(journal);
+  } else if (url == "/importFile") {
+    newWidget = m_DockManager->createDockWidget("import");
     QWidget *w = new QWidget();
     QVBoxLayout *l = new QVBoxLayout(w);
     QLabel *label = new QLabel(tr("Importing file..."), w);
     l->addWidget(label);
-    dockWidget->setWidget(w);
-    m_DockManager->addDockWidget(area, dockWidget);
-    return;
-  }
-
-  if (url.starts_with("/file/")) {
+    newWidget->setWidget(w);
+  } else if (url.starts_with("/file/")) {
     std::string_view id = url.substr(6);
-    ads::CDockWidget *dockWidget = m_DockManager->createDockWidget("file");
+    newWidget = m_DockManager->createDockWidget("file");
     QString nid = QString::fromStdString(std::string(id));
     FileView *view = new FileView(nid, this->backendConn, this);
-    dockWidget->setWidget(view);
-    m_DockManager->addDockWidget(area, dockWidget);
-    return;
+    newWidget->setWidget(view);
   }
+
+  m_DockManager->addDockWidget(area, newWidget);
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
@@ -230,7 +237,7 @@ void MainWindow::dropEvent(QDropEvent *event) {
     if (reply->error() == QNetworkReply::NoError) {
       // Open the file panel for the newly created node
       QString url = QString("/file/%1").arg(nodeId);
-      this->openUrl(url.toStdString(), ads::CenterDockWidgetArea);
+      this->openUrl(url.toStdString());
     }
     reply->deleteLater();
   });
