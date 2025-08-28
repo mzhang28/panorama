@@ -1,0 +1,36 @@
+meta:
+  name: journals
+  version: "0.1.0"
+  authors:
+    - "Panorama Dev <dev@example.com>"
+  license: "MIT"
+
+fields:
+  - key: "journal/title"
+    type: "TEXT"
+  - key: "journal/content"
+    type: "TEXT"
+  - key: "journal/created_at"
+    type: "TEXT"
+  - key: "journal/updated_at"
+    type: "TEXT"
+
+lua:
+  entrypoint: script.lua
+  functions:
+    - summary
+
+ui_plugins:
+  - target: x86_64-apple-darwin
+    path: ui_plugin/libjournalsplugin.dylib
+  - target: aarch64-apple-darwin
+    path: ui_plugin/libjournalsplugin.dylib
+  - target: x86_64-unknown-linux-gnu
+    path: ui_plugin/libjournalsplugin.so
+  - target: aarch64-unknown-linux-gnu
+    path: ui_plugin/libjournalsplugin.so
+
+permissions:
+  allow_native: true
+  allow_spawn_server: false
+  allow_os_access: false

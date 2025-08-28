@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(Qt6Core_USE_LIBINTL OFF)
 
 if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "15.2" CACHE STRING "Minimum OS X deployment version")
     message(STATUS "macOS detected, disabling Vulkan")
     set(Qt6_QT_FEATURE_vulkan OFF CACHE BOOL "" FORCE)
     set(CMAKE_DISABLE_FIND_PACKAGE_Vulkan ON)
@@ -21,6 +22,8 @@ find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets)
 
 #---------------------------------------------------------------------------------------------------------
 # Dependencies
+
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1)
 
 include(FetchContent)
 
@@ -39,6 +42,11 @@ FetchContent_Declare(
     GIT_TAG 0ada3f3a156fdadd92c91368684ef0f406b835e2 # some random commit i fetched off main, this project doesn't use tags...
 )
 FetchContent_MakeAvailable(QMarkdownTextEdit)
+
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 0)
+
+#---------------------------------------------------------------------------------------------------------
+# paanorama-core
 
 add_subdirectory(panorama-core)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")

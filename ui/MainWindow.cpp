@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -27,9 +28,12 @@
 #include "Recents.h"
 #include "Toolbar.h"
 #include "ads_globals.h"
+#include "plugins/PluginInterface.h"
 #include "stores/JournalStore.h"
 #include "views/Journal.h"
 #include "widgets/FileView.h"
+#include <QPluginLoader>
+#include <functional>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Allow drag & drop of files onto the main window
@@ -38,6 +42,47 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   this->backendConn = new QNetworkAccessManager();
   // Provide the network manager to the centralized JournalStore
   JournalStore::instance()->setNetworkManager(this->backendConn);
+
+  // Query backend for available UI plugins and load them
+  QNetworkRequest plreq(QUrl("http://127.0.0.1:4141/plugins"));
+  QNetworkReply *plreply = this->backendConn->get(plreq);
+  connect(plreply, &QNetworkReply::finished, this, [this, plreply]() {
+    if (plreply->error() != QNetworkReply::NoError) {
+      qWarning() << "failed to fetch plugins:" << plreply->errorString();
+      return;
+    }
+    auto data = plreply->readAll();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (!doc.isArray())
+      return;
+    QJsonArray arr = doc.array();
+    for (auto v : arr) {
+      if (!v.isObject())
+        continue;
+      QJsonObject obj = v.toObject();
+      QString path = obj.value("path").toString();
+      if (path.isEmpty())
+        continue;
+      QPluginLoader loader(path);
+      QObject *plugin = loader.instance();
+      if (!plugin) {
+        qWarning() << "failed to load plugin:" << path << loader.errorString();
+        continue;
+      }
+      PluginInterface *iface = qobject_cast<PluginInterface *>(plugin);
+      if (!iface) {
+        qWarning() << "plugin does not implement PluginInterface:" << path;
+        continue;
+      }
+      QStringList types = iface->availableWidgetTypes();
+      for (const QString &t : types) {
+        // Register factory into JournalStore or MainWindow (POC: print)
+        qDebug() << "plugin" << path << "provides widget" << t;
+        // In a real implementation we'd store a factory that calls
+        // iface->createWidget
+      }
+    }
+  });
 
   // Load window state
   QSettings settings("mzhang", "panorama");
@@ -185,8 +230,7 @@ void MainWindow::dropEvent(QDropEvent *event) {
   QByteArray data = f.readAll();
   f.close();
 
-// Compute SHA256
-#include <QCryptographicHash>
+  // Compute SHA256
   QByteArray hash =
       QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
   QString hex = QString::fromUtf8(hash);
