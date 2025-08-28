@@ -2,9 +2,14 @@ name: Build Panorama
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches: [] #TODO: Once we need CI, enable here. Otherwise, run manual jobs
+  
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to run on"
+        required: true
+        default: "rewrite/from-2025-08-20"
 
 jobs:
   build-linux:
