@@ -14,6 +14,7 @@ else()
     set(CARGO_BUILD_TYPE_FLAG "--release")
 endif()
 
+set(RUST_TARGET_FLAG "")
 set(RUST_TARGET_SUFFIX "")
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(RUST_TARGET_FLAG "--target" "x86_64-pc-windows-gnu")
@@ -26,7 +27,6 @@ set(RUST_TARGET_DIR "${RUST_TARGET_DIR}" PARENT_SCOPE)
 set(RUST_LIB_NAME panorama_core)
 set(RUST_BRIDGE_FILE "${CMAKE_CURRENT_BINARY_DIR}/target${RUST_TARGET_SUFFIX}/${RUST_BUILD_TYPE}/cxxbridge/panorama-core/src/lib.rs.cc")
 
-set(RUST_TARGET_FLAG "")
 set(RUST_LIB_FILE "${RUST_TARGET_DIR}/${RUST_BUILD_TYPE}/libpanorama_core.a")
 set(RUST_LIB_FILE "${RUST_LIB_FILE}" PARENT_SCOPE)
 
@@ -36,7 +36,7 @@ file(GLOB_RECURSE RUST_SOURCES
 
 add_custom_command(
     OUTPUT "${RUST_LIB_FILE}" "${RUST_BRIDGE_FILE}"
-    COMMAND ${CARGO_EXECUTABLE} build --verbose ${RUST_BUILD_TYPE_FLAG} ${RUST_TARGET_FLAG} --target-dir "${CMAKE_CURRENT_BINARY_DIR}/target"
+    COMMAND ${CARGO_EXECUTABLE} build ${RUST_BUILD_TYPE_FLAG} ${RUST_TARGET_FLAG} --target-dir "${CMAKE_CURRENT_BINARY_DIR}/target"
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     DEPENDS ${RUST_SOURCES}
     COMMENT "Building Rust library"
