@@ -15,14 +15,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up CMake
-        uses: jwlawson/actions-setup-cmake@v1
-      - name: Set up Qt6
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: 6.5.0
-          modules: pdf
+      - <<: *common-setup
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -34,7 +27,6 @@ jobs:
             libx11-dev libxext-dev libxrender-dev libdbus-1-dev libicu-dev
           rustup update stable
           rustup default stable
-
       - name: Build
         run: |
           cmake -S . -B build -G Ninja
@@ -43,21 +35,13 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up CMake
-        uses: jwlawson/actions-setup-cmake@v1
-      - name: Set up Qt6
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: 6.5.0
-          modules: pdf
+      - <<: *common-setup
       - name: Install dependencies
         run: |
           brew update
           brew install ninja rustup
           rustup update stable
           rustup default stable
-
       - name: Build
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=$(brew --prefix qt@6)
@@ -69,33 +53,22 @@ jobs:
       matrix:
         build_type: [portable, installer]
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up CMake
-        uses: jwlawson/actions-setup-cmake@v1
-      - name: Set up Qt6
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: 6.5.0
-          modules: pdf
+      - <<: *common-setup
       - name: Install dependencies
         run: |
           choco install ninja rustup.install
           rustup update stable
           rustup default stable
-
       - name: Configure CMake
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$Env:Qt6_DIR"
-
       - name: Build
         run: ninja -C build
-
       - name: Build Installer (only for installer build)
         if: matrix.build_type == 'installer'
         run: |
           # Replace with your installer generation command, e.g. using NSIS or WiX
           echo "TODO: Add installer build step here"
-
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -106,3 +79,14 @@ jobs:
             build/*.exe
             build/*.dmg
             build/PanoramaUi
+
+# Common setup steps anchor
+common-setup: &common-setup
+  - uses: actions/checkout@v4
+  - name: Set up CMake
+    uses: jwlawson/actions-setup-cmake@v1
+  - name: Set up Qt6
+    uses: jurplel/install-qt-action@v3
+    with:
+      version: 6.5.0
+      modules: qtpdf
