@@ -53,7 +53,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-add_executable(PanoramaUi
+add_executable(panorama-ui
     ui/MainWindow.cpp
     ui/RecentNodeStore.cpp
     ui/Recents.cpp
@@ -65,22 +65,22 @@ add_executable(PanoramaUi
     ui/widgets/FileView.cpp
     ui/widgets/MarkdownEdit.cpp
 )
-add_dependencies(PanoramaUi PanoramaCore)
+add_dependencies(panorama-ui PanoramaCore panorama-plugin-sdk)
 
-add_library(PanoramaCoreLib STATIC IMPORTED GLOBAL)
-set_target_properties(PanoramaCoreLib PROPERTIES
+add_library(panorama-core-rust STATIC IMPORTED GLOBAL)
+set_target_properties(panorama-core-rust PROPERTIES
     IMPORTED_LOCATION "${RUST_LIB_FILE}"
 )
-add_dependencies(PanoramaCoreLib PanoramaCore)
-target_link_libraries(PanoramaUi PRIVATE PanoramaCoreLib)
+add_dependencies(panorama-core-rust PanoramaCore)
+target_link_libraries(panorama-ui PRIVATE panorama-core-rust)
 
-target_include_directories(PanoramaUi PRIVATE
+target_include_directories(panorama-ui PRIVATE
     "${ads_SOURCE_DIR}/src"
     "${qmarkdowntextedit_SOURCE_DIR}"
     "${RUST_TARGET_DIR}/cxxbridge"
 )
 
-target_link_libraries(PanoramaUi PRIVATE
+target_link_libraries(panorama-ui PRIVATE
     Qt6::Core
     Qt6::Widgets
     Qt6::Network
@@ -91,7 +91,7 @@ target_link_libraries(PanoramaUi PRIVATE
 )
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    target_link_libraries(PanoramaUi PRIVATE
+    target_link_libraries(panorama-ui PRIVATE
         bcrypt
         advapi32
         ntdll
