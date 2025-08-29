@@ -68,32 +68,41 @@ jobs:
         build_type: [portable, installer]
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v1
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Set up Qt6
         uses: jurplel/install-qt-action@v3
         with:
           version: 6.5.0
-          arch: 'win64_mingw'
+          arch: win64_msvc2019_64
           modules: qtpdf qtwebsockets
-      - uses: msys2/setup-msys2@v2
-        with:
-          install: mingw-w64-x86_64-gcc
+
       - name: Install dependencies
         run: |
           choco install ninja rustup.install
           rustup update stable
           rustup default stable
+
       - name: Configure CMake
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$Env:Qt6_DIR"
+
       - name: Build
         run: ninja -C build
+
       - name: Build Installer (only for installer build)
         if: matrix.build_type == 'installer'
         run: |
           # Replace with your installer generation command, e.g. using NSIS or WiX
           echo "TODO: Add installer build step here"
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
