@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-project(PanoramaUi LANGUAGES CXX)
+project(panorama-ui LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,10 +17,10 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets)
-
 #---------------------------------------------------------------------------------------------------------
 # Dependencies
+
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets)
 
 include(FetchContent)
 
@@ -39,6 +39,8 @@ FetchContent_Declare(
     GIT_TAG 0ada3f3a156fdadd92c91368684ef0f406b835e2 # some random commit i fetched off main, this project doesn't use tags...
 )
 FetchContent_MakeAvailable(QMarkdownTextEdit)
+
+add_subdirectory(panorama-plugin-sdk)
 
 add_subdirectory(panorama-core)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -77,6 +79,7 @@ target_include_directories(PanoramaUi PRIVATE
     "${qmarkdowntextedit_SOURCE_DIR}"
     "${RUST_TARGET_DIR}/cxxbridge"
 )
+
 target_link_libraries(PanoramaUi PRIVATE
     Qt6::Core
     Qt6::Widgets
@@ -94,3 +97,5 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
         ntdll
     )
 endif()
+
+add_subdirectory(apps/journal)
