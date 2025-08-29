@@ -31,6 +31,9 @@
 #include "Toolbar.h"
 #include "ads_globals.h"
 
+#include "HostContext.h"
+#include "PluginInterface.h"
+
 #include "plugins/PluginManager.h"
 #include "widgets/FileView.h"
 
@@ -50,40 +53,109 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   {
     QNetworkRequest pluginsReq(QUrl("http://127.0.0.1:4141/plugins"));
     QNetworkReply *pluginsReply = this->backendConn->get(pluginsReq);
-    connect(pluginsReply, &QNetworkReply::finished, this, [pluginsReply]() {
-      if (pluginsReply->error() == QNetworkReply::NoError) {
-        QByteArray body = pluginsReply->readAll();
-        QJsonParseError perr;
-        QJsonDocument doc = QJsonDocument::fromJson(body, &perr);
-        qDebug() << "got plugins reply " << doc;
-        if (perr.error == QJsonParseError::NoError) {
-          QJsonArray arr;
-          if (doc.isArray()) {
-            arr = doc.array();
-          } else if (doc.isObject() && doc.object().contains("plugins") &&
-                     doc.object().value("plugins").isArray()) {
-            arr = doc.object().value("plugins").toArray();
-          }
-          for (const QJsonValue &v : arr) {
-            if (!v.isObject())
-              continue;
-            QJsonObject obj = v.toObject();
-            if (!obj.contains("regexes") || !obj.value("regexes").isArray())
-              continue;
-            QJsonArray regexes = obj.value("regexes").toArray();
-            for (const QJsonValue &r : regexes) {
-              if (!r.isString())
-                continue;
-              QString pattern = r.toString();
-              // Register the pattern first (precompile)
-              PluginManager::instance().registerUrlPattern(
-                  pattern.toStdString());
+    connect(
+        pluginsReply, &QNetworkReply::finished, this, [this, pluginsReply]() {
+          if (pluginsReply->error() == QNetworkReply::NoError) {
+            QByteArray body = pluginsReply->readAll();
+            QJsonParseError perr;
+            QJsonDocument doc = QJsonDocument::fromJson(body, &perr);
+            if (perr.error == QJsonParseError::NoError) {
+              QJsonArray arr;
+              if (doc.isArray()) {
+                arr = doc.array();
+              } else if (doc.isObject() && doc.object().contains("plugins") &&
+                         doc.object().value("plugins").isArray()) {
+                arr = doc.object().value("plugins").toArray();
+              }
+
+              for (const QJsonValue &v : arr) {
+                if (!v.isObject())
+                  continue;
+
+                QJsonObject obj = v.toObject();
+                qDebug() << "got plugin obj " << obj;
+
+                QString basePath = obj.value("base_path").toString();
+                QJsonObject manifest = obj.value("manifest").toObject();
+
+                // Attempt to load a Qt plugin library if the manifest provides
+                // one.
+                PluginInterface *pluginIface = nullptr;
+                HostContext *hostCtx = nullptr;
+                if (manifest.contains("qt_library") &&
+                    manifest.value("qt_library").isString()) {
+                  QString lib = manifest.value("qt_library").toString();
+                  QString resolved;
+                  QString totalPath = basePath + "/" + lib;
+
+                  if (!QFile::exists(totalPath)) {
+                    qWarning() << "Plugin library not found at" << totalPath;
+                    continue;
+                  }
+
+                  QString pluginPath = QFileInfo(totalPath).canonicalFilePath();
+                  qDebug() << "Plugin path:" << pluginPath;
+
+                  QPluginLoader *loader = new QPluginLoader(pluginPath, this);
+                  QObject *inst = loader->instance();
+                  if (!inst) {
+                    qWarning() << "Failed to instantiate plugin from"
+                               << pluginPath << loader->errorString();
+                    delete loader;
+                    continue;
+                  }
+
+                  // Attempt to cast to PluginInterface
+                  PluginInterface *pi = qobject_cast<PluginInterface *>(inst);
+                  if (!pi) {
+                    qWarning() << "Loaded object is not a PluginInterface:"
+                               << pluginPath;
+                    // Keep the loader around to avoid unloading while another
+                    // code path might expect it; but since it's not a valid
+                    // plugin for our interface, delete it.
+                    delete loader;
+                    continue;
+                  }
+
+                  // Keep the loader alive so the plugin instance remains
+                  // valid
+                  this->m_pluginLoaders.push_back(loader);
+                  pluginIface = pi;
+                  hostCtx = new HostContext(this);
+                  qDebug() << "Loaded Qt plugin from" << pluginPath
+                           << "for manifest" << manifest;
+
+                  QJsonArray regexes = manifest.value("regexes").toArray();
+                  qDebug() << "# regexes:" << regexes.size();
+
+                  for (const QJsonValue &r : regexes) {
+                    qDebug() << "Regex pattern:" << r.toString();
+
+                    if (!r.isString())
+                      continue;
+                    QString pattern = r.toString();
+                    // Register the pattern first (precompile)
+                    if (pluginIface) {
+                      // Register a handler that delegates to the loaded Qt
+                      // plugin
+                      PluginManager::instance().registerUrlHandler(
+                          pattern.toStdString(),
+                          [pluginIface,
+                           hostCtx](const QString &url) -> QWidget * {
+                            return pluginIface->handleUrl(hostCtx, url,
+                                                          nullptr);
+                          });
+                    } else {
+                      PluginManager::instance().registerUrlPattern(
+                          pattern.toStdString());
+                    }
+                  }
+                }
+              }
             }
           }
-        }
-      }
-      pluginsReply->deleteLater();
-    });
+          pluginsReply->deleteLater();
+        });
   }
 
   // Load window state
@@ -126,35 +198,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     openUrl(url, ads::CenterDockWidgetArea);
   }
 
-  // Load Qt plugin libraries found under ./apps/*/dist/* so they can register
-  // their URL handlers via PluginRegistrar. Plugins are expected to export a
-  // Qt plugin that calls PluginRegistrar::registerPlugin() in its
-  // constructor.
-  {
-    QDir appsDir(QDir::currentPath() + "/apps");
-    if (appsDir.exists()) {
-      QDirIterator it(appsDir.absolutePath(), QDirIterator::Subdirectories);
-      while (it.hasNext()) {
-        it.next();
-        QString path = it.filePath();
-        // Look for plugin shared libraries in dist folders (macOS .dylib, Linux
-        // .so)
-        if (path.contains("/dist/") &&
-            (path.endsWith(".dylib") || path.endsWith(".so") ||
-             path.endsWith(".dll"))) {
-          QPluginLoader loader(path);
-          QObject *plugin = loader.instance();
-          if (!plugin) {
-            qWarning() << "Failed to load plugin:" << path
-                       << loader.errorString();
-          } else {
-            qDebug() << "Loaded plugin:" << path << "(instance created)";
-          }
-        }
-      }
-    }
-  }
-
   // Left sidebar
   Recents *recentsWidget = new Recents(this);
   ads::CDockWidget *recentsDock =
@@ -195,10 +238,10 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 }
 
 void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
-  std::cout << "openUrl " << url << std::endl;
+  QString urlStr = QString::fromStdString(std::string(url));
+  qDebug() << "openUrl" << urlStr;
 
-  QWidget *widget = PluginManager::instance().handleUrl(
-      QString::fromStdString(std::string(url)));
+  QWidget *widget = PluginManager::instance().handleUrl(urlStr);
   if (widget) {
     ads::CDockWidget *newWidget = m_DockManager->createDockWidget("plugin");
     newWidget->setWidget(widget);

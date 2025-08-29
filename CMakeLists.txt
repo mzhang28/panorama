@@ -62,6 +62,11 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# get_cmake_property(_variableNames VARIABLES)
+# foreach (_variableName ${_variableNames})
+#     message(STATUS "${_variableName}=${${_variableName}}")
+# endforeach()
+
 add_executable(panorama-ui
     ui/MainWindow.cpp
     ui/RecentNodeStore.cpp
@@ -71,6 +76,8 @@ add_executable(panorama-ui
     ui/plugins/PluginManager.cpp
     ui/resources.qrc
     ui/widgets/FileView.cpp
+
+    "${panorama-plugin-sdk_SOURCE_DIR}/include/HostContext.h"
 )
 add_dependencies(panorama-ui PanoramaCore panorama-plugin-sdk)
 
@@ -95,6 +102,7 @@ target_link_libraries(panorama-ui PRIVATE
     Qt6::PdfWidgets
     qtadvanceddocking-qt6
     qmarkdowntextedit
+    panorama-plugin-sdk
 )
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")

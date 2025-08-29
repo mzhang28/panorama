@@ -5,10 +5,9 @@ use axum::{
     routing::{get, post},
 };
 
-use crate::db::Dal;
-use crate::plugin::PluginManifest;
+use crate::{db::Dal, plugin::PluginInfo};
 
-pub async fn server_main(dal: Dal, plugins: Vec<PluginManifest>) -> Result<()> {
+pub async fn server_main(dal: Dal, plugins: Vec<PluginInfo>) -> Result<()> {
     println!("Server main");
     let state = AppState { dal, plugins };
     let app = Router::new()
@@ -27,7 +26,7 @@ pub async fn server_main(dal: Dal, plugins: Vec<PluginManifest>) -> Result<()> {
 #[derive(Clone)]
 struct AppState {
     dal: Dal,
-    plugins: Vec<PluginManifest>,
+    plugins: Vec<PluginInfo>,
 }
 
 #[derive(Debug, Deserialize)]

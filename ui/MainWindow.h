@@ -3,6 +3,7 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
+#include <QPluginLoader>
 #include <QtNetwork/QNetworkAccessManager>
 #include <string_view>
 
@@ -34,4 +35,5 @@ private:
   QNetworkAccessManager *backendConn;
   MainToolBar *m_toolbar{nullptr};
   QMenu *m_menuView;
+  QVector<QPluginLoader *> m_pluginLoaders;
 };

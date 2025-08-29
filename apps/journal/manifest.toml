@@ -2,7 +2,7 @@ name = "journal"
 version = "0.1.0"
 authors = ["Michael"]
 lua_entrypoint = "src/journal.lua"
-qt_library = "dist/x86_64-apple-darwin/libpanorama-journal.dylib"
+qt_library = "dist/arm64-apple-darwin/libpanorama-journal.dylib"
 permissions = ["native code access"]
 lua_functions = ["openUrl"]
 

@@ -31,7 +31,7 @@ MainToolBar::MainToolBar(MainWindow *parent)
   connect(openToday, &QAction::triggered, parent, [parent]() {
     auto today = QDate::currentDate();
     auto url = QStringLiteral("/journal/%1").arg(today.toString(Qt::ISODate));
-    parent->openUrl(url.toStdString());
+    emit parent->openUrl(url.toStdString());
   });
 
   // Calendar in a popup menu to pick arbitrary dates

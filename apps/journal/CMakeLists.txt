@@ -41,6 +41,8 @@ add_library(panorama-journal SHARED
     src/JournalPlugin.cpp
     src/JournalStore.cpp
     src/MarkdownEdit.cpp
+
+    "${panorama-plugin-sdk_SOURCE_DIR}/include/PluginInterface.h"
 )
 
 target_include_directories(panorama-journal PRIVATE

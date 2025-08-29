@@ -5,6 +5,12 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PluginInfo {
+    pub base_path: PathBuf,
+    pub manifest: PluginManifest,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PluginManifest {
     pub name: String,
     pub version: String,
@@ -28,7 +34,7 @@ impl PluginManifest {
 
 pub struct PluginLoader {
     pub plugins_dir: PathBuf,
-    pub loaded_plugins: Vec<PluginManifest>,
+    pub loaded_plugins: Vec<PluginInfo>,
 }
 
 impl PluginLoader {
@@ -63,7 +69,10 @@ impl PluginLoader {
                         }
                     }
                     // TODO: Load Lua entrypoint and Qt library
-                    self.loaded_plugins.push(manifest);
+                    self.loaded_plugins.push(PluginInfo {
+                        base_path: path.to_path_buf(),
+                        manifest,
+                    });
                 }
             }
         }
