@@ -27,8 +27,10 @@
 #include "Recents.h"
 #include "Toolbar.h"
 #include "ads_globals.h"
-#include "stores/JournalStore.h"
-#include "views/Journal.h"
+
+#include "plugins/PluginManager.h"
+// #include "stores/JournalStore.h"
+// #include "views/Journal.h"
 #include "widgets/FileView.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
@@ -37,7 +39,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   this->backendConn = new QNetworkAccessManager();
   // Provide the network manager to the centralized JournalStore
-  JournalStore::instance()->setNetworkManager(this->backendConn);
+  // JournalStore::instance()->setNetworkManager(this->backendConn);
 
   // Load window state
   QSettings settings("mzhang", "panorama");
@@ -119,37 +121,25 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 }
 
 void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
-  std::cout << "openge " << url << std::endl;
+  std::cout << "openUrl " << url << std::endl;
 
-  // TODO: Replace this with some proper routing
-  ads::CDockWidget *newWidget;
-
-  if (url.starts_with("/node/")) {
-    std::string_view id = url.substr(6);
-    std::cout << "lol! " << id << std::endl;
+  QWidget *widget = PluginManager::instance().handleUrl(
+      QString::fromStdString(std::string(url)));
+  if (widget) {
+    ads::CDockWidget *newWidget = m_DockManager->createDockWidget("plugin");
+    newWidget->setWidget(widget);
+    m_DockManager->addDockWidget(area, newWidget);
+    return;
   }
 
-  if (url.starts_with("/journal/")) {
-    std::string_view id = url.substr(9);
-    newWidget = m_DockManager->createDockWidget("journal");
-    QString nid = QString::fromStdString(std::string(id));
-    Journal *journal = new Journal(nid, this->backendConn, this);
-    newWidget->setWidget(journal);
-  } else if (url == "/importFile") {
-    newWidget = m_DockManager->createDockWidget("import");
-    QWidget *w = new QWidget();
-    QVBoxLayout *l = new QVBoxLayout(w);
-    QLabel *label = new QLabel(tr("Importing file..."), w);
-    l->addWidget(label);
-    newWidget->setWidget(w);
-  } else if (url.starts_with("/file/")) {
-    std::string_view id = url.substr(6);
-    newWidget = m_DockManager->createDockWidget("file");
-    QString nid = QString::fromStdString(std::string(id));
-    FileView *view = new FileView(nid, this->backendConn, this);
-    newWidget->setWidget(view);
-  }
-
+  // Fallback for unhandled URLs
+  ads::CDockWidget *newWidget = m_DockManager->createDockWidget("default");
+  QWidget *w = new QWidget();
+  QVBoxLayout *l = new QVBoxLayout(w);
+  QLabel *label = new QLabel(
+      tr("Unknown URL: %1").arg(QString::fromStdString(std::string(url))), w);
+  l->addWidget(label);
+  newWidget->setWidget(w);
   m_DockManager->addDockWidget(area, newWidget);
 }
 

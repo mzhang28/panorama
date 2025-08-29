@@ -8,6 +8,7 @@ mod apps;
 mod background;
 mod db;
 mod graphql;
+mod plugin;
 mod server;
 
 pub use crate::graphql::process_graphql_request;
@@ -21,7 +22,7 @@ use clap::Parser;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use tokio::runtime::Runtime;
 
-use crate::server::server_main;
+use crate::{plugin::PluginLoader, server::server_main};
 
 #[cxx::bridge]
 mod ffi {
@@ -45,6 +46,13 @@ pub async fn run() -> Result<()> {
     let pool = SqlitePoolOptions::new().connect_with(pool_opt).await?;
     let dal = Dal { pool };
     dal.migrate().await?;
+
+    // Initialize plugin loader and load plugins from /apps
+    let mut plugin_loader = PluginLoader::new("./apps");
+    match plugin_loader.load_plugins(&dal).await {
+        Ok(()) => println!("Loaded {} plugins", plugin_loader.loaded_plugins.len()),
+        Err(e) => eprintln!("Failed to load plugins: {e}"),
+    }
 
     install_default_apps(dal.clone()).await?;
 

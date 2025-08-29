@@ -59,11 +59,9 @@ add_executable(panorama-ui
     ui/Recents.cpp
     ui/Toolbar.cpp
     ui/main.cpp
+    ui/plugins/PluginManager.cpp
     ui/resources.qrc
-    ui/stores/JournalStore.cpp
-    ui/views/Journal.cpp
     ui/widgets/FileView.cpp
-    ui/widgets/MarkdownEdit.cpp
 )
 add_dependencies(panorama-ui PanoramaCore panorama-plugin-sdk)
 

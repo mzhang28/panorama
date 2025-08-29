@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HostContext.h"
 #include <QObject>
 
 class PluginInterface : public QObject {
@@ -7,6 +8,10 @@ class PluginInterface : public QObject {
 
 public:
   virtual QString name() const = 0;
+  virtual QString version() const = 0;
+
+  virtual void handleUrl(HostContext *ctx, QString &url,
+                         QObject *data = new QObject()) const = 0;
 };
 
 #define PluginInterface_iid "io.panorama.PluginInterface"
