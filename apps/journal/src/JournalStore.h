@@ -1,7 +1,8 @@
 #pragma once
 
-#include <QObject>
+#include "HostContext.h"
 #include <QMap>
+#include <QObject>
 #include <QString>
 
 class QNetworkAccessManager;
@@ -13,14 +14,20 @@ public:
   static JournalStore *instance();
   void setNetworkManager(QNetworkAccessManager *mgr);
 
+  // Optionally provide a HostContext so the store can use its
+  // graphqlRequest helper. The HostContext is not owned by the store.
+  void setHostContext(HostContext *ctx);
+
   // Ensure a node's content is loaded (will emit contentChanged when ready)
   void ensureLoaded(const QString &nodeId);
 
-  // Update the local content and schedule a save. Emits contentChanged immediately.
+  // Update the local content and schedule a save. Emits contentChanged
+  // immediately.
   void setContent(const QString &nodeId, const QString &content);
 
   // Read current cached content (may be empty)
   QString content(const QString &nodeId) const;
+
   // Read current cached title (may be empty)
   QString title(const QString &nodeId) const;
 
@@ -37,6 +44,7 @@ private:
   static JournalStore *s_instance;
 
   QNetworkAccessManager *m_mgr{nullptr};
+  HostContext *m_hostCtx{nullptr};
   QMap<QString, QString> m_contents;
   QMap<QString, QString> m_titles;
   QMap<QString, QTimer *> m_timers;

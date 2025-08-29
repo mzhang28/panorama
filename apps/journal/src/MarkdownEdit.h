@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HostContext.h"
 #include "qmarkdowntextedit.h"
 #include <QDesktopServices>
 #include <QDragEnterEvent>
@@ -12,10 +13,13 @@
 #include <QUrl>
 #include <QUuid>
 
+#include "Journal.h"
+
 class MarkdownEdit : public QMarkdownTextEdit {
   Q_OBJECT
 public:
-  explicit MarkdownEdit(QWidget *parent = nullptr) : QMarkdownTextEdit(parent) {
+  explicit MarkdownEdit(Journal *parent = nullptr, HostContext *ctx = nullptr)
+      : QMarkdownTextEdit(parent), ctx(ctx) {
     setAcceptDrops(true);
   }
 
@@ -68,4 +72,7 @@ protected:
   // calls when a link is activated. Provide both QString and QUrl entry
   // points to be robust against varying signatures.
   void openUrl(const QString &url) override;
+
+private:
+  HostContext *ctx;
 };

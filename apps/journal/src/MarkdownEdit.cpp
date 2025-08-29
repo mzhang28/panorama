@@ -2,7 +2,7 @@
 
 void MarkdownEdit::openUrl(const QString &url) {
   if (url.startsWith("panorama://")) {
-    emit panoramaLinkActivated(url);
+    this->ctx->openUrl(url);
     return;
   }
   QDesktopServices::openUrl(url);

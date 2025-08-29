@@ -29,7 +29,7 @@ endif()
 #---------------------------------------------------------------------------------------------------------
 # Dependencies
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network WebSockets Pdf PdfWidgets)
 
 include(FetchContent)
 
@@ -59,8 +59,8 @@ else()
 endif()
 
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC OFF)
+set(CMAKE_AUTOUIC OFF)
 
 # get_cmake_property(_variableNames VARIABLES)
 # foreach (_variableName ${_variableNames})
@@ -72,6 +72,7 @@ add_executable(panorama-ui
     ui/RecentNodeStore.cpp
     ui/Recents.cpp
     ui/Toolbar.cpp
+    ui/UiHostContext.cpp
     ui/main.cpp
     ui/plugins/PluginManager.cpp
     ui/resources.qrc
@@ -102,6 +103,7 @@ target_link_libraries(panorama-ui PRIVATE
     Qt6::Core
     Qt6::Widgets
     Qt6::Network
+    Qt6::WebSockets
     Qt6::Pdf
     Qt6::PdfWidgets
     qtadvanceddocking-qt6

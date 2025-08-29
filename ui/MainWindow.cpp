@@ -21,6 +21,7 @@
 #include <QUrl>
 #include <QUuid>
 #include <QVBoxLayout>
+#include <QWebSocket>
 
 #include "AutoHideDockContainer.h"
 #include "DockAreaWidget.h"
@@ -29,6 +30,7 @@
 #include "MainWindow.h"
 #include "Recents.h"
 #include "Toolbar.h"
+#include "UiHostContext.h"
 #include "ads_globals.h"
 
 #include "HostContext.h"
@@ -121,7 +123,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
                   // valid
                   this->m_pluginLoaders.push_back(loader);
                   pluginIface = pi;
-                  hostCtx = new HostContext(this);
+                  hostCtx = new UiHostContext(this, this->backendConn);
+                  hostCtx->setNetworkAccessManager(this->backendConn);
                   qDebug() << "Loaded Qt plugin from" << pluginPath
                            << "for manifest" << manifest;
 
@@ -158,6 +161,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         });
   }
 
+  // Connect to backend websocket for events (e.g. openUrl)
+  {
+    QWebSocket *ws = new QWebSocket();
+    connect(ws, &QWebSocket::textMessageReceived, this,
+            [this](const QString &msg) {
+              QJsonParseError perr;
+              QJsonDocument doc = QJsonDocument::fromJson(msg.toUtf8(), &perr);
+              if (perr.error != QJsonParseError::NoError)
+                return;
+              if (!doc.isObject())
+                return;
+              QJsonObject obj = doc.object();
+              qDebug() << "websocket received" << obj;
+              if (obj.value("type").toString() == "openUrl") {
+                QString url = obj.value("url").toString();
+                this->openUrl(url.toStdString());
+              }
+            });
+    ws->open(QUrl("ws://127.0.0.1:4141/ws"));
+  }
+
   // Load window state
   QSettings settings("mzhang", "panorama");
   restoreGeometry(settings.value("geometry").toByteArray());
@@ -173,10 +197,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Set font
   int id = QFontDatabase::addApplicationFont(
       ":/fonts/Inter-VariableFont_opsz,wght.ttf");
-  QString family = QFontDatabase::applicationFontFamilies(id).at(0);
-  QFont font(family, 12);
-  font.setStyleStrategy(QFont::PreferAntialias);
-  QApplication::setFont(font);
+  auto fdb = QFontDatabase::applicationFontFamilies(id);
+  qDebug() << "number of fonts" << fdb.size();
+  if (fdb.size() > 0) {
+    QString family = fdb.at(0);
+    QFont font(family, 12);
+    font.setStyleStrategy(QFont::PreferAntialias);
+    QApplication::setFont(font);
+  }
 
   // Create the dock manager
   ads::CDockManager::setConfigFlag(

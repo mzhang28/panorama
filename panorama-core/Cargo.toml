@@ -2,6 +2,7 @@
 name = "panorama-core"
 version = "0.1.0"
 edition = "2024"
+authors = ["Michael Zhang <mail@mzhang.io>"]
 
 [[bin]]
 name = "panorama-daemon"
@@ -14,12 +15,17 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 anyhow = { version = "1.0.99", features = ["backtrace"] }
 axum = { version = "0.8.4", features = ["http2", "ws", "macros"] }
+chrono = "0.4.41"
 clap = { version = "4.5.45", features = ["derive"] }
 cxx = "1.0.168"
 graphql-parser = "0.4.1"
 lazy_static = "1.5.0"
-mlua = { version = "0.11.2", features = ["anyhow", "luajit", "vendored"] }
-# mlua = { version = "0.11.2", features = ["luajit", "serde", "vendored"] }
+mlua = { version = "0.11.2", features = [
+    "anyhow",
+    "luajit",
+    "serialize",
+    "vendored",
+] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.143"
 sqlx = { version = "0.8.6", features = [
@@ -31,6 +37,7 @@ sqlx = { version = "0.8.6", features = [
 tokio = { version = "1.47.1", features = ["full"] }
 toml = "0.9.5"
 uuid = { version = "1.18.0", features = ["v7"] }
+futures-util = "0.3"
 
 [build-dependencies]
 cxx-build = "1.0.168"

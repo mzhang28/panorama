@@ -5,6 +5,7 @@
 #include <QToolBar>
 #include <QVBoxLayout>
 
+#include "HostContext.h"
 #include "Journal.h"
 #include "JournalStore.h"
 #include "MarkdownEdit.h"
@@ -26,9 +27,10 @@
 #include <QUrl>
 #include <QUuid>
 
-Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
-                 QWidget *parent)
-    : QWidget(parent), m_nodeId(nodeId), m_mgr(mgr) {
+Journal::Journal(const QString &nodeId, HostContext *ctx, QWidget *parent)
+    : QWidget(parent), m_nodeId(nodeId), m_mgr(nullptr), m_hostCtx(ctx) {
+  if (m_hostCtx)
+    m_mgr = m_hostCtx->networkAccessManager();
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(0);
@@ -48,13 +50,16 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
   header->addWidget(m_statusLabel);
   layout->addLayout(header);
 
-  m_editor = new MarkdownEdit();
+  m_editor = new MarkdownEdit(this, ctx);
   layout->addWidget(m_editor);
 
   // Use the centralized JournalStore to load/save content and coordinate
   JournalStore *store = JournalStore::instance();
-  // Ensure the store has a network manager if our MainWindow provided one
-  if (m_mgr)
+  // Provide HostContext to the store if available so it can use
+  // graphqlRequest; otherwise, provide the raw network manager.
+  if (m_hostCtx)
+    store->setHostContext(m_hostCtx);
+  else if (m_mgr)
     store->setNetworkManager(m_mgr);
 
   // React to content updates from the store (including our own edits from other

@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use mlua::{Function as LuaFunction, Lua, LuaOptions, StdLib, Table as LuaTable};
 use serde::Deserialize;
+use lazy_static::lazy_static;
+use std::sync::Mutex;
+use tokio::sync::broadcast;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PluginInfo {
@@ -19,7 +22,7 @@ pub struct PluginManifest {
     pub authors: Vec<String>,
     pub lua_entrypoint: String,
     pub qt_library: Option<String>,
-    pub permissions: Vec<String>,
+    pub permissions: Vec<Permission>,
     pub lua_functions: Vec<String>,
 
     #[serde(default)]
@@ -33,10 +36,17 @@ pub struct PluginManifest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Permission {
+    /// This allows running of arbitrary code on the host.
+    /// This is required for having Qt components.
+    Privileged,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EventKey {
-    #[serde(rename = "self_loaded")]
     SelfLoaded,
-    #[serde(rename = "plugins_loaded")]
     PluginsLoaded,
 }
 
@@ -116,58 +126,76 @@ impl PluginLoader {
     }
 
     fn create_lua_prelude(&self, lua: &Lua) -> Result<LuaTable> {
-        let table = lua.create_table()?;
-        table.set("version", "0.1.0")?;
-        Ok(table)
+        create_lua_prelude(lua)
     }
 }
 
-// Configuration for startup plugin function invocation
-#[derive(Debug, Deserialize)]
-pub struct StartupConfig {
-    pub plugin_name: String,
-    pub function_name: String,
+// Global IPC sender for sending messages to frontend websocket clients.
+lazy_static! {
+    static ref BROADCAST_SENDER: Mutex<Option<broadcast::Sender<String>>> = Mutex::new(None);
 }
 
-impl StartupConfig {
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = fs::read_to_string(path)?;
-        let config: StartupConfig = toml::from_str(&content)?;
-        Ok(config)
-    }
-}
-
-// IPC and WebSocket stubs
 pub mod ipc {
-    use std::sync::mpsc::{Receiver, Sender, channel};
-    use std::thread;
+    use super::*;
 
-    // // Channels for IPC communication
-    // lazy_static::lazy_static! {
-    //     static ref TO_RUST_SENDER: (Sender<String>, Receiver<String>) = channel();
-    //     static ref TO_FRONTEND_SENDER: (Sender<String>, Receiver<String>) = channel();
-    // }
+    pub fn set_sender(sender: broadcast::Sender<String>) {
+        let mut guard = BROADCAST_SENDER.lock().unwrap();
+        *guard = Some(sender);
+    }
 
-    // pub fn send_to_rust(msg: &str) {
-    //     let _ = TO_RUST_SENDER.0.send(msg.to_string());
-    // }
-
-    // pub fn recv_from_lua() -> Option<String> {
-    //     TO_RUST_SENDER.1.try_recv().ok()
-    // }
-
-    // pub fn send_to_frontend(msg: &str) {
-    //     let _ = TO_FRONTEND_SENDER.0.send(msg.to_string());
-    // }
-
-    // pub fn recv_from_rust() -> Option<String> {
-    //     TO_FRONTEND_SENDER.1.try_recv().ok()
-    // }
-
-    // Placeholder for WebSocket server thread
-    pub fn start_websocket_server() {
-        thread::spawn(|| {
-            // TODO: Implement WebSocket server to communicate with Qt frontend
-        });
+    pub fn send_to_frontend(msg: &str) {
+        let guard = BROADCAST_SENDER.lock().unwrap();
+        if let Some(sender) = guard.as_ref() {
+            let _ = sender.send(msg.to_string());
+        }
     }
 }
+
+/// Create the `panorama` prelude table for Lua scripts. Public so other
+/// modules can use the same prelude when invoking Lua functions later.
+pub fn create_lua_prelude(lua: &Lua) -> Result<LuaTable> {
+    let table = lua.create_table()?;
+    table.set("version", env!("CARGO_PKG_VERSION"))?;
+
+    let date_fn = lua.create_function(|lua, _v: ()| {
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        lua.create_string(date.as_str())
+    })?;
+    table.set("date", date_fn)?;
+
+    let query_fn = lua.create_function(|_lua, _v: ()| {
+        println!("panorama.query called");
+        Ok(())
+    })?;
+    table.set("query", query_fn)?;
+
+    // panorama.openUrl should send an event to the frontend via websocket.
+    let open_fn = lua.create_function(|_lua, url: String| {
+        let payload = serde_json::json!({"type": "openUrl", "url": url});
+        let s = payload.to_string();
+        ipc::send_to_frontend(&s);
+        Ok(())
+    })?;
+    table.set("openUrl", open_fn)?;
+
+    Ok(table)
+}
+
+/// Call all plugins' `on_plugins_loaded` handlers (if present).
+pub fn call_on_plugins_loaded(plugins: &Vec<PluginInfo>) -> Result<()> {
+    for info in plugins {
+        if let Some(handler_name) = info.manifest.on.get(&EventKey::PluginsLoaded) {
+            let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::new()).unwrap();
+            let prelude = create_lua_prelude(&lua)?;
+            lua.globals().set("panorama", prelude)?;
+            let entrypoint_path = info.base_path.join(&info.manifest.lua_entrypoint);
+            let contents = std::fs::read_to_string(entrypoint_path)?;
+            let module = lua.load(contents).eval::<LuaTable>()?;
+            let handler_func = module.get::<LuaFunction>(handler_name.as_str())?;
+            handler_func.call::<()>(()).map_err(|e| anyhow::anyhow!("Lua handler error: {e:?}"))?;
+        }
+    }
+    Ok(())
+}
+
+// (old IPC stub removed - new IPC implementation above)
