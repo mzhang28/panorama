@@ -12,6 +12,7 @@ public:
 
   virtual QString name() const = 0;
   virtual QString version() const = 0;
+
   // Create and return a widget for the given URL. Implementations should
   // return a newly-allocated QWidget (parent may be set by the caller).
   virtual QWidget *handleUrl(HostContext *ctx, const QString &url,

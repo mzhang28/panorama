@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use anyhow::Result;
+use mlua::{Function as LuaFunction, Lua, LuaOptions, StdLib, Table as LuaTable};
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,9 +21,23 @@ pub struct PluginManifest {
     pub qt_library: Option<String>,
     pub permissions: Vec<String>,
     pub lua_functions: Vec<String>,
+
+    #[serde(default)]
     pub fields: HashMap<String, String>, // field name -> type
+
     #[serde(default)]
     pub regexes: Vec<String>,
+
+    #[serde(default)]
+    pub on: HashMap<EventKey, String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EventKey {
+    #[serde(rename = "self_loaded")]
+    SelfLoaded,
+    #[serde(rename = "plugins_loaded")]
+    PluginsLoaded,
 }
 
 impl PluginManifest {
@@ -68,11 +84,14 @@ impl PluginLoader {
                             dal.create_table(&manifest.name, missing).await?;
                         }
                     }
+
                     // TODO: Load Lua entrypoint and Qt library
-                    self.loaded_plugins.push(PluginInfo {
+                    let info = PluginInfo {
                         base_path: path.to_path_buf(),
                         manifest,
-                    });
+                    };
+                    self.load_lua_entrypoint(&info);
+                    self.loaded_plugins.push(info);
                 }
             }
         }
@@ -80,13 +99,26 @@ impl PluginLoader {
     }
 
     // Placeholder for loading Lua entrypoint
-    pub fn load_lua_entrypoint(&self, _manifest: &PluginManifest) {
-        // TODO: Implement Lua VM allocation and loading
+    pub fn load_lua_entrypoint(&self, info: &PluginInfo) {
+        let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::new()).unwrap();
+        let prelude = self.create_lua_prelude(&lua).unwrap();
+        lua.globals().set("panorama", prelude).unwrap();
+        let entrypoint_path = info.base_path.join(&info.manifest.lua_entrypoint);
+        let contents = std::fs::read_to_string(entrypoint_path).unwrap();
+        let module = lua.load(contents).eval::<LuaTable>().unwrap();
+
+        if let Some(handler_name) = info.manifest.on.get(&EventKey::SelfLoaded) {
+            let handler_func = module.get::<LuaFunction>(handler_name.as_str()).unwrap();
+            handler_func.call::<()>(()).unwrap();
+        }
+
+        println!("Module: {module:?}");
     }
 
-    // Placeholder for loading Qt shared library
-    pub fn load_qt_library(&self, _manifest: &PluginManifest) {
-        // TODO: Implement Qt plugin loader usage
+    fn create_lua_prelude(&self, lua: &Lua) -> Result<LuaTable> {
+        let table = lua.create_table()?;
+        table.set("version", "0.1.0")?;
+        Ok(table)
     }
 }
 
