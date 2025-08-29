@@ -22,7 +22,7 @@ jobs:
         uses: jurplel/install-qt-action@v3
         with:
           version: 6.5.0
-          modules: qtpdf
+          modules: qtpdf qtwebsockets
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -49,7 +49,7 @@ jobs:
         uses: jurplel/install-qt-action@v3
         with:
           version: 6.5.0
-          modules: qtpdf
+          modules: qtpdf qtwebsockets
       - name: Install dependencies
         run: |
           brew update
@@ -74,7 +74,7 @@ jobs:
         uses: jurplel/install-qt-action@v3
         with:
           version: 6.5.0
-          modules: qtpdf
+          modules: qtpdf qtwebsockets
       - uses: msys2/setup-msys2@v2
         with:
           install: mingw-w64-x86_64-gcc
