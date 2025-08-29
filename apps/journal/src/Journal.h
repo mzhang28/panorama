@@ -11,7 +11,8 @@ class Journal : public QWidget {
   Q_OBJECT
 
 public:
-  explicit Journal(const QString &nodeId, QNetworkAccessManager *mgr, QWidget *parent = nullptr);
+  explicit Journal(const QString &nodeId, QNetworkAccessManager *mgr,
+                   QWidget *parent = nullptr);
 
 private:
   QString m_nodeId;

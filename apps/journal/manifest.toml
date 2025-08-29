@@ -6,6 +6,8 @@ qt_library = "dist/x86_64-apple-darwin/libpanorama-journal.dylib"
 permissions = ["native code access"]
 lua_functions = ["openUrl"]
 
+regexes = ["^/journal/"]
+
 [fields]
 "journal/title" = "TEXT"
 "journal/content" = "TEXT"

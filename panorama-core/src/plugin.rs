@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PluginManifest {
     pub name: String,
     pub version: String,
@@ -14,6 +14,8 @@ pub struct PluginManifest {
     pub permissions: Vec<String>,
     pub lua_functions: Vec<String>,
     pub fields: HashMap<String, String>, // field name -> type
+    #[serde(default)]
+    pub regexes: Vec<String>,
 }
 
 impl PluginManifest {

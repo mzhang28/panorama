@@ -1,9 +1,4 @@
-#include "PluginInterface.h"
+#include "JournalPlugin.h"
 #include "PluginRegistrar.h"
 
-class JournalPlugin : public PluginInterface {
-public:
-    JournalPlugin() {
-        PluginRegistrar::registerPlugin();
-    }
-};
+JournalPlugin::JournalPlugin() { PluginRegistrar::registerPlugin(); }

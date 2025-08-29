@@ -37,8 +37,8 @@ set(DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dist/${HOST_TRIPLE}")
 file(MAKE_DIRECTORY ${DIST_DIR})
 
 add_library(panorama-journal SHARED
-    src/JournalPlugin.cpp
     src/Journal.cpp
+    src/JournalPlugin.cpp
     src/JournalStore.cpp
     src/MarkdownEdit.cpp
 )

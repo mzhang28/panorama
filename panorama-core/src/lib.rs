@@ -58,7 +58,9 @@ pub async fn run() -> Result<()> {
 
     let background = catch(background::background_loop());
     let dal_server = dal.clone();
-    let server_main_fut = catch(server_main(dal_server));
+    // Move loaded plugins into server state so the UI can request manifests
+    let plugins_for_server = plugin_loader.loaded_plugins.clone();
+    let server_main_fut = catch(server_main(dal_server, plugins_for_server));
 
     let _ = tokio::join!(background, server_main_fut);
     println!("Done!");

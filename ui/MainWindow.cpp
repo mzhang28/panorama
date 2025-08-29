@@ -2,11 +2,13 @@
 #include <QCloseEvent>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QDirIterator>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -14,6 +16,7 @@
 #include <QMimeData>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPluginLoader>
 #include <QSettings>
 #include <QUrl>
 #include <QUuid>
@@ -29,8 +32,6 @@
 #include "ads_globals.h"
 
 #include "plugins/PluginManager.h"
-// #include "stores/JournalStore.h"
-// #include "views/Journal.h"
 #include "widgets/FileView.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
@@ -40,6 +41,50 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   this->backendConn = new QNetworkAccessManager();
   // Provide the network manager to the centralized JournalStore
   // JournalStore::instance()->setNetworkManager(this->backendConn);
+
+  // Request plugin list (including URL regexes) from the backend so we can
+  // precompile regexes and register patterns up-front. The backend is
+  // expected to return either an array of plugin objects or an object with a
+  // "plugins" array. Each plugin object may contain a "regexes" array of
+  // strings.
+  {
+    QNetworkRequest pluginsReq(QUrl("http://127.0.0.1:4141/plugins"));
+    QNetworkReply *pluginsReply = this->backendConn->get(pluginsReq);
+    connect(pluginsReply, &QNetworkReply::finished, this, [pluginsReply]() {
+      if (pluginsReply->error() == QNetworkReply::NoError) {
+        QByteArray body = pluginsReply->readAll();
+        QJsonParseError perr;
+        QJsonDocument doc = QJsonDocument::fromJson(body, &perr);
+        qDebug() << "got plugins reply " << doc;
+        if (perr.error == QJsonParseError::NoError) {
+          QJsonArray arr;
+          if (doc.isArray()) {
+            arr = doc.array();
+          } else if (doc.isObject() && doc.object().contains("plugins") &&
+                     doc.object().value("plugins").isArray()) {
+            arr = doc.object().value("plugins").toArray();
+          }
+          for (const QJsonValue &v : arr) {
+            if (!v.isObject())
+              continue;
+            QJsonObject obj = v.toObject();
+            if (!obj.contains("regexes") || !obj.value("regexes").isArray())
+              continue;
+            QJsonArray regexes = obj.value("regexes").toArray();
+            for (const QJsonValue &r : regexes) {
+              if (!r.isString())
+                continue;
+              QString pattern = r.toString();
+              // Register the pattern first (precompile)
+              PluginManager::instance().registerUrlPattern(
+                  pattern.toStdString());
+            }
+          }
+        }
+      }
+      pluginsReply->deleteLater();
+    });
+  }
 
   // Load window state
   QSettings settings("mzhang", "panorama");
@@ -79,6 +124,35 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now());
     auto url = std::format("/journal/{:%F}", today);
     openUrl(url, ads::CenterDockWidgetArea);
+  }
+
+  // Load Qt plugin libraries found under ./apps/*/dist/* so they can register
+  // their URL handlers via PluginRegistrar. Plugins are expected to export a
+  // Qt plugin that calls PluginRegistrar::registerPlugin() in its
+  // constructor.
+  {
+    QDir appsDir(QDir::currentPath() + "/apps");
+    if (appsDir.exists()) {
+      QDirIterator it(appsDir.absolutePath(), QDirIterator::Subdirectories);
+      while (it.hasNext()) {
+        it.next();
+        QString path = it.filePath();
+        // Look for plugin shared libraries in dist folders (macOS .dylib, Linux
+        // .so)
+        if (path.contains("/dist/") &&
+            (path.endsWith(".dylib") || path.endsWith(".so") ||
+             path.endsWith(".dll"))) {
+          QPluginLoader loader(path);
+          QObject *plugin = loader.instance();
+          if (!plugin) {
+            qWarning() << "Failed to load plugin:" << path
+                       << loader.errorString();
+          } else {
+            qDebug() << "Loaded plugin:" << path << "(instance created)";
+          }
+        }
+      }
+    }
   }
 
   // Left sidebar

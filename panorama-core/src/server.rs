@@ -6,13 +6,15 @@ use axum::{
 };
 
 use crate::db::Dal;
+use crate::plugin::PluginManifest;
 
-pub async fn server_main(dal: Dal) -> Result<()> {
+pub async fn server_main(dal: Dal, plugins: Vec<PluginManifest>) -> Result<()> {
     println!("Server main");
-    let state = AppState { dal };
+    let state = AppState { dal, plugins };
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route("/graphql", post(post_graphql))
+        .route("/plugins", get(get_plugins))
         .with_state(state);
 
     // run our app with hyper, listening globally on port 3000
@@ -25,6 +27,7 @@ pub async fn server_main(dal: Dal) -> Result<()> {
 #[derive(Clone)]
 struct AppState {
     dal: Dal,
+    plugins: Vec<PluginManifest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,4 +52,11 @@ async fn post_graphql(
         Ok(v) => axum::response::Json(v),
         Err(e) => axum::response::Json(serde_json::json!({"error": format!("{e:?}")})),
     }
+}
+
+async fn get_plugins(State(state): State<AppState>) -> axum::response::Json<serde_json::Value> {
+    // Return the loaded plugin manifests as JSON. We wrap in an object with
+    // a "plugins" array for compatibility with the UI which accepts either
+    // an array or an object containing a "plugins" key.
+    axum::response::Json(serde_json::json!({"plugins": state.plugins}))
 }
