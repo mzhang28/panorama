@@ -75,10 +75,9 @@ jobs:
         with:
           version: 6.5.0
           modules: qtpdf
-      - name: Set up MinGW
-        uses: egor-tensin/setup-mingw@v2
+      - uses: msys2/setup-msys2@v2
         with:
-          platform: x64
+          install: mingw-w64-x86_64-gcc
       - name: Install dependencies
         run: |
           choco install ninja rustup.install
