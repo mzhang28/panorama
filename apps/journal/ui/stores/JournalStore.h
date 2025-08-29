@@ -41,3 +41,4 @@ private:
   QMap<QString, QString> m_titles;
   QMap<QString, QTimer *> m_timers;
 };
+

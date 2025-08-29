@@ -7,10 +7,10 @@
 
 #include "../stores/JournalStore.h"
 #include "../widgets/MarkdownEdit.h"
-#include "../MainWindow.h"
 #include "Journal.h"
 #include "qmarkdowntextedit.h"
 
+#include <QApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -24,12 +24,11 @@
 #include <QTextCursor>
 #include <QTimer>
 #include <QUrl>
-#include <QApplication>
 #include <QUuid>
+#include <QVBoxLayout>
 
-Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
-                 QWidget *parent)
-    : QWidget(parent), m_nodeId(nodeId), m_mgr(mgr) {
+Journal::Journal(HostContext *ctx, const QString &nodeId, QWidget *parent)
+    : QWidget(parent), m_nodeId(nodeId), ctx(ctx) {
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(0);
@@ -55,8 +54,6 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
   // Use the centralized JournalStore to load/save content and coordinate
   JournalStore *store = JournalStore::instance();
   // Ensure the store has a network manager if our MainWindow provided one
-  if (m_mgr)
-    store->setNetworkManager(m_mgr);
 
   // React to content updates from the store (including our own edits from other
   // windows)
@@ -162,53 +159,31 @@ Journal::Journal(const QString &nodeId, QNetworkAccessManager *mgr,
                       "\"size\", value: $size)"
                       " }";
 
-        QJsonObject payload;
-        payload.insert("query", gql);
-        payload.insert("variables", vars);
+        // QJsonObject payload;
+        // payload.insert("query", gql);
+        // payload.insert("variables", vars);
 
-        if (!m_mgr)
-          return;
-        QNetworkRequest req(QUrl("http://127.0.0.1:4141/graphql"));
-        req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-        QNetworkReply *reply =
-            m_mgr->post(req, QJsonDocument(payload).toJson());
-        connect(reply, &QNetworkReply::finished, this,
-                [this, reply, placeholder, nodeId, hex, name]() {
-                  if (reply->error() == QNetworkReply::NoError) {
-                    QString replacement = QString("[%1](panorama:///%2)").arg(name).arg(nodeId);
-                    m_editor->replacePlaceholder(placeholder, replacement);
-                  }
-                  reply->deleteLater();
-                });
+        // if (!m_mgr)
+        //   return;
+        // QNetworkRequest req(QUrl("http://127.0.0.1:4141/graphql"));
+        // req.setHeader(QNetworkRequest::ContentTypeHeader,
+        // "application/json"); QNetworkReply *reply =
+        //     m_mgr->post(req, QJsonDocument(payload).toJson());
+        // connect(reply, &QNetworkReply::finished, this,
+        //         [this, reply, placeholder, nodeId, hex, name]() {
+        //           if (reply->error() == QNetworkReply::NoError) {
+        //             QString replacement =
+        //                 QString("[%1](panorama:///%2)").arg(name).arg(nodeId);
+        //             m_editor->replacePlaceholder(placeholder, replacement);
+        //           }
+        //           reply->deleteLater();
+        //         });
       });
 
-  // Handle clicks on panorama:// links inside the editor. When such a link is
-  // clicked, open the corresponding file view in the main window.
-  connect(m_editor, &MarkdownEdit::panoramaLinkActivated, this,
-          [this](const QString &href) {
-            QUrl u(href);
-            QString path = u.path();
-            if (path.startsWith('/'))
-              path = path.mid(1);
-            if (path.isEmpty())
-              return;
-            QString url = QString("/file/%1").arg(path);
-
-            // Try to find the MainWindow: prefer the top-level window for this
-            // widget, fallback to scanning top-level widgets.
-            QWidget *top = this->window();
-            MainWindow *mw = nullptr;
-            if (top)
-              mw = qobject_cast<MainWindow *>(top);
-            if (!mw) {
-              for (QWidget *w : QApplication::topLevelWidgets()) {
-                mw = qobject_cast<MainWindow *>(w);
-                if (mw)
-                  break;
-              }
-            }
-            if (!mw)
-              return;
-            mw->openUrl(url.toStdString(), ads::CenterDockWidgetArea);
-          });
+  // When an internal panorama link is activated, forward the href to the
+  // plugin/host via a signal; the host may connect this to its HostContext
+  // to open the corresponding UI panel.
+  connect(
+      m_editor, &MarkdownEdit::panoramaLinkActivated, this,
+      [this](const QString &href) { emit this->panoramaLinkActivated(href); });
 }

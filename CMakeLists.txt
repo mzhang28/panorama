@@ -18,10 +18,10 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets WebSockets)
-
 #---------------------------------------------------------------------------------------------------------
 # Dependencies
+
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets WebSockets)
 
 set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1)
 
@@ -56,24 +56,27 @@ else()
 endif()
 
 set(CMAKE_AUTOMOC ON)
-# Disable AUTORCC/AUTOUIC on hosts where Qt tools may be incompatible.
-# This avoids invoking system `rcc`/`uic` during configure in certain CI
-# environments; resource compilation will be skipped in that case.
-set(CMAKE_AUTORCC OFF)
-set(CMAKE_AUTOUIC OFF)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
+# Plugin SDK (header-only)
+add_subdirectory(plugin-sdk)
 
 add_executable(PanoramaUi
+    apps/journal/ui/stores/JournalStore.cpp
+    apps/journal/ui/views/Journal.cpp
+    apps/journal/ui/widgets/MarkdownEdit.cpp
     ui/MainWindow.cpp
-    ui/WidgetRegistry.cpp
     ui/RecentNodeStore.cpp
     ui/Recents.cpp
     ui/Toolbar.cpp
+    ui/WidgetRegistry.cpp
     ui/main.cpp
     ui/resources.qrc
-    ui/stores/JournalStore.cpp
-    ui/views/Journal.cpp
     ui/widgets/FileView.cpp
-    ui/widgets/MarkdownEdit.cpp
+
+    # Required for MOC generation (HostContext has Q_OBJECT)
+    plugin-sdk/include/HostContext.h
 )
 add_dependencies(PanoramaUi PanoramaCore)
 
@@ -88,6 +91,7 @@ target_include_directories(PanoramaUi PRIVATE
     "${ads_SOURCE_DIR}/src"
     "${qmarkdowntextedit_SOURCE_DIR}"
     "${RUST_TARGET_DIR}/cxxbridge"
+    "${CMAKE_SOURCE_DIR}/plugin-sdk/include"
 )
 target_link_libraries(PanoramaUi PRIVATE
     Qt6::Core
@@ -98,6 +102,7 @@ target_link_libraries(PanoramaUi PRIVATE
     Qt6::WebSockets
     qtadvanceddocking-qt6
     qmarkdowntextedit
+    plugin-sdk
 )
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
@@ -111,6 +116,7 @@ endif()
 # Optionally build UI plugins found under apps/*/ui_plugin. This allows
 # local app plugins (like apps/journals/ui_plugin) to be compiled with the
 # main build. We only add the subdirectory when the plugin CMakeLists exists.
-if(EXISTS "${CMAKE_SOURCE_DIR}/apps/journals/ui_plugin/CMakeLists.txt")
-    add_subdirectory(apps/journals/ui_plugin)
+if(EXISTS "${CMAKE_SOURCE_DIR}/apps/journal/ui_plugin/CMakeLists.txt")
+    add_subdirectory(apps/journal)
+    add_dependencies(PanoramaUi journalsplugin)
 endif()

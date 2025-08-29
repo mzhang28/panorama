@@ -20,3 +20,4 @@ function M.daily_url()
 end
 
 return M
+

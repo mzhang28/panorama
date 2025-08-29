@@ -163,3 +163,4 @@ void JournalStore::onSaveTimerTimeout() {
     emit statusChanged(nodeId, QString("saved"));
   });
 }
+

@@ -34,3 +34,4 @@ permissions:
   allow_native: true
   allow_spawn_server: false
   allow_os_access: false
+

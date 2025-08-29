@@ -7,3 +7,4 @@ void MarkdownEdit::openUrl(const QString &url) {
   }
   QDesktopServices::openUrl(url);
 }
+

@@ -1,3 +1,4 @@
+// Moved from ui/widgets/MarkdownEdit.h into the journal app
 #pragma once
 
 #include "qmarkdowntextedit.h"
@@ -69,3 +70,4 @@ protected:
   // points to be robust against varying signatures.
   void openUrl(const QString &url) override;
 };
+
