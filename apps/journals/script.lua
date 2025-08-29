@@ -12,5 +12,11 @@ function M.summary(content)
   return s
 end
 
-return M
+-- Return the URL for today's daily journal page (YYYY-MM-DD)
+function M.daily_url()
+  local now = os.time()
+  local date = os.date("%Y-%m-%d", now)
+  return string.format("/journal/%s", date)
+end
 
+return M

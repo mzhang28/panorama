@@ -91,5 +91,35 @@ Fields are a distinct concept from edges, which relate nodes.
   - **Save flow:** Per-node `QTimer` debounces (1s) then issues a `setField` GraphQL mutation; `statusChanged` reports `unsaved` → `saving` → `saved` (or `error`).
   - **Cross-window updates:** Editors subscribe to `contentChanged` to receive authoritative content; when one window types it calls `setContent` which immediately broadcasts the new text to others.
   - **Cursor-jump bug & fix:** Emitting `contentChanged` back to the origin caused the origin editor to call `setPlainText(...)` and reset the cursor to the start. Fix: `Journal` now ignores incoming `contentChanged` when the editor already holds the identical text (skip `setPlainText`).
-  - **Alternatives & future improvements:** Could embed an origin token to avoid echoing to the sender, normalize whitespace before comparison, or preserve/restore cursor/selection on programmatic updates; consider changing `statusChanged` to a typed enum (`Q_ENUM`) and removing the singleton in favor of DI.
+- **Alternatives & future improvements:** Could embed an origin token to avoid echoing to the sender, normalize whitespace before comparison, or preserve/restore cursor/selection on programmatic updates; consider changing `statusChanged` to a typed enum (`Q_ENUM`) and removing the singleton in favor of DI.
   - **Build notes:** Added `ui/stores/JournalStore.cpp` to `CMakeLists.txt` so `Q_OBJECT` is moc'ed. Local sandbox build showed unrelated Qt/uic and macOS SDK warnings (toolchain environment issues) but the source changes are correct for a normal dev environment.
+
+## Operational Notes (not obvious from code)
+
+- **Plugin model & manifests:** Apps live under `./apps/<appname>` and declare a `manifest.yaml`. Manifests include `meta`, a `fields` list (`key` + `type`), a `lua` object (`entrypoint` + `functions`), `ui_plugins` list (each has `target` + `path`), and `permissions` (booleans). The server scans `./apps` (and any paths in `PANORAMA_APPS_PATH`) to discover apps.
+
+- **Lua apps run in the backend:** Each app with a `lua.entrypoint` is launched in its own long-running worker thread inside the backend. The worker hosts an mlua VM and registers a global `openUrl(url)` function. This keeps app logic centralized and avoids embedding app scripts in the UI process.
+
+- **openUrl flow & source context:** When app Lua calls `openUrl(url)` the backend enqueues a UI event { source: <app_path>, url: <string> }. The frontend polls `GET /ui/events` and opens the URL. The `source` field is available so the UI can make layout decisions (for example: open journal links in a right-hand split if the source contains `journal`). This mechanism preserves the UI's control over windowing while allowing apps to request navigation.
+
+- **RPC for app functions:** The frontend can call `POST /call_app_function` to invoke a function in the app's Lua VM (this is used by the startup runner). Calls are routed to the app worker via an in-process channel and blocked with a short timeout for a synchronous return value. Current POC passes simple string args and expects a string result; consider switching to JSON for structured arguments/results.
+
+- **Startup tasks:** `panorama-system/config.yaml` contains a `startup:` list. Entries can be `type: call_app` with `app` and `function`. On UI startup the Qt app queries `GET /startup`, posts the call to `/call_app_function`, and if the result is a URL calls `MainWindow::openUrl(...)`. This is how the "open today's daily note" use-case is implemented (the journal Lua app exposes `daily_url()` which returns `/journal/YYYY-MM-DD`).
+
+- **Native UI plugins:** The server reports `ui_plugins` for the current runtime target triple; the Qt app requests `GET /plugins` and attempts to `QPluginLoader::load()` the returned paths. The plugin interface (`ui/plugins/PluginInterface.h`) requires `availableWidgetTypes()` and `createWidget(type, parent)`. Plugins must be compiled for the running archive (the manifest contains `target` entries), and the main CMake optionally includes `apps/*/ui_plugin` if present.
+
+- **Security & permissions:** The manifest `permissions` table is authoritative and should be enforced: `allow_native` gates loading native plugins, `allow_os_access` gates exposing dangerous Lua globals. The POC removes the `os` global unless `allow_os_access=true`, but this is not a replacement for OS-level sandboxing — treat Lua scripts as untrusted unless explicitly granted rights.
+
+- **Sandbox limitations & safety:** The current Lua sandbox is lightweight (masking `os`); do not assume it prevents all misuse. Long-running workers run untrusted code on backend threads — consider timeouts, memory limits, and OS sandboxing in production.
+
+- **Building plugin artifacts:** The top-level CMake will include `apps/<app>/ui_plugin` when the CMakeLists is present. If your environment's `uic`/Qt tools are incompatible, build the plugin separately under `apps/<app>/ui_plugin` to avoid reconfiguring the full UI project.
+
+- **Environment variables:** `PANORAMA_APPS_PATH` can be set to a colon-separated list of extra app search paths (e.g. user-local install locations). The server will scan these in addition to `./apps`.
+
+- **Testing & evolution:** The current POC uses string args and polling for UI events. For a more robust architecture consider:
+  - Structured JSON RPC for function calls and returns.
+  - WebSocket or server→UI push notifications for UI events (avoid polling).
+  - Per-call timeouts and resource accounting for Lua worker calls.
+  - Manifest validation (duplicate fields, unsupported types, missing functions).
+
+These notes codify the runtime contract and security assumptions that aren't obvious from the code alone. If you want I can add CI tests that validate startup behavior (e.g. that `daily_url` resolves and the UI receives an event), add JSON-RPC encoding, or replace polling with a WebSocket bridge.

@@ -1,0 +1,5 @@
+startup:
+  - type: call_app
+    app: journals
+    function: daily_url
+

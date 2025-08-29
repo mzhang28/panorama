@@ -16,9 +16,11 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QSettings>
+#include <QTimer>
 #include <QUrl>
 #include <QUuid>
 #include <QVBoxLayout>
+#include <QWebSocket>
 
 #include "AutoHideDockContainer.h"
 #include "DockAreaWidget.h"
@@ -27,12 +29,14 @@
 #include "MainWindow.h"
 #include "Recents.h"
 #include "Toolbar.h"
+#include "WidgetRegistry.h"
 #include "ads_globals.h"
 #include "plugins/PluginInterface.h"
 #include "stores/JournalStore.h"
 #include "views/Journal.h"
 #include "widgets/FileView.h"
 #include <QPluginLoader>
+#include <QUuid>
 #include <functional>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
@@ -84,6 +88,94 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     }
   });
 
+  // Query startup tasks and run them
+  QNetworkRequest streq(QUrl("http://127.0.0.1:4141/startup"));
+  QNetworkReply *streply = this->backendConn->get(streq);
+  connect(streply, &QNetworkReply::finished, this, [this, streply]() {
+    if (streply->error() != QNetworkReply::NoError) {
+      qWarning() << "failed to fetch startup tasks:" << streply->errorString();
+      return;
+    }
+    auto data = streply->readAll();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (!doc.isArray())
+      return;
+    QJsonArray arr = doc.array();
+    for (auto v : arr) {
+      if (!v.isObject())
+        continue;
+      QJsonObject obj = v.toObject();
+      QString type = obj.value("type").toString();
+      if (type == "call_app") {
+        QString app = obj.value("app").toString();
+        QString func = obj.value("function").toString();
+        QJsonObject payload;
+        payload.insert("app", app);
+        payload.insert("function", func);
+        QNetworkRequest callreq(
+            QUrl("http://127.0.0.1:4141/call_app_function"));
+        callreq.setHeader(QNetworkRequest::ContentTypeHeader,
+                          "application/json");
+        QNetworkReply *callreply =
+            backendConn->post(callreq, QJsonDocument(payload).toJson());
+        connect(callreply, &QNetworkReply::finished, this, [this, callreply]() {
+          if (callreply->error() != QNetworkReply::NoError) {
+            qWarning() << "call_app_function failed:"
+                       << callreply->errorString();
+            return;
+          }
+          QJsonDocument resp = QJsonDocument::fromJson(callreply->readAll());
+          if (!resp.isObject())
+            return;
+          QJsonObject robj = resp.object();
+          if (robj.contains("result")) {
+            QString url = robj.value("result").toString();
+            this->openUrl(url.toStdString(), ads::CenterDockWidgetArea);
+          }
+        });
+      }
+    }
+  });
+
+  // Poll for UI events from the backend regularly
+  QTimer *evtTimer = new QTimer(this);
+  evtTimer->setInterval(1000);
+  connect(evtTimer, &QTimer::timeout, this, [this]() {
+    QNetworkRequest ereq(QUrl("http://127.0.0.1:4141/ui/events"));
+    QNetworkReply *ereply = this->backendConn->get(ereq);
+    connect(ereply, &QNetworkReply::finished, this, [this, ereply]() {
+      if (ereply->error() != QNetworkReply::NoError)
+        return;
+      QJsonDocument doc = QJsonDocument::fromJson(ereply->readAll());
+      if (!doc.isArray())
+        return;
+      QJsonArray arr = doc.array();
+      for (auto v : arr) {
+        if (!v.isObject())
+          continue;
+        QJsonObject obj = v.toObject();
+        QString src = obj.value("source").toString();
+        QString url = obj.value("url").toString();
+        // Heuristic: if source contains "journal" open to the right, else
+        // center
+        ads::DockWidgetArea area = ads::CenterDockWidgetArea;
+        if (src.contains("journal"))
+          area = ads::RightDockWidgetArea;
+        this->openUrl(url.toStdString(), area);
+      }
+    });
+  });
+  evtTimer->start();
+
+  // Connect to backend websocket for pushed UI events. This complements
+  // the existing polling fallback; when websocket messages arrive we'll
+  // open URLs with context immediately.
+  this->wsClient =
+      new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
+  connect(this->wsClient, &QWebSocket::textMessageReceived, this,
+          &MainWindow::handleWsMessage);
+  this->wsClient->open(QUrl("ws://127.0.0.1:4141/ws/ui"));
+
   // Load window state
   QSettings settings("mzhang", "panorama");
   restoreGeometry(settings.value("geometry").toByteArray());
@@ -99,7 +191,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Set font
   int id = QFontDatabase::addApplicationFont(
       ":/fonts/Inter-VariableFont_opsz,wght.ttf");
-  QString family = QFontDatabase::applicationFontFamilies(id).at(0);
+  QString family;
+  if (id >= 0) {
+    QStringList fams = QFontDatabase::applicationFontFamilies(id);
+    if (!fams.isEmpty()) {
+      family = fams.at(0);
+    }
+  }
+  if (family.isEmpty()) {
+    family = QApplication::font().family();
+  }
   QFont font(family, 12);
   font.setStyleStrategy(QFont::PreferAntialias);
   QApplication::setFont(font);
@@ -124,18 +225,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     openUrl(url, ads::CenterDockWidgetArea);
   }
 
-  // Left sidebar
+  // Left sidebar (persistent, not part of the ADS docking system)
   Recents *recentsWidget = new Recents(this);
-  ads::CDockWidget *recentsDock =
-      m_DockManager->createDockWidget("RecentsDock");
-  recentsDock->setMinimumWidth(240);
-  recentsDock->setMaximumWidth(300);
-  recentsDock->setWidget(recentsWidget);
-  m_DockManager->addDockWidget(ads::LeftDockWidgetArea, recentsDock);
-  if (auto left = recentsDock->dockAreaWidget()) {
-    left->setMinimumWidth(240);
-    left->setMaximumWidth(300);
-  }
+  QDockWidget *sidebarDock = new QDockWidget(tr("Sidebar"), this);
+  sidebarDock->setObjectName("SidebarDock");
+  sidebarDock->setAllowedAreas(Qt::LeftDockWidgetArea);
+  sidebarDock->setFeatures(QDockWidget::NoDockWidgetFeatures);
+  sidebarDock->setWidget(recentsWidget);
+  sidebarDock->setMinimumWidth(240);
+  sidebarDock->setMaximumWidth(300);
+  addDockWidget(Qt::LeftDockWidgetArea, sidebarDock);
 
   // recentsDock->toggleView(false);
   // auto container =
@@ -180,6 +279,12 @@ void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
     QString nid = QString::fromStdString(std::string(id));
     Journal *journal = new Journal(nid, this->backendConn, this);
     newWidget->setWidget(journal);
+    // Register widget id
+    QString wid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    newWidget->setProperty("widget_id", wid);
+    WidgetRegistry::instance()->registerWidget(wid, newWidget);
+    connect(newWidget, &QObject::destroyed, this,
+            [wid]() { WidgetRegistry::instance()->unregisterWidget(wid); });
   } else if (url == "/importFile") {
     newWidget = m_DockManager->createDockWidget("import");
     QWidget *w = new QWidget();
@@ -193,9 +298,69 @@ void MainWindow::openUrl(std::string_view url, ads::DockWidgetArea area) {
     QString nid = QString::fromStdString(std::string(id));
     FileView *view = new FileView(nid, this->backendConn, this);
     newWidget->setWidget(view);
+    // Prefer opening file views on the right side
+    if (area == ads::CenterDockWidgetArea) {
+      area = ads::RightDockWidgetArea;
+    }
   }
 
   m_DockManager->addDockWidget(area, newWidget);
+}
+
+void MainWindow::openUrlWithContext(std::string_view url,
+                                    const QString &originWidgetId,
+                                    OpenDirection direction) {
+  // Determine area based on direction and whether origin widget exists
+  ads::DockWidgetArea area = ads::CenterDockWidgetArea;
+  if (direction == OpenDirection::NewTab)
+    area = ads::CenterDockWidgetArea;
+  else if (direction == OpenDirection::Left)
+    area = ads::LeftDockWidgetArea;
+  else if (direction == OpenDirection::Right)
+    area = ads::RightDockWidgetArea;
+  else if (direction == OpenDirection::Top)
+    area = ads::TopDockWidgetArea;
+  else if (direction == OpenDirection::Bottom)
+    area = ads::BottomDockWidgetArea;
+  // For Floating we open center and then set floating flag if supported
+
+  // Create the widget normally
+  openUrl(url, area);
+  // If direction == Floating try to set floating on the last created widget
+  if (direction == OpenDirection::Floating) {
+    // Best-effort: find widget by widget_id property on last dock
+    // Not implemented: ADS API to mark floating here is non-portable across
+    // versions.
+  }
+}
+
+void MainWindow::handleWsMessage(const QString &msg) {
+  QJsonDocument doc = QJsonDocument::fromJson(msg.toUtf8());
+  if (!doc.isObject())
+    return;
+  QJsonObject obj = doc.object();
+  QString url = obj.value("url").toString();
+  QString wid = obj.value("widget_id").toString();
+  QString dir = obj.value("direction").toString();
+
+  MainWindow::OpenDirection od = MainWindow::OpenDirection::NewTab;
+  QString ldir = dir.toLower();
+  if (ldir == "left")
+    od = MainWindow::OpenDirection::Left;
+  else if (ldir == "right")
+    od = MainWindow::OpenDirection::Right;
+  else if (ldir == "top")
+    od = MainWindow::OpenDirection::Top;
+  else if (ldir == "bottom")
+    od = MainWindow::OpenDirection::Bottom;
+  else if (ldir == "floating")
+    od = MainWindow::OpenDirection::Floating;
+  else if (ldir == "center")
+    od = MainWindow::OpenDirection::Center;
+  else if (ldir == "newtab" || ldir == "new_tab")
+    od = MainWindow::OpenDirection::NewTab;
+
+  openUrlWithContext(url.toStdString(), wid, od);
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event) {

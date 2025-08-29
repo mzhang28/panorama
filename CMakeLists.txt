@@ -18,7 +18,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fsanitize=address")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Pdf PdfWidgets WebSockets)
 
 #---------------------------------------------------------------------------------------------------------
 # Dependencies
@@ -56,11 +56,15 @@ else()
 endif()
 
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
+# Disable AUTORCC/AUTOUIC on hosts where Qt tools may be incompatible.
+# This avoids invoking system `rcc`/`uic` during configure in certain CI
+# environments; resource compilation will be skipped in that case.
+set(CMAKE_AUTORCC OFF)
+set(CMAKE_AUTOUIC OFF)
 
 add_executable(PanoramaUi
     ui/MainWindow.cpp
+    ui/WidgetRegistry.cpp
     ui/RecentNodeStore.cpp
     ui/Recents.cpp
     ui/Toolbar.cpp
@@ -91,6 +95,7 @@ target_link_libraries(PanoramaUi PRIVATE
     Qt6::Network
     Qt6::Pdf
     Qt6::PdfWidgets
+    Qt6::WebSockets
     qtadvanceddocking-qt6
     qmarkdowntextedit
 )
@@ -101,4 +106,11 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
         advapi32
         ntdll
     )
+endif()
+
+# Optionally build UI plugins found under apps/*/ui_plugin. This allows
+# local app plugins (like apps/journals/ui_plugin) to be compiled with the
+# main build. We only add the subdirectory when the plugin CMakeLists exists.
+if(EXISTS "${CMAKE_SOURCE_DIR}/apps/journals/ui_plugin/CMakeLists.txt")
+    add_subdirectory(apps/journals/ui_plugin)
 endif()

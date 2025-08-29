@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde_yaml;
 use std::collections::HashMap as StdHashMap;
 use std::sync::{Mutex, mpsc};
+use tokio::sync::broadcast;
 
 #[derive(Debug, Deserialize)]
 struct AppManifest {
@@ -66,11 +67,47 @@ struct UiPluginSpec {
 
 // Lightweight request type for calling into the Lua worker
 type LuaResponse = Result<String, String>;
-type LuaRequest = (String, Vec<String>, mpsc::Sender<LuaResponse>);
+type LuaRequest = (String, Vec<String>, Option<String>, mpsc::Sender<LuaResponse>);
 
 // Global registry for Lua workers: map app_dir -> request sender
-static LUA_WORKERS: Lazy<Mutex<StdHashMap<String, mpsc::Sender<LuaRequest>>>> =
+pub(crate) static LUA_WORKERS: Lazy<Mutex<StdHashMap<String, mpsc::Sender<LuaRequest>>>> =
     Lazy::new(|| Mutex::new(StdHashMap::new()));
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub(crate) struct UiEvent {
+    pub source: String,
+    pub url: String,
+    pub widget_id: Option<String>,
+    pub direction: Option<String>,
+}
+pub(crate) static UI_EVENTS: Lazy<Mutex<Vec<UiEvent>>> = Lazy::new(|| Mutex::new(Vec::new()));
+
+// Optional broadcast sender for pushing events to connected UI websocket clients.
+pub(crate) static UI_BROADCAST: Lazy<Mutex<Option<broadcast::Sender<UiEvent>>>> =
+    Lazy::new(|| Mutex::new(None));
+
+pub(crate) fn set_ui_broadcast(sender: broadcast::Sender<UiEvent>) {
+    let mut s = UI_BROADCAST.lock().unwrap();
+    *s = Some(sender);
+}
+
+pub(crate) fn subscribe_ui_broadcast() -> Option<broadcast::Receiver<UiEvent>> {
+    let s = UI_BROADCAST.lock().unwrap();
+    s.as_ref().map(|tx| tx.subscribe())
+}
+
+pub(crate) fn enqueue_ui_event(source: &str, url: &str, widget_id: Option<&str>, direction: Option<&str>) {
+    let ev = UiEvent { source: source.to_string(), url: url.to_string(), widget_id: widget_id.map(|s| s.to_string()), direction: direction.map(|s| s.to_string()) };
+    // Try to broadcast to websocket clients first; fallback to queueing if no broadcast available
+    if let Some(mut tx_opt) = UI_BROADCAST.lock().unwrap().as_ref().cloned() {
+        // best-effort send, ignore errors (no listeners)
+        let _ = tx_opt.send(ev);
+        return;
+    }
+
+    let mut q = UI_EVENTS.lock().unwrap();
+    q.push(ev);
+}
 
 fn spawn_lua_worker(app_key: String, entrypoint: PathBuf, perms: Permissions) {
     let (tx, rx) = mpsc::channel::<LuaRequest>();
@@ -82,8 +119,38 @@ fn spawn_lua_worker(app_key: String, entrypoint: PathBuf, perms: Permissions) {
 
     std::thread::spawn(move || {
         // Create Lua VM in this dedicated thread
-        // TODO: os options
         let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::new()).unwrap();
+
+        // Register a global `openUrl(url)` function that enqueues UI events.
+        // This closure captures the app_key to indicate the source.
+        // We keep a per-worker current_origin that is set per incoming RPC.
+        let current_origin = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+        {
+            let ak = app_key.clone();
+            let cur = current_origin.clone();
+            let open = lua.create_function(move |_, vals: mlua::MultiValue| {
+                // expect first arg url (string), optional second arg placement (string)
+                let mut iter = vals.into_iter();
+                let url = match iter.next() {
+                    Some(mlua::Value::String(s)) => s.to_str()?.to_string(),
+                    Some(v) => match v.to_string() { Ok(s) => s, Err(_) => "".to_string() },
+                    None => "".to_string(),
+                };
+                let placement = match iter.next() {
+                    Some(mlua::Value::String(s)) => Some(s.to_str()?.to_string()),
+                    Some(v) => match v.to_string() { Ok(s) => Some(s), Err(_) => None },
+                    None => None,
+                };
+                // current origin is stored in current_origin mutex
+                let w = cur.lock().unwrap().clone();
+                enqueue_ui_event(&ak, &url, w.as_deref(), placement.as_deref());
+                Ok(())
+            });
+            match open {
+                Ok(f) => { let _ = lua.globals().set("openUrl", f); }
+                Err(e) => eprintln!("failed to register openUrl: {}", e),
+            }
+        }
 
         // Load entrypoint
         if let Ok(src) = std::fs::read_to_string(&entrypoint) {
@@ -95,7 +162,12 @@ fn spawn_lua_worker(app_key: String, entrypoint: PathBuf, perms: Permissions) {
         }
 
         // Event loop: handle call requests
-        while let Ok((func_name, args, resp_tx)) = rx.recv() {
+        while let Ok((func_name, args, origin_opt, resp_tx)) = rx.recv() {
+            // set current origin for this invocation
+            {
+                let mut cur = current_origin.lock().unwrap();
+                *cur = origin_opt.clone();
+            }
             let result: LuaResponse = match lua.globals().get::<mlua::Function>(func_name.clone()) {
                 Ok(func) => {
                     // For POC we pass arguments as a single concatenated string.
@@ -110,6 +182,11 @@ fn spawn_lua_worker(app_key: String, entrypoint: PathBuf, perms: Permissions) {
             };
 
             let _ = resp_tx.send(result);
+            // clear current origin
+            {
+                let mut cur = current_origin.lock().unwrap();
+                *cur = None;
+            }
         }
     });
 }

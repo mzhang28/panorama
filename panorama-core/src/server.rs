@@ -3,19 +3,33 @@ use axum::{
     Json, Router,
     extract::State,
     routing::{get, post},
+    extract::ws::{WebSocketUpgrade, WebSocket, Message},
+    response::IntoResponse,
 };
 
 use crate::db::Dal;
 use serde_yaml;
 use std::path::PathBuf;
 use serde_json::json;
+use std::time::Duration;
+use std::sync::mpsc as std_mpsc;
+use serde::Deserialize as SerdeDeserialize;
 
 pub async fn server_main(dal: Dal) -> Result<()> {
     println!("Server main");
     let state = AppState { dal };
+
+    // Create a broadcast channel for pushing UI events to websocket clients.
+    let (tx, _rx) = tokio::sync::broadcast::channel::<crate::apps::UiEvent>(100);
+    crate::apps::set_ui_broadcast(tx.clone());
+
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route("/plugins", get(get_plugins))
+        .route("/startup", get(get_startup))
+        .route("/call_app_function", post(call_app_function))
+        .route("/ui/events", get(get_ui_events))
+        .route("/ws/ui", get(ws_ui_handler))
         .route("/graphql", post(post_graphql))
         .with_state(state);
 
@@ -118,4 +132,126 @@ async fn get_plugins() -> axum::response::Json<serde_json::Value> {
     }
 
     axum::response::Json(serde_json::Value::Array(out))
+}
+
+async fn get_startup() -> axum::response::Json<serde_json::Value> {
+    // Read panorama-system/config.yaml and return the startup list
+    let cfg = std::fs::read_to_string("panorama-system/config.yaml").unwrap_or_default();
+    match serde_yaml::from_str::<serde_yaml::Value>(&cfg) {
+        Ok(v) => {
+            if let Some(startup) = v.get("startup") {
+                axum::response::Json(serde_json::to_value(startup).unwrap_or(serde_json::json!([])))
+            } else {
+                axum::response::Json(serde_json::json!([]))
+            }
+        }
+        Err(_) => axum::response::Json(serde_json::json!([])),
+    }
+}
+
+#[derive(SerdeDeserialize)]
+struct CallAppReq {
+    app: String,
+    function: String,
+    args: Option<Vec<String>>,
+    origin_widget: Option<String>,
+}
+
+async fn call_app_function(
+    State(_state): State<AppState>,
+    axum::Json(req): axum::Json<CallAppReq>,
+) -> axum::response::Json<serde_json::Value> {
+    // find worker sender for app
+    let key = format!("apps/{}", req.app);
+    let sender_opt = {
+        let reg = crate::apps::LUA_WORKERS.lock().unwrap();
+        reg.get(&key).cloned()
+    };
+
+    if sender_opt.is_none() {
+        return axum::response::Json(serde_json::json!({"error": "no such app worker"}));
+    }
+
+    let sender = sender_opt.unwrap();
+    let (tx, rx) = std_mpsc::channel();
+    let args = req.args.unwrap_or_default();
+    if let Err(_) = sender.send((req.function.clone(), args, req.origin_widget.clone(), tx)) {
+        return axum::response::Json(serde_json::json!({"error": "failed to send request to app"}));
+    }
+
+    // Block for a short timeout waiting for the Lua worker's reply
+    let res = tokio::task::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(2))).await;
+    match res {
+        Ok(Ok(Ok(s))) => axum::response::Json(serde_json::json!({"result": s})),
+        Ok(Ok(Err(e))) => axum::response::Json(serde_json::json!({"error": e})),
+        Ok(Err(std_mpsc::RecvTimeoutError::Timeout)) => axum::response::Json(serde_json::json!({"error": "timeout"})),
+        _ => axum::response::Json(serde_json::json!({"error": "unknown"})),
+    }
+}
+
+async fn get_ui_events() -> axum::response::Json<serde_json::Value> {
+    // Drain the UI_EVENTS queue and return the events as JSON
+    let mut out = Vec::new();
+    {
+        let mut q = crate::apps::UI_EVENTS.lock().unwrap();
+        for ev in q.drain(..) {
+            out.push(json!({"source": ev.source, "url": ev.url, "widget_id": ev.widget_id, "direction": ev.direction}));
+        }
+    }
+    axum::response::Json(serde_json::Value::Array(out))
+}
+
+async fn ws_ui_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
+    ws.on_upgrade(handle_ui_ws)
+}
+
+async fn handle_ui_ws(mut socket: WebSocket) {
+    // Subscribe to the broadcast channel (if available)
+    let mut rx_opt = crate::apps::subscribe_ui_broadcast();
+    if rx_opt.is_none() {
+        // No broadcast channel available; simply return and drop the socket
+        return;
+    }
+
+    let mut rx = rx_opt.unwrap();
+
+    // Split the websocket stream so we can read and write concurrently
+    use futures_util::{SinkExt, StreamExt};
+    let (mut sender, mut receiver) = socket.split();
+
+    // Task: forward broadcast->socket
+    let mut send_task = tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(ev) => {
+                    if let Ok(text) = serde_json::to_string(&ev) {
+                        if sender.send(Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Task: drain incoming messages (keep connection alive)
+    let mut recv_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = receiver.next().await {
+            match msg {
+                Message::Text(_t) => {
+                    // Currently ignore client messages
+                }
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    });
+
+    // Wait for either task to finish
+    let _ = tokio::select! {
+        _ = (&mut send_task) => { recv_task.abort(); }
+        _ = (&mut recv_task) => { send_task.abort(); }
+    };
 }
