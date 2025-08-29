@@ -28,6 +28,11 @@ QString JournalStore::content(const QString &nodeId) const {
   return m_contents.value(nodeId, QString());
 }
 
+void JournalStore::setContent(const QString &nodeId, const QString &content) {
+  m_contents[nodeId] = content;
+  emit contentChanged(nodeId, content);
+}
+
 QString JournalStore::title(const QString &nodeId) const {
   return m_titles.value(nodeId, QString());
 }

@@ -79,7 +79,11 @@ add_executable(panorama-ui
 
     "${panorama-plugin-sdk_SOURCE_DIR}/include/HostContext.h"
 )
-add_dependencies(panorama-ui PanoramaCore panorama-plugin-sdk)
+add_dependencies(panorama-ui
+    PanoramaCore
+    panorama-plugin-sdk
+    panorama-journal
+)
 
 add_library(panorama-core-rust STATIC IMPORTED GLOBAL)
 set_target_properties(panorama-core-rust PROPERTIES
