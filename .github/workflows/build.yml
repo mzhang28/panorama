@@ -74,6 +74,7 @@ jobs:
         uses: jurplel/install-qt-action@v3
         with:
           version: 6.5.0
+          arch: 'win64_mingw'
           modules: qtpdf qtwebsockets
       - uses: msys2/setup-msys2@v2
         with:
