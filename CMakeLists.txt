@@ -96,7 +96,7 @@ target_link_libraries(panorama-ui PRIVATE panorama-core-rust)
 target_include_directories(panorama-ui PRIVATE
     "${ads_SOURCE_DIR}/src"
     "${qmarkdowntextedit_SOURCE_DIR}"
-    "${RUST_TARGET_DIR}/cxxbridge"
+    "${RUST_TARGET_DIR}/${RUST_BUILD_TYPE}/cxxbridge"
 )
 
 target_link_libraries(panorama-ui PRIVATE

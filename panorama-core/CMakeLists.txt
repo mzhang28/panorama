@@ -25,7 +25,7 @@ endif()
 set(RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/target${RUST_TARGET_SUFFIX}")
 set(RUST_TARGET_DIR "${RUST_TARGET_DIR}" PARENT_SCOPE)
 set(RUST_LIB_NAME panorama_core)
-set(RUST_BRIDGE_FILE "${CMAKE_CURRENT_BINARY_DIR}/target${RUST_TARGET_SUFFIX}/${RUST_BUILD_TYPE}/cxxbridge/panorama-core/src/lib.rs.cc")
+set(RUST_BRIDGE_FILE "${RUST_TARGET_DIR}/${RUST_BUILD_TYPE}/cxxbridge/panorama-core/src/lib.rs.cc")
 
 set(RUST_LIB_FILE "${RUST_TARGET_DIR}/${RUST_BUILD_TYPE}/libpanorama_core.a")
 set(RUST_LIB_FILE "${RUST_LIB_FILE}" PARENT_SCOPE)
