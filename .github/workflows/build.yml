@@ -37,7 +37,7 @@ jobs:
       - name: Build
         run: |
           cmake -S . -B build -G Ninja
-          ninja -C build
+          ninja -C build panorama-ui
 
   build-macos:
     runs-on: macos-latest
@@ -59,7 +59,7 @@ jobs:
       - name: Build
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=$(brew --prefix qt@6)
-          ninja -C build
+          ninja -C build panorama-ui
 
   build-windows:
     runs-on: windows-latest
@@ -95,7 +95,7 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$Env:Qt6_DIR"
 
       - name: Build
-        run: ninja -C build
+        run: ninja -C build panorama-ui
 
       - name: Build Installer (only for installer build)
         if: matrix.build_type == 'installer'
