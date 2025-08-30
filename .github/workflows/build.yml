@@ -87,8 +87,8 @@ jobs:
       - name: Install dependencies
         run: |
           choco install ninja rustup.install
-          rustup update stable
-          rustup default stable
+          rustup default stable-x86_64-pc-windows-msvc
+          rustup component add rust-src
 
       - name: Configure CMake
         run: |
