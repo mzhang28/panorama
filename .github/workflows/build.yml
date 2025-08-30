@@ -3,7 +3,7 @@ name: Build Panorama
 on:
   push:
     branches: [] #TODO: Once we need CI, enable here. Otherwise, run manual jobs
-  
+
   workflow_dispatch:
     inputs:
       branch:
@@ -12,60 +12,60 @@ on:
         default: "rewrite/from-2025-08-20"
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up CMake
-        uses: jwlawson/actions-setup-cmake@v1
-      - name: Set up Qt6
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: 6.5.0
-          modules: qtpdf qtwebsockets
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build \
-            libqt6network6 libqt6pdf6 libqt6pdfwidgets6 libxkbcommon-dev \
-            libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
-            libgl1-mesa-dev libpulse-dev libfontconfig1 libfreetype6 libssl-dev \
-            libpng-dev libjpeg-dev libtiff-dev libwebp-dev libsqlite3-dev zlib1g-dev \
-            libx11-dev libxext-dev libxrender-dev libdbus-1-dev libicu-dev
-          rustup update stable
-          rustup default stable
-      - name: Build
-        run: |
-          cmake -S . -B build -G Ninja
-          ninja -C build panorama-ui
+  # build-linux:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up CMake
+  #       uses: jwlawson/actions-setup-cmake@v1
+  #     - name: Set up Qt6
+  #       uses: jurplel/install-qt-action@v3
+  #       with:
+  #         version: 6.5.0
+  #         modules: qtpdf qtwebsockets
+  #     - name: Install dependencies
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y ninja-build \
+  #           libqt6network6 libqt6pdf6 libqt6pdfwidgets6 libxkbcommon-dev \
+  #           libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
+  #           libgl1-mesa-dev libpulse-dev libfontconfig1 libfreetype6 libssl-dev \
+  #           libpng-dev libjpeg-dev libtiff-dev libwebp-dev libsqlite3-dev zlib1g-dev \
+  #           libx11-dev libxext-dev libxrender-dev libdbus-1-dev libicu-dev
+  #         rustup update stable
+  #         rustup default stable
+  #     - name: Build
+  #       run: |
+  #         cmake -S . -B build -G Ninja
+  #         ninja -C build panorama-ui
 
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up CMake
-        uses: jwlawson/actions-setup-cmake@v1
-      - name: Set up Qt6
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: 6.5.0
-          modules: qtpdf qtwebsockets
-      - name: Install dependencies
-        run: |
-          brew update
-          brew install ninja rustup
-          rustup update stable
-          rustup default stable
-      - name: Build
-        run: |
-          cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=$(brew --prefix qt@6)
-          ninja -C build panorama-ui
+  # build-macos:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up CMake
+  #       uses: jwlawson/actions-setup-cmake@v1
+  #     - name: Set up Qt6
+  #       uses: jurplel/install-qt-action@v3
+  #       with:
+  #         version: 6.5.0
+  #         modules: qtpdf qtwebsockets
+  #     - name: Install dependencies
+  #       run: |
+  #         brew update
+  #         brew install ninja rustup
+  #         rustup update stable
+  #         rustup default stable
+  #     - name: Build
+  #       run: |
+  #         cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=$(brew --prefix qt@6)
+  #         ninja -C build panorama-ui
 
   build-windows:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        build_type: [portable, installer]
+    # strategy:
+    #   matrix:
+    #     build_type: [portable, installer]
     steps:
       - uses: actions/checkout@v4
 
