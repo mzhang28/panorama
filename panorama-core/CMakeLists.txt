@@ -27,7 +27,11 @@ set(RUST_TARGET_DIR "${RUST_TARGET_DIR}" PARENT_SCOPE)
 set(RUST_LIB_NAME panorama_core)
 set(RUST_BRIDGE_FILE "${RUST_TARGET_DIR}/${RUST_BUILD_TYPE}/cxxbridge/panorama-core/src/lib.rs.cc")
 
-set(RUST_LIB_FILE "${RUST_TARGET_DIR}/${RUST_BUILD_TYPE}/libpanorama_core.a")
+if(MSVC)
+    set(RUST_LIB_FILE "${RUST_TARGET_DIR}/${RUST_BUILD_TYPE}/panorama_core.lib")
+else()
+    set(RUST_LIB_FILE "${RUST_TARGET_DIR}/${RUST_BUILD_TYPE}/libpanorama_core.a")
+endif()
 set(RUST_LIB_FILE "${RUST_LIB_FILE}" PARENT_SCOPE)
 
 file(GLOB_RECURSE RUST_SOURCES
