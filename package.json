@@ -19,9 +19,13 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@lexical/react": "^0.35.0",
+    "@lexical/yjs": "^0.35.0",
     "@tailwindcss/vite": "^4.1.13",
     "@trpc/client": "^11.5.1",
     "@trpc/server": "^11.5.1",
+    "lexical": "^0.35.0",
+    "lucide-react": "^0.544.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.1",
@@ -30,6 +34,7 @@
     "vite-plugin-wasm": "^3.5.0",
     "wa-sqlite": "^1.0.0",
     "workbox-precaching": "^7.3.0",
+    "yjs": "^13.6.27",
     "zod": "^4.1.11"
   }
 }

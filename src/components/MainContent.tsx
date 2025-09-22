@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Calendar, Edit3, Save } from "lucide-react";
 import { useJournal } from "../hooks/useJournal";
+import { JournalEditor } from "./JournalEditor";
 
 export function MainContent() {
   const { date } = useParams();
@@ -115,22 +116,16 @@ export function MainContent() {
 
           {/* Editor */}
           <div className="space-y-4">
-            <textarea
+            <JournalEditor
               value={content}
-              onChange={(e) => handleContentChange(e.currentTarget.value)}
+              onChange={handleContentChange}
               onFocus={() => setIsEditing(true)}
-              placeholder={
-                isToday
-                  ? "What's on your mind today?\n\n- Write about your thoughts\n- Plan your day\n- Reflect on experiences\n- Set goals and intentions"
-                  : "Start writing..."
-              }
-              className="w-full h-96 p-6 border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 leading-relaxed"
-              style={{
-                fontSize: "16px",
-                lineHeight: "1.6",
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-              }}
+              // placeholder={
+              //   isToday
+              //     ? "What's on your mind today?\n\n- Write about your thoughts\n- Plan your day\n- Reflect on experiences\n- Set goals and intentions"
+              //     : "Start writing..."
+              // }
+              className="w-full"
             />
 
             {/* Editor Footer */}
