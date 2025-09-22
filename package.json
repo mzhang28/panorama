@@ -3,20 +3,30 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
-    "vite": "^7.1.7"
+    "vite": "^7.1.7",
+    "vite-plugin-mkcert": "^1.17.8"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.13",
+    "@trpc/client": "^11.5.1",
+    "@trpc/server": "^11.5.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "tailwindcss": "^4.1.13",
-    "vite-plugin-pwa": "^1.0.3"
+    "vite-plugin-pwa": "^1.0.3",
+    "workbox-precaching": "^7.3.0",
+    "zod": "^4.1.11"
   }
 }

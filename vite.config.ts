@@ -1,16 +1,19 @@
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
+import mkcert from "vite-plugin-mkcert";
 
 export default defineConfig({
   plugins: [
     tailwindcss(),
+    mkcert(),
     VitePWA({
       strategies: "injectManifest",
       srcDir: "src",
       filename: "sw.ts",
       injectRegister: "auto",
       registerType: "autoUpdate",
+      devOptions: { enabled: true, type: "module" },
       manifest: {
         name: "My Awesome App",
         short_name: "MyApp",
