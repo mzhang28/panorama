@@ -27,6 +27,8 @@
     "react-router-dom": "^7.9.1",
     "tailwindcss": "^4.1.13",
     "vite-plugin-pwa": "^1.0.3",
+    "vite-plugin-wasm": "^3.5.0",
+    "wa-sqlite": "^1.0.0",
     "workbox-precaching": "^7.3.0",
     "zod": "^4.1.11"
   }

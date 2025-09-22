@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import mkcert from "vite-plugin-mkcert";
+import wasm from "vite-plugin-wasm";
 
 export default defineConfig({
   plugins: [
@@ -10,9 +11,11 @@ export default defineConfig({
     VitePWA({
       strategies: "injectManifest",
       srcDir: "src",
-      filename: "sw.ts",
+      filename: "sw/index.ts",
       injectRegister: "auto",
       registerType: "autoUpdate",
+      includeAssets: ["**/*.wasm"],
+      workbox: { globPatterns: ["**/*.{js,css,html,svg,wasm}"] },
       devOptions: { enabled: true, type: "module" },
       manifest: {
         name: "My Awesome App",
@@ -33,5 +36,6 @@ export default defineConfig({
         ],
       },
     }),
+    wasm(),
   ],
 });

@@ -1,5 +1,5 @@
 import { precacheAndRoute } from "workbox-precaching";
-import { server } from "./server";
+import { server } from "../server";
 
 declare const self: ServiceWorkerGlobalScope;
 
