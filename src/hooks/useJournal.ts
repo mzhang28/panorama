@@ -11,9 +11,6 @@ export interface JournalEntry {
 
 export function useJournal() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [currentDate, setCurrentDate] = useState(() => {
-    return new Date().toISOString().split("T")[0];
-  });
 
   // Get today's journal entry
   const getTodayEntry = () => {
@@ -111,8 +108,6 @@ export function useJournal() {
 
   return {
     entries,
-    currentDate,
-    setCurrentDate,
     getTodayEntry,
     getEntryByDate,
     updateEntry,

@@ -1,39 +1,53 @@
-import React from 'react';
-import { Calendar, FileText, Hash, Clock, Plus, ChevronRight } from 'lucide-react';
-import { useJournal } from '../hooks/useJournal';
+import React from "react";
+import { Link, useParams } from "react-router-dom";
+import {
+  Calendar,
+  FileText,
+  Hash,
+  Clock,
+  Plus,
+  ChevronRight,
+  AlertTriangle,
+  Zap,
+} from "lucide-react";
+import { useJournal } from "../hooks/useJournal";
 
 export function LeftSidebar() {
-  const { getRecentEntries, formatDate, currentDate, setCurrentDate } = useJournal();
+  const { getRecentEntries, formatDate } = useJournal();
   const recentEntries = getRecentEntries();
+  const { date } = useParams();
 
   const navigationItems = [
     {
       icon: Calendar,
-      label: 'Today',
-      onClick: () => {
-        const today = new Date().toISOString().split('T')[0];
-        setCurrentDate(today);
-      },
-      active: currentDate === new Date().toISOString().split('T')[0]
+      label: "Today",
+      path: `/journal/${new Date().toISOString().split("T")[0]}`,
     },
     {
       icon: FileText,
-      label: 'All Pages',
-      onClick: () => {},
-      active: false
+      label: "All Pages",
+      path: "/all-pages",
     },
     {
       icon: Hash,
-      label: 'Tags',
-      onClick: () => {},
-      active: false
+      label: "Tags",
+      path: "/tags",
     },
     {
       icon: Clock,
-      label: 'Recent',
-      onClick: () => {},
-      active: false
-    }
+      label: "Recent",
+      path: "/recent",
+    },
+    {
+      icon: AlertTriangle,
+      label: "Problems",
+      path: "/problems",
+    },
+    {
+      icon: Zap,
+      label: "TRPC Demo",
+      path: "/trpc-demo",
+    },
   ];
 
   return (
@@ -53,18 +67,27 @@ export function LeftSidebar() {
       {/* Navigation Items */}
       <div className="px-3 py-2">
         {navigationItems.map((item, index) => (
-          <button
+          <Link
             key={index}
-            onClick={item.onClick}
+            to={item.path}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors ${
-              item.active
-                ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                : 'text-gray-700 hover:bg-gray-50'
+              date === item.path.split("/").pop() ||
+              (item.label === "Today" &&
+                date === new Date().toISOString().split("T")[0])
+                ? "bg-blue-50 text-blue-700 border border-blue-200"
+                : "text-gray-700 hover:bg-gray-50"
             }`}
           >
-            <item.icon size={16} className={item.active ? 'text-blue-600' : 'text-gray-500'} />
+            <item.icon
+              size={16}
+              className={
+                date === item.path.split("/").pop()
+                  ? "text-blue-600"
+                  : "text-gray-500"
+              }
+            />
             <span className="text-sm font-medium">{item.label}</span>
-          </button>
+          </Link>
         ))}
       </div>
 
@@ -82,16 +105,19 @@ export function LeftSidebar() {
         {recentEntries.length > 0 ? (
           <div className="space-y-1">
             {recentEntries.map((entry) => (
-              <button
+              <Link
                 key={entry.id}
-                onClick={() => setCurrentDate(entry.date)}
+                to={`/journal/${entry.date}`}
                 className={`w-full flex items-start gap-3 px-3 py-2 rounded-md text-left transition-colors group ${
-                  currentDate === entry.date
-                    ? 'bg-gray-100 border border-gray-200'
-                    : 'hover:bg-gray-50'
+                  date === entry.date
+                    ? "bg-gray-100 border border-gray-200"
+                    : "hover:bg-gray-50"
                 }`}
               >
-                <Calendar size={14} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                <Calendar
+                  size={14}
+                  className="text-gray-400 mt-0.5 flex-shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-900 truncate">
@@ -100,18 +126,20 @@ export function LeftSidebar() {
                     <ChevronRight
                       size={12}
                       className={`text-gray-400 transition-transform ${
-                        currentDate === entry.date ? 'rotate-90' : 'group-hover:translate-x-0.5'
+                        date === entry.date
+                          ? "rotate-90"
+                          : "group-hover:translate-x-0.5"
                       }`}
                     />
                   </div>
                   {entry.content && (
                     <p className="text-xs text-gray-500 mt-1 line-clamp-2">
                       {entry.content.substring(0, 60)}
-                      {entry.content.length > 60 ? '...' : ''}
+                      {entry.content.length > 60 ? "..." : ""}
                     </p>
                   )}
                 </div>
-              </button>
+              </Link>
             ))}
           </div>
         ) : (

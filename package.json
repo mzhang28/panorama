@@ -24,6 +24,7 @@
     "@trpc/server": "^11.5.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-router-dom": "^7.9.1",
     "tailwindcss": "^4.1.13",
     "vite-plugin-pwa": "^1.0.3",
     "workbox-precaching": "^7.3.0",
