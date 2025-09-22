@@ -9,6 +9,7 @@ import { useSidebar } from "./hooks/useSidebar";
 import { useProblems } from "./hooks/useProblems";
 import { ProblemsDemo } from "./components/ProblemsDemo";
 import { TRPCDemo } from "./components/TRPCDemo";
+import { SQLiteDemo } from "./components/SQLiteDemo";
 
 const JournalRedirect = () => {
   const today = new Date().toISOString().slice(0, 10);
@@ -22,6 +23,7 @@ const AppRoutes = () => (
     <Route path="/journal/:date" element={<MainContent />} />
     <Route path="/problems" element={<ProblemsDemo />} />
     <Route path="/trpc-demo" element={<TRPCDemo />} />
+    <Route path="/sqlite-demo" element={<SQLiteDemo />} />
   </Routes>
 );
 

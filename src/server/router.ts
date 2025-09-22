@@ -1,28 +1,21 @@
+// Type definitions for the tRPC API
+// The actual implementation is in the service worker
+
 import { initTRPC } from "@trpc/server";
 import { z } from "zod";
 
-// Initialize tRPC
-console.log("Initializing tRPC...");
+// Initialize tRPC for type definitions only
 const t = initTRPC.create();
 
-if (!t || !t.router || !t.procedure) {
-  throw new Error(
-    "Failed to initialize tRPC - t, t.router, or t.procedure is undefined",
-  );
-}
-
-// Export reusable router and procedure helpers
+// Export reusable router and procedure helpers for types
 export const router = t.router;
 export const publicProcedure = t.procedure;
-export const createCallerFactory = t.createCallerFactory;
 
-console.log("tRPC initialized successfully, creating router...");
-
-// Define the main app router
+// Define the type-only app router (implementation is in service worker)
 export const appRouter = router({
   // Health check procedure
   health: publicProcedure.query(() => {
-    return { status: "ok", timestamp: new Date().toISOString() };
+    return { status: "ok" as const, timestamp: "" as string, dbReady: true as boolean };
   }),
 
   // Echo procedure that returns the input
@@ -34,18 +27,16 @@ export const appRouter = router({
 
   // Counter procedures
   getCounter: publicProcedure.query(() => {
-    // In a real app, this would come from a database or state store
-    return { count: 0 };
+    return { count: 0 as number };
   }),
 
   incrementCounter: publicProcedure
     .input(z.object({ amount: z.number().default(1) }))
     .mutation(({ input }) => {
-      // In a real app, this would update a database or state store
-      return { count: input.amount, message: `Incremented by ${input.amount}` };
+      return { count: 0 as number, message: "" as string };
     }),
 
-  // User management example
+  // User management
   createUser: publicProcedure
     .input(
       z.object({
@@ -54,52 +45,66 @@ export const appRouter = router({
       }),
     )
     .mutation(({ input }) => {
-      // In a real app, this would save to a database
       return {
-        id: Math.random().toString(36).substring(7),
+        id: "" as string,
         name: input.name,
         email: input.email,
-        createdAt: new Date().toISOString(),
+        createdAt: "" as string,
       };
     }),
 
   getUsers: publicProcedure.query(() => {
-    // In a real app, this would query a database
-    return [
-      {
-        id: "1",
-        name: "John Doe",
-        email: "john@example.com",
-        createdAt: "2024-01-01T00:00:00.000Z",
-      },
-    ];
+    return [] as Array<{
+      id: string;
+      name: string;
+      email: string;
+      created_at?: string;
+    }>;
   }),
+
+  // SQLite-specific procedures
+  getTables: publicProcedure.query(() => {
+    return [] as string[];
+  }),
+
+  getTableInfo: publicProcedure
+    .input(z.object({ tableName: z.string() }))
+    .query(({ input }) => {
+      return [] as Array<{
+        cid: number;
+        name: string;
+        type: string;
+        notnull: number;
+        dflt_value: any;
+        pk: number;
+      }>;
+    }),
+
+  queryTable: publicProcedure
+    .input(z.object({
+      tableName: z.string(),
+      limit: z.number().optional().default(100)
+    }))
+    .query(({ input }) => {
+      return [] as any[];
+    }),
+
+  executeSql: publicProcedure
+    .input(z.object({ sql: z.string() }))
+    .mutation(({ input }) => {
+      return { type: "select" as "select" | "exec", results: [] as any[], message: "" as string };
+    }),
+
+  // GraphQL endpoint
+  graphql: publicProcedure
+    .input(z.object({
+      query: z.string(),
+      variables: z.any().optional()
+    }))
+    .query((): any => {
+      return {};
+    }),
 });
-
-// Validate the router was created properly
-if (!appRouter) {
-  throw new Error("appRouter is undefined after creation");
-}
-
-if (!appRouter._def) {
-  throw new Error(
-    "appRouter._def is undefined - router not properly initialized",
-  );
-}
-
-if (!appRouter._def.procedures) {
-  throw new Error(
-    "appRouter._def.procedures is undefined - procedures not found",
-  );
-}
-
-console.log(
-  "App router created successfully with procedures:",
-  Object.keys(appRouter._def.procedures),
-);
-
-// Create caller factory for the app router
-export const createCaller = createCallerFactory(appRouter);
 
 // Export type definition of API
 export type AppRouter = typeof appRouter;

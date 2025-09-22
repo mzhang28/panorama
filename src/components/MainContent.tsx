@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Calendar, Edit3, Save } from "lucide-react";
-import { useJournal } from "../hooks/useJournal";
+import { useJournalGraphQL } from "../hooks/useJournalGraphQL";
 import { JournalEditor } from "./JournalEditor";
 
 export function MainContent() {
   const { date } = useParams();
-  const { getEntryByDate, updateEntry, formatDate } = useJournal();
+  const { getEntryByDate, updateEntry, formatDate, isLoading, error } = useJournalGraphQL();
 
   const [content, setContent] = useState("");
   const [isEditing, setIsEditing] = useState(false);

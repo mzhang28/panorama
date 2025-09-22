@@ -24,6 +24,8 @@
     "@tailwindcss/vite": "^4.1.13",
     "@trpc/client": "^11.5.1",
     "@trpc/server": "^11.5.1",
+    "graphql": "^16.8.1",
+    "graphql-tools": "^9.0.1",
     "lexical": "^0.35.0",
     "lucide-react": "^0.544.0",
     "react": "^19.1.1",

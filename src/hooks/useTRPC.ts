@@ -367,3 +367,90 @@ export function useEcho() {
     onError: handleError,
   });
 }
+
+// SQLite-specific hooks
+export function useGetTables() {
+  const getTablesQuery = useCallback(async () => {
+    console.log("Calling getTables...");
+    const result = await trpc.getTables.query();
+    console.log("Tables result:", result);
+    return result;
+  }, []);
+
+  const handleError = useCallback((error: Error) => {
+    console.error("Get tables failed:", error);
+  }, []);
+
+  return useTRPCQuery(getTablesQuery, {
+    onError: handleError,
+  });
+}
+
+export function useGetTableInfo() {
+  const getTableInfoQuery = useCallback(
+    async (input: { tableName: string }) => {
+      console.log("Calling getTableInfo with:", input);
+      const result = await trpc.getTableInfo.query(input);
+      console.log("Table info result:", result);
+      return result;
+    },
+    [],
+  );
+
+  const handleError = useCallback(
+    (error: Error, variables: { tableName: string }) => {
+      console.error("Get table info failed:", error, "Variables:", variables);
+    },
+    [],
+  );
+
+  return useTRPCMutation(getTableInfoQuery, {
+    onError: handleError,
+  });
+}
+
+export function useQueryTable() {
+  const queryTableQuery = useCallback(
+    async (input: { tableName: string; limit?: number }) => {
+      console.log("Calling queryTable with:", input);
+      const result = await trpc.queryTable.query(input);
+      console.log("Query table result:", result);
+      return result;
+    },
+    [],
+  );
+
+  const handleError = useCallback(
+    (error: Error, variables: { tableName: string; limit?: number }) => {
+      console.error("Query table failed:", error, "Variables:", variables);
+    },
+    [],
+  );
+
+  return useTRPCMutation(queryTableQuery, {
+    onError: handleError,
+  });
+}
+
+export function useExecuteSql() {
+  const executeSqlMutation = useCallback(
+    async (input: { sql: string }) => {
+      console.log("Calling executeSql with:", input);
+      const result = await trpc.executeSql.mutate(input);
+      console.log("Execute SQL result:", result);
+      return result;
+    },
+    [],
+  );
+
+  const handleError = useCallback(
+    (error: Error, variables: { sql: string }) => {
+      console.error("Execute SQL failed:", error, "Variables:", variables);
+    },
+    [],
+  );
+
+  return useTRPCMutation(executeSqlMutation, {
+    onError: handleError,
+  });
+}

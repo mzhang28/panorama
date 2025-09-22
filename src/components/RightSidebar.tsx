@@ -19,7 +19,7 @@ export function RightSidebar() {
     getActiveTodos,
     getCompletedTodos,
   } = useTodos();
-  const { setCurrentDate, currentDate } = useJournal();
+  // Note: currentDate functionality removed - was not in original useJournal
   const [newTodoText, setNewTodoText] = useState("");
   const [showCompleted, setShowCompleted] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -49,14 +49,15 @@ export function RightSidebar() {
     return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
   };
 
+  // TODO: Implement date selection functionality
   const handleDateClick = (day: number) => {
-    const selectedDate = new Date(
-      currentMonth.getFullYear(),
-      currentMonth.getMonth(),
-      day,
-    );
-    const dateString = selectedDate.toISOString().split("T")[0];
-    setCurrentDate(dateString);
+    // const selectedDate = new Date(
+    //   currentMonth.getFullYear(),
+    //   currentMonth.getMonth(),
+    //   day,
+    // );
+    // const dateString = selectedDate.toISOString().split("T")[0];
+    // setCurrentDate(dateString);
   };
 
   const isToday = (day: number) => {
@@ -69,13 +70,15 @@ export function RightSidebar() {
   };
 
   const isSelected = (day: number) => {
-    if (!currentDate) return false;
-    const selected = new Date(currentDate);
-    return (
-      selected.getDate() === day &&
-      selected.getMonth() === currentMonth.getMonth() &&
-      selected.getFullYear() === currentMonth.getFullYear()
-    );
+    // TODO: Implement selection logic
+    return false;
+    // if (!currentDate) return false;
+    // const selected = new Date(currentDate);
+    // return (
+    //   selected.getDate() === day &&
+    //   selected.getMonth() === currentMonth.getMonth() &&
+    //   selected.getFullYear() === currentMonth.getFullYear()
+    // );
   };
 
   const goToPreviousMonth = () => {

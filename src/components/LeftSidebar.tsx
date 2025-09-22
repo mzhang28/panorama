@@ -9,11 +9,12 @@ import {
   ChevronRight,
   AlertTriangle,
   Zap,
+  Database,
 } from "lucide-react";
-import { useJournal } from "../hooks/useJournal";
+import { useJournalGraphQL } from "../hooks/useJournalGraphQL";
 
 export function LeftSidebar() {
-  const { getRecentEntries, formatDate } = useJournal();
+  const { getRecentEntries, formatDate } = useJournalGraphQL();
   const recentEntries = getRecentEntries();
   const { date } = useParams();
 
@@ -47,6 +48,11 @@ export function LeftSidebar() {
       icon: Zap,
       label: "TRPC Demo",
       path: "/trpc-demo",
+    },
+    {
+      icon: Database,
+      label: "SQLite Demo",
+      path: "/sqlite-demo",
     },
   ];
 
