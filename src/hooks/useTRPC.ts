@@ -225,12 +225,12 @@ export function useTRPCMutation<TInput, TOutput>(
     ],
   );
 
-  const reset = useCallback(() => {
+  const reset = () => {
     setData(null);
     setError(null);
     setIsSuccess(false);
     setIsLoading(false);
-  }, []);
+  };
 
   return {
     mutate,
@@ -245,104 +245,125 @@ export function useTRPCMutation<TInput, TOutput>(
 
 // Specific hooks for common queries
 export function useHealth() {
-  return useTRPCQuery(
-    async () => {
-      console.log("Calling health check...");
-      const result = await trpc.health.query();
-      console.log("Health check result:", result);
-      return result;
-    },
-    {
-      refetchInterval: 30000, // Refetch every 30 seconds
-      onError: (error) => {
-        console.error("Health check failed:", error);
-      },
-    },
-  );
+  const healthQuery = useCallback(async () => {
+    console.log("Calling health check...");
+    const result = await trpc.health.query();
+    console.log("Health check result:", result);
+    return result;
+  }, []);
+
+  const handleError = useCallback((error: Error) => {
+    console.error("Health check failed:", error);
+  }, []);
+
+  return useTRPCQuery(healthQuery, {
+    refetchInterval: 30000, // Refetch every 30 seconds
+    onError: handleError,
+  });
 }
 
 export function useCounter() {
-  return useTRPCQuery(
-    async () => {
-      console.log("Calling getCounter...");
-      const result = await trpc.getCounter.query();
-      console.log("Counter result:", result);
-      return result;
-    },
-    {
-      onError: (error) => {
-        console.error("Get counter failed:", error);
-      },
-    },
-  );
+  const getCounterQuery = useCallback(async () => {
+    console.log("Calling getCounter...");
+    const result = await trpc.getCounter.query();
+    console.log("Counter result:", result);
+    return result;
+  }, []);
+
+  const handleError = useCallback((error: Error) => {
+    console.error("Get counter failed:", error);
+  }, []);
+
+  return useTRPCQuery(getCounterQuery, {
+    onError: handleError,
+  });
 }
 
 export function useUsers() {
-  return useTRPCQuery(
-    async () => {
-      console.log("Calling getUsers...");
-      const result = await trpc.getUsers.query();
-      console.log("Users result:", result);
-      return result;
-    },
-    {
-      onError: (error) => {
-        console.error("Get users failed:", error);
-      },
-    },
-  );
+  const getUsersQuery = useCallback(async () => {
+    console.log("Calling getUsers...");
+    const result = await trpc.getUsers.query();
+    console.log("Users result:", result);
+    return result;
+  }, []);
+
+  const handleError = useCallback((error: Error) => {
+    console.error("Get users failed:", error);
+  }, []);
+
+  return useTRPCQuery(getUsersQuery, {
+    onError: handleError,
+  });
 }
 
 // Specific hooks for mutations
 export function useIncrementCounter() {
-  return useTRPCMutation(
+  const incrementCounterMutation = useCallback(
     async (input: { amount?: number }) => {
       console.log("Calling incrementCounter with:", input);
       const result = await trpc.incrementCounter.mutate(input);
       console.log("Increment counter result:", result);
       return result;
     },
-    {
-      onError: (error, variables) => {
-        console.error(
-          "Increment counter failed:",
-          error,
-          "Variables:",
-          variables,
-        );
-      },
-    },
+    [],
   );
+
+  const handleError = useCallback(
+    (error: Error, variables: { amount?: number }) => {
+      console.error(
+        "Increment counter failed:",
+        error,
+        "Variables:",
+        variables,
+      );
+    },
+    [],
+  );
+
+  return useTRPCMutation(incrementCounterMutation, {
+    onError: handleError,
+  });
 }
 
 export function useCreateUser() {
-  return useTRPCMutation(
+  const createUserMutation = useCallback(
     async (input: { name: string; email: string }) => {
       console.log("Calling createUser with:", input);
       const result = await trpc.createUser.mutate(input);
       console.log("Create user result:", result);
       return result;
     },
-    {
-      onError: (error, variables) => {
-        console.error("Create user failed:", error, "Variables:", variables);
-      },
-    },
+    [],
   );
+
+  const handleError = useCallback(
+    (error: Error, variables: { name: string; email: string }) => {
+      console.error("Create user failed:", error, "Variables:", variables);
+    },
+    [],
+  );
+
+  return useTRPCMutation(createUserMutation, {
+    onError: handleError,
+  });
 }
 
 export function useEcho() {
-  return useTRPCMutation(
-    async (input: { message: string }) => {
-      console.log("Calling echo with:", input);
-      const result = await trpc.echo.query(input);
-      console.log("Echo result:", result);
-      return result;
+  const echoMutation = useCallback(async (input: { message: string }) => {
+    console.log("Calling echo with:", input);
+    const result = await trpc.echo.query(input);
+    console.log("Echo result:", result);
+    return result;
+  }, []);
+
+  const handleError = useCallback(
+    (error: Error, variables: { message: string }) => {
+      console.error("Echo failed:", error, "Variables:", variables);
     },
-    {
-      onError: (error, variables) => {
-        console.error("Echo failed:", error, "Variables:", variables);
-      },
-    },
+    [],
   );
+
+  return useTRPCMutation(echoMutation, {
+    onError: handleError,
+  });
 }
