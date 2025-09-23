@@ -2,7 +2,7 @@ import { precacheAndRoute } from "workbox-precaching";
 import { initTRPC } from "@trpc/server";
 import { z } from "zod";
 import { sqliteService } from "./sqlite";
-import { GraphQLExecutor } from "../lib/graphql";
+import { AppManager } from "../lib/appManager";
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -13,24 +13,48 @@ const t = initTRPC.create();
 const router = t.router;
 const publicProcedure = t.procedure;
 
-// Initialize database and GraphQL executor
-let graphQLExecutor: GraphQLExecutor | null = null;
+// Initialize database and app manager
 let dbInitialized = false;
+let appManager: AppManager | null = null;
 
-const initDatabase = async () => {
-  try {
-    await sqliteService.init();
-    dbInitialized = true;
-    graphQLExecutor = new GraphQLExecutor(sqliteService);
-    console.log("Service Worker: Database and GraphQL initialized successfully");
-  } catch (error) {
-    console.error("Service Worker: Failed to initialize database:", error);
-    dbInitialized = false;
-  }
+  const initDatabase = async () => {
+    try {
+      await sqliteService.init();
+      dbInitialized = true;
+
+      // Initialize app manager and discover apps
+      appManager = new AppManager(sqliteService);
+      await appManager.discoverApps();
+
+      console.log("Service Worker: Database and apps initialized successfully");
+      console.log("Service Worker: Available apps:", appManager.getApps());
+    } catch (error) {
+      console.error("Service Worker: Failed to initialize database:", error);
+      dbInitialized = false;
+    }
+  };
+
+// Override console.log to also send messages to main thread
+const originalConsoleLog = console.log;
+console.log = (...args) => {
+  originalConsoleLog.apply(console, args);
+  // Send to main thread
+  self.clients.matchAll().then(clients => {
+    clients.forEach(client => {
+      client.postMessage({ type: 'console-log', args: args.map(arg => String(arg)) });
+    });
+  });
 };
 
 // Initialize immediately
-initDatabase();
+initDatabase().then(() => {
+  // Send init complete message
+  self.clients.matchAll().then(clients => {
+    clients.forEach(client => {
+      client.postMessage({ type: 'init-complete' });
+    });
+  });
+});
 
 // Also try to initialize on activate in case the first attempt fails
 self.addEventListener("activate", (event: ExtendableEvent) => {
@@ -228,17 +252,33 @@ const appRouter = router({
       }
     }),
 
+  // Get available apps
+  getApps: publicProcedure.query(() => {
+    if (!appManager) {
+      return [];
+    }
+    return appManager.getApps().map(appName => ({
+      name: appName,
+      manifest: appManager.getManifest(appName)
+    }));
+  }),
+
   // GraphQL endpoint
   graphql: publicProcedure
     .input(z.object({
+      app: z.string().default('journal'), // Default to journal app
       query: z.string(),
       variables: z.any().optional()
     }))
     .query(async ({ input }): Promise<any> => {
-      if (!dbInitialized || !graphQLExecutor) {
+      if (!dbInitialized || !appManager) {
         throw new Error("Database not ready");
       }
-      return await graphQLExecutor.execute(input.query, input.variables);
+      const executor = appManager.getExecutor(input.app);
+      if (!executor) {
+        throw new Error(`App '${input.app}' not found. Available apps: ${appManager.getApps().join(', ')}`);
+      }
+      return await executor.execute(input.query, input.variables);
     }),
 });
 

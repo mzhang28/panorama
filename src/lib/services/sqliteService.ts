@@ -5,5 +5,5 @@ export abstract class SqliteService {
 
   abstract query(sql: string, params?: any[]): Promise<any[]>;
 
-  abstract exec(sql: string): Promise<void>;
+  abstract exec(sql: string, params?: any[]): Promise<void>;
 }

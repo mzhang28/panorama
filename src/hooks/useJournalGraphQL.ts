@@ -100,6 +100,8 @@ export function useJournalGraphQL() {
           updatedAt: entry.updatedAt.toISOString(),
         };
 
+        console.log('Saving journal entry with data:', extraFields);
+
         const result = (await trpc.graphql.query({
           query: `
           mutation SaveJournalEntry($data: String!) {
@@ -212,6 +214,7 @@ export function useJournalGraphQL() {
   // Create or update journal entry
   const updateEntry = useCallback(
     (date: string, content: string) => {
+      console.log('updateEntry called with date:', date, 'content length:', content.length);
       const existingIndex = entries.findIndex((entry) => entry.date === date);
       const now = new Date();
 

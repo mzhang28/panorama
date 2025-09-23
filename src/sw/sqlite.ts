@@ -3,8 +3,9 @@ import SQLiteESMFactory from "wa-sqlite/dist/wa-sqlite.mjs";
 // @ts-expect-error No typings for WASm.
 import SQLiteWasmURL from "wa-sqlite/dist/wa-sqlite.wasm?url";
 import * as SQLite from "wa-sqlite";
+import { SqliteService } from "../lib/services/sqliteService";
 
-export class WASqliteService {
+export class WASqliteService extends SqliteService {
   private sqlite3: any = null;
   private db: any = null;
 
@@ -46,6 +47,19 @@ export class WASqliteService {
         field_name TEXT PRIMARY KEY,
         table_name TEXT NOT NULL,
         is_indexed BOOLEAN DEFAULT 0
+      )
+    `,
+    );
+
+    // Create _panorama_node_field_map table
+    await this.sqlite3.run(
+      this.db,
+      `
+      CREATE TABLE IF NOT EXISTS _panorama_node_field_map (
+        node_id TEXT NOT NULL,
+        field_name TEXT NOT NULL,
+        PRIMARY KEY (node_id, field_name),
+        FOREIGN KEY (node_id) REFERENCES node(id) ON DELETE CASCADE
       )
     `,
     );
