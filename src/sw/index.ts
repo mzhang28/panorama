@@ -166,19 +166,7 @@ const appRouter = router({
     }
   }),
 
-  getTableInfo: publicProcedure
-    .input(z.object({ tableName: z.string() }))
-    .query(async ({ input }) => {
-      if (!dbInitialized) throw new Error("Database not ready");
 
-      try {
-        const results = await sqliteService.query(`PRAGMA table_info(${input.tableName})`);
-        return results;
-      } catch (error) {
-        console.error("Error getting table info:", error);
-        return [];
-      }
-    }),
 
   queryTable: publicProcedure
     .input(z.object({
@@ -205,10 +193,30 @@ const appRouter = router({
       if (!dbInitialized) throw new Error("Database not ready");
 
       try {
-        // For SELECT queries, return results
+        // For SELECT queries, return results and column info
         if (input.sql.trim().toUpperCase().startsWith('SELECT')) {
           const results = await sqliteService.query(input.sql);
-          return { type: 'select', results };
+
+          // Get column names
+          let columns: string[] = [];
+          if (results.length > 0) {
+            columns = Object.keys(results[0]);
+          } else {
+            // For empty results, try to extract table name and get schema
+            const tableMatch = input.sql.match(/FROM\s+(\w+)/i);
+            if (tableMatch) {
+              try {
+                const tableName = tableMatch[1];
+                const schemaResults = await sqliteService.query(`PRAGMA table_info(${tableName})`);
+                columns = schemaResults.map((col: any) => col.name);
+              } catch (schemaError) {
+                // If schema query fails, leave columns empty
+                columns = [];
+              }
+            }
+          }
+
+          return { type: 'select', results, columns };
         } else {
           // For other queries (INSERT, UPDATE, DELETE, etc.), execute and return success
           await sqliteService.exec(input.sql);

@@ -70,13 +70,23 @@ export function SQLiteDemo() {
 
     setIsLoading(true);
     try {
-      const [dataResult, infoResult] = await Promise.all([
-        trpc.queryTable.query({ tableName, limit: 50 }),
-        trpc.getTableInfo.query({ tableName })
-      ]);
+      const dataResult = await trpc.queryTable.query({ tableName, limit: 50 });
 
       setTableData(dataResult);
-      setTableInfo(infoResult);
+      // Extract column names from the data itself
+      if (dataResult.length > 0) {
+        const columns = Object.keys(dataResult[0]).map(name => ({
+          name,
+          type: 'TEXT', // We don't know the actual type, but this works for display
+          notnull: 0,
+          pk: 0,
+          dflt_value: null
+        }));
+        setTableInfo(columns);
+      } else {
+        // No data, but table exists - we can't determine columns
+        setTableInfo([]);
+      }
     } catch (error) {
       console.error("Failed to load table data:", error);
       // Retry if database is not ready
@@ -242,38 +252,46 @@ export function SQLiteDemo() {
                 </div>
               )}
 
-              {/* Table Data */}
-              <div>
-                <h3 className="font-medium mb-2">Data ({tableData.length} rows)</h3>
-                {isLoading ? (
-                  <p className="text-gray-500">Loading...</p>
-                ) : tableData.length === 0 ? (
-                  <p className="text-gray-500">No data</p>
-                ) : (
-                  <div className="overflow-x-auto max-h-96">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="border-b">
-                          {Object.keys(tableData[0]).map((key) => (
-                            <th key={key} className="text-left py-1">{key}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tableData.map((row, index) => (
-                          <tr key={index} className="border-b">
-                            {Object.values(row).map((value: any, cellIndex) => (
-                              <td key={cellIndex} className="py-1 font-mono text-xs">
-                                {value === null ? "NULL" : String(value)}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+               {/* Table Data */}
+               <div>
+                 <h3 className="font-medium mb-2">Data ({tableData.length} rows), Schema ({tableInfo.length} columns)</h3>
+                 {isLoading ? (
+                   <p className="text-gray-500">Loading...</p>
+                 ) : tableInfo.length === 0 ? (
+                   <p className="text-gray-500">No table schema available</p>
+                 ) : (
+                   <div className="overflow-x-auto max-h-96">
+                     <table className="min-w-full text-sm border">
+                       <thead>
+                         <tr className="border-b bg-gray-50">
+                           {tableInfo.map((col) => (
+                             <th key={col.name} className="text-left py-2 px-2 border-r">{col.name}</th>
+                           ))}
+                         </tr>
+                       </thead>
+                       <tbody>
+                         {tableData.length === 0 ? (
+                           <tr>
+                             <td colSpan={tableInfo.length} className="py-4 text-center text-gray-500 border">
+                               No data
+                             </td>
+                           </tr>
+                         ) : (
+                           tableData.map((row, index) => (
+                             <tr key={index} className="border-b">
+                               {tableInfo.map((col) => (
+                                 <td key={col.name} className="py-1 px-2 font-mono text-xs border-r">
+                                   {row[col.name] === null ? "NULL" : String(row[col.name] || "")}
+                                 </td>
+                               ))}
+                             </tr>
+                           ))
+                         )}
+                       </tbody>
+                     </table>
+                   </div>
+                 )}
+               </div>
             </>
           )}
         </div>
@@ -317,41 +335,49 @@ export function SQLiteDemo() {
                 <div className="text-red-600 bg-red-50 p-2 rounded">
                   Error: {sqlResult.error}
                 </div>
-              ) : sqlResult.type === 'select' ? (
-                <div>
-                  <p className="text-sm text-gray-600 mb-2">
-                    Query returned {sqlResult.results.length} rows
-                  </p>
-                  {sqlResult.results.length > 0 && (
-                    <div className="overflow-x-auto max-h-48">
-                      <table className="min-w-full text-sm">
-                        <thead>
-                          <tr className="border-b">
-                            {Object.keys(sqlResult.results[0]).map((key) => (
-                              <th key={key} className="text-left py-1">{key}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sqlResult.results.slice(0, 10).map((row: any, index: number) => (
-                            <tr key={index} className="border-b">
-                              {Object.values(row).map((value: any, cellIndex: number) => (
-                                <td key={cellIndex} className="py-1 font-mono text-xs">
-                                  {value === null ? "NULL" : String(value)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {sqlResult.results.length > 10 && (
-                        <p className="text-sm text-gray-500 mt-2">
-                          ... and {sqlResult.results.length - 10} more rows
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
+               ) : sqlResult.type === 'select' ? (
+                 <div>
+                   <p className="text-sm text-gray-600 mb-2">
+                     Query returned {sqlResult.results.length} rows
+                   </p>
+                   {(sqlResult.results.length > 0 || (sqlResult.columns && sqlResult.columns.length > 0)) && (
+                     <div className="overflow-x-auto max-h-48">
+                       <table className="min-w-full text-sm">
+                         <thead>
+                           <tr className="border-b">
+                             {(sqlResult.results.length > 0 ? Object.keys(sqlResult.results[0]) : sqlResult.columns || []).map((key: string) => (
+                               <th key={key} className="text-left py-1">{key}</th>
+                             ))}
+                           </tr>
+                         </thead>
+                         <tbody>
+                           {sqlResult.results.length === 0 ? (
+                             <tr>
+                               <td colSpan={(sqlResult.results.length > 0 ? Object.keys(sqlResult.results[0]).length : sqlResult.columns?.length || 1)} className="py-4 text-center text-gray-500">
+                                 No data
+                               </td>
+                             </tr>
+                           ) : (
+                             sqlResult.results.slice(0, 10).map((row: any, index: number) => (
+                               <tr key={index} className="border-b">
+                                 {Object.values(row).map((value: any, cellIndex: number) => (
+                                   <td key={cellIndex} className="py-1 font-mono text-xs">
+                                     {value === null ? "NULL" : String(value)}
+                                   </td>
+                                 ))}
+                               </tr>
+                             ))
+                           )}
+                         </tbody>
+                       </table>
+                       {sqlResult.results.length > 10 && (
+                         <p className="text-sm text-gray-500 mt-2">
+                           ... and {sqlResult.results.length - 10} more rows
+                         </p>
+                       )}
+                     </div>
+                   )}
+                 </div>
               ) : (
                 <div className="text-green-600 bg-green-50 p-2 rounded">
                   {sqlResult.message}

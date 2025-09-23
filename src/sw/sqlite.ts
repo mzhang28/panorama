@@ -1,5 +1,6 @@
 // TODO: Dynamic imports?
 import SQLiteESMFactory from "wa-sqlite/dist/wa-sqlite.mjs";
+// @ts-expect-error No typings for WASm.
 import SQLiteWasmURL from "wa-sqlite/dist/wa-sqlite.wasm?url";
 import * as SQLite from "wa-sqlite";
 
@@ -24,7 +25,9 @@ export class WASqliteService {
 
   private async initSchema(): Promise<void> {
     // Create node table
-    await this.sqlite3.run(this.db, `
+    await this.sqlite3.run(
+      this.db,
+      `
       CREATE TABLE IF NOT EXISTS node (
         id TEXT PRIMARY KEY,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -32,16 +35,20 @@ export class WASqliteService {
         type TEXT NOT NULL,
         extraFields TEXT
       )
-    `);
+    `,
+    );
 
     // Create _panorama_tables table
-    await this.sqlite3.run(this.db, `
+    await this.sqlite3.run(
+      this.db,
+      `
       CREATE TABLE IF NOT EXISTS _panorama_tables (
         field_name TEXT PRIMARY KEY,
         table_name TEXT NOT NULL,
         is_indexed BOOLEAN DEFAULT 0
       )
-    `);
+    `,
+    );
   }
 
   async query(sql: string, params?: any[]): Promise<any[]> {
@@ -51,16 +58,20 @@ export class WASqliteService {
 
     // For now, use a simple approach - if it's a SELECT query, try to execute it
     // and return empty array if it fails
-    if (sql.trim().toUpperCase().startsWith('SELECT')) {
+    if (sql.trim().toUpperCase().startsWith("SELECT")) {
       try {
         const results: any[] = [];
-        await this.sqlite3.exec(this.db, sql, (row: any[], columnNames: string[]) => {
-          const rowObj: any = {};
-          columnNames.forEach((name, index) => {
-            rowObj[name] = row[index];
-          });
-          results.push(rowObj);
-        });
+        await this.sqlite3.exec(
+          this.db,
+          sql,
+          (row: any[], columnNames: string[]) => {
+            const rowObj: any = {};
+            columnNames.forEach((name, index) => {
+              rowObj[name] = row[index];
+             });
+            results.push(rowObj);
+          },
+        );
         return results;
       } catch (error) {
         console.error("SQLite query error:", error, "SQL:", sql);

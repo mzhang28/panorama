@@ -1,13 +1,18 @@
-import { useEffect } from 'react';
-import { LexicalComposer } from '@lexical/react/LexicalComposer';
-import { PlainTextPlugin } from '@lexical/react/LexicalPlainTextPlugin';
-import { ContentEditable } from '@lexical/react/LexicalContentEditable';
-import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
-import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
-import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
-import { $getRoot, $createTextNode, $createParagraphNode, FOCUS_COMMAND } from 'lexical';
-import type { EditorState } from 'lexical';
+import { useEffect, useRef } from "react";
+import { LexicalComposer } from "@lexical/react/LexicalComposer";
+import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
+import { ContentEditable } from "@lexical/react/LexicalContentEditable";
+import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
+import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
+import {
+  $getRoot,
+  $createTextNode,
+  $createParagraphNode,
+  FOCUS_COMMAND,
+} from "lexical";
+import type { EditorState } from "lexical";
 
 interface JournalEditorProps {
   value: string;
@@ -31,13 +36,22 @@ function EditorContent({ onChange }: { onChange: (value: string) => void }) {
   );
 }
 
-
-
 function LoadContentPlugin({ content }: { content: string }) {
   const [editor] = useLexicalComposerContext();
+  const hasInitialized = useRef(false);
+  const lastLoadedContent = useRef<string>("");
 
   useEffect(() => {
-    if (content) {
+    // Load content in these cases:
+    // 1. First time with content (initialization)
+    // 2. Content changed from empty to non-empty (database loaded)
+    // 3. Content is significantly different from what was last loaded
+    const shouldLoadContent =
+      !hasInitialized.current ||
+      (content && !lastLoadedContent.current) ||
+      (content && content !== lastLoadedContent.current && Math.abs(content.length - lastLoadedContent.current.length) > 10);
+
+    if (shouldLoadContent && content) {
       editor.update(() => {
         const root = $getRoot();
         root.clear();
@@ -46,24 +60,32 @@ function LoadContentPlugin({ content }: { content: string }) {
         paragraph.append(textNode);
         root.append(paragraph);
       });
+      hasInitialized.current = true;
+      lastLoadedContent.current = content;
     }
   }, [content, editor]);
 
   return null;
 }
 
-export function JournalEditor({ value, onChange, onFocus, placeholder, className }: JournalEditorProps) {
+export function JournalEditor({
+  value,
+  onChange,
+  onFocus,
+  placeholder,
+  className,
+}: JournalEditorProps) {
   const initialConfig = {
-    namespace: 'JournalEditor',
+    namespace: "JournalEditor",
     theme: {
       text: {
-        bold: 'font-bold',
-        italic: 'italic',
-        underline: 'underline',
+        bold: "font-bold",
+        italic: "italic",
+        underline: "underline",
       },
     },
     onError: (error: Error) => {
-      console.error('Lexical error:', error);
+      console.error("Lexical error:", error);
     },
   };
 
@@ -76,9 +98,10 @@ export function JournalEditor({ value, onChange, onFocus, placeholder, className
               onFocus={onFocus}
               className="min-h-[24rem] p-6 border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 leading-relaxed"
               style={{
-                fontSize: '16px',
-                lineHeight: '1.6',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                fontSize: "16px",
+                lineHeight: "1.6",
+                fontFamily:
+                  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
               }}
             />
           }

@@ -6,24 +6,48 @@ import { JournalEditor } from "./JournalEditor";
 
 export function MainContent() {
   const { date } = useParams();
-  const { getEntryByDate, updateEntry, formatDate, isLoading, error } = useJournalGraphQL();
+  const { getEntryByDateAsync, updateEntry, formatDate, isLoading, error } = useJournalGraphQL();
 
   const [content, setContent] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-
-  const currentEntry = date ? getEntryByDate(date) : undefined;
+  const [entryLoading, setEntryLoading] = useState(false);
+  const [currentEntry, setCurrentEntry] = useState<any>(null);
 
   // Load content when date changes
   useEffect(() => {
-    if (currentEntry) {
-      setContent(currentEntry.content);
-    } else {
-      setContent("");
-    }
-    setHasUnsavedChanges(false);
-    setIsEditing(false);
-  }, [date, currentEntry]);
+    const loadEntry = async () => {
+      if (!date) {
+        setContent("");
+        setCurrentEntry(null);
+        setHasUnsavedChanges(false);
+        setIsEditing(false);
+        return;
+      }
+
+      setEntryLoading(true);
+      try {
+        const entry = await getEntryByDateAsync(date);
+        setCurrentEntry(entry);
+        if (entry) {
+          setContent(entry.content);
+        } else {
+          setContent("");
+        }
+      } catch (err) {
+        console.error("Failed to load entry:", err);
+        setContent("");
+        setCurrentEntry(null);
+      } finally {
+        setEntryLoading(false);
+      }
+
+      setHasUnsavedChanges(false);
+      setIsEditing(false);
+    };
+
+    loadEntry();
+  }, [date, getEntryByDateAsync]);
 
   // Handle content changes
   const handleContentChange = (value: string) => {
@@ -114,19 +138,35 @@ export function MainContent() {
             </p>
           </div>
 
-          {/* Editor */}
-          <div className="space-y-4">
-            <JournalEditor
-              value={content}
-              onChange={handleContentChange}
-              onFocus={() => setIsEditing(true)}
-              // placeholder={
-              //   isToday
-              //     ? "What's on your mind today?\n\n- Write about your thoughts\n- Plan your day\n- Reflect on experiences\n- Set goals and intentions"
-              //     : "Start writing..."
-              // }
-              className="w-full"
-            />
+           {/* Editor */}
+           <div className="space-y-4">
+             {isLoading ? (
+               <div className="min-h-[24rem] flex items-center justify-center border border-gray-200 rounded-lg bg-gray-50">
+                 <div className="text-center">
+                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                   <p className="text-gray-600">Loading journal entry...</p>
+                 </div>
+               </div>
+             ) : error ? (
+               <div className="min-h-[24rem] flex items-center justify-center border border-red-200 rounded-lg bg-red-50">
+                 <div className="text-center">
+                   <p className="text-red-600 mb-2">Failed to load journal entry</p>
+                   <p className="text-sm text-red-500">{error.message}</p>
+                 </div>
+               </div>
+             ) : (
+               <JournalEditor
+                 value={content}
+                 onChange={handleContentChange}
+                 onFocus={() => setIsEditing(true)}
+                 // placeholder={
+                 //   isToday
+                 //     ? "What's on your mind today?\n\n- Write about your thoughts\n- Plan your day\n- Reflect on experiences\n- Set goals and intentions"
+                 //     : "Start writing..."
+                 // }
+                 className="w-full"
+               />
+             )}
 
             {/* Editor Footer */}
             <div className="flex justify-between items-center text-sm text-gray-500 pt-2">

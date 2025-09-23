@@ -15,43 +15,61 @@ export function useJournalGraphQL() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  // Fetch all journal entries
+  // Fetch journal entries for recent days (more efficient)
   const fetchEntries = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      const result = (await trpc.graphql.query({
-        query: `
-          query GetJournalEntries {
-            nodes(type: "JournalEntry") {
-              id
-              extraFields
-            }
-          }
-        `,
-      })) as any;
-
-      console.log("RESULT:", result);
-
-      if (result.errors) {
-        throw new Error(result.errors[0].message);
+      // Get recent dates (last 30 days)
+      const recentDates = [];
+      for (let i = 0; i < 30; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        recentDates.push(date.toISOString().split('T')[0]);
       }
 
-      const nodes = result.data?.nodes || [];
-      const journalEntries: JournalEntry[] = nodes.map((node: any) => {
-        const extraFields = node.extraFields ? JSON.parse(node.extraFields) : {};
-        return {
-          id: node.id,
-          date: extraFields.date || "",
-          title: extraFields.title || "",
-          content: extraFields.content || "",
-          createdAt: new Date(extraFields.createdAt || node.created_at),
-          updatedAt: new Date(extraFields.updatedAt || node.updated_at),
-        };
-      });
+      // Fetch entries for each recent date
+      const allEntries: JournalEntry[] = [];
+      for (const date of recentDates) {
+        try {
+          const result = (await trpc.graphql.query({
+            query: `
+              query GetJournalEntryByDate($journalDay: String!) {
+                nodes(type: "JournalEntry", journalDay: $journalDay) {
+                  id
+                  extraFields
+                }
+              }
+            `,
+            variables: { journalDay: date }
+          })) as any;
 
-      setEntries(journalEntries);
+          if (result.errors) {
+            console.warn(`Error fetching entries for ${date}:`, result.errors);
+            continue;
+          }
+
+          const nodes = result.data?.nodes || [];
+          const journalEntries: JournalEntry[] = nodes.map((node: any) => {
+            const extraFields = node.extraFields ? JSON.parse(node.extraFields) : {};
+            return {
+              id: node.id,
+              date: extraFields.date || date,
+              title: extraFields.title || "",
+              content: extraFields.content || "",
+              createdAt: new Date(extraFields.createdAt || node.created_at),
+              updatedAt: new Date(extraFields.updatedAt || node.updated_at),
+            };
+          });
+
+          allEntries.push(...journalEntries);
+        } catch (err) {
+          console.warn(`Failed to fetch entries for ${date}:`, err);
+        }
+      }
+
+      setEntries(allEntries);
     } catch (err) {
       const error =
         err instanceof Error
@@ -77,6 +95,7 @@ export function useJournalGraphQL() {
           date: entry.date,
           title: entry.title,
           content: entry.content,
+          journalDay: entry.date, // YYYY-MM-DD format for indexed queries (defined in manifest)
           createdAt: entry.createdAt.toISOString(),
           updatedAt: entry.updatedAt.toISOString(),
         };
@@ -119,8 +138,71 @@ export function useJournalGraphQL() {
     return entries.find((entry) => entry.date === today);
   }, [entries]);
 
-  // Get entry by date
+  // Get entry by date (from cache or fetch)
   const getEntryByDate = useCallback(
+    async (date: string): Promise<JournalEntry | null> => {
+      // First check cache
+      const cachedEntry = entries.find((entry) => entry.date === date);
+      if (cachedEntry) {
+        return cachedEntry;
+      }
+
+      // If not in cache, fetch from database
+      try {
+        const result = (await trpc.graphql.query({
+          query: `
+            query GetJournalEntryByDate($journalDay: String!) {
+              nodes(type: "JournalEntry", journalDay: $journalDay) {
+                id
+                extraFields
+              }
+            }
+          `,
+          variables: { journalDay: date }
+        })) as any;
+
+        if (result.errors) {
+          console.warn(`Error fetching entry for ${date}:`, result.errors);
+          return null;
+        }
+
+        const nodes = result.data?.nodes || [];
+        if (nodes.length === 0) return null;
+
+        const node = nodes[0];
+        const extraFields = node.extraFields ? JSON.parse(node.extraFields) : {};
+        const entry: JournalEntry = {
+          id: node.id,
+          date: extraFields.date || date,
+          title: extraFields.title || "",
+          content: extraFields.content || "",
+          createdAt: new Date(extraFields.createdAt || node.created_at),
+          updatedAt: new Date(extraFields.updatedAt || node.updated_at),
+        };
+
+        // Add to cache
+        setEntries(prev => {
+          const existingIndex = prev.findIndex(e => e.date === date);
+          if (existingIndex >= 0) {
+            const updated = [...prev];
+            updated[existingIndex] = entry;
+            return updated;
+          } else {
+            return [...prev, entry];
+          }
+        });
+
+        return entry;
+      } catch (err) {
+        console.warn(`Failed to fetch entry for ${date}:`, err);
+        return null;
+      }
+    },
+    [entries],
+  );
+
+  // Synchronous version for backward compatibility
+  const getEntryByDateSync = useCallback(
     (date: string) => {
       return entries.find((entry) => entry.date === date);
     },
@@ -226,7 +308,8 @@ export function useJournalGraphQL() {
     isLoading,
     error,
     getTodayEntry,
-    getEntryByDate,
+    getEntryByDate: getEntryByDateSync, // Keep sync version for backward compatibility
+    getEntryByDateAsync: getEntryByDate,
     updateEntry,
     getRecentEntries,
     formatDate,

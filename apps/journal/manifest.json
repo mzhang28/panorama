@@ -1,0 +1,14 @@
+{
+  "name": "Journal",
+  "description": "Personal journaling application",
+  "version": "1.0.0",
+  "indexedFields": [
+    {
+      "name": "journalDay",
+      "description": "Date of the journal entry in YYYY-MM-DD format",
+      "type": "string",
+      "indexed": true
+    }
+  ],
+  "nodeType": "JournalEntry"
+}
