@@ -129,7 +129,10 @@ pub fn run() {
         });
 
         let manager = state.app_manager.lock().await;
-        match manager.call_app_function(app_name, func_name, req_obj) {
+        match manager
+          .call_app_function(app_name, func_name, req_obj)
+          .await
+        {
           Ok(res) => {
             let res_bytes = serde_json::to_vec(&res).unwrap_or_default();
             let response = Response::builder()

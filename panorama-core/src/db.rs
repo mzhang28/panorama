@@ -1,7 +1,12 @@
+use anyhow::Result;
+use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use surrealdb::Surreal;
+use surrealdb::Value;
 use surrealdb::engine::remote::ws::{Client, Ws};
 use surrealdb::opt::auth::Root;
 
+#[derive(Clone, Debug)]
 pub struct DbClient {
   db: Surreal<Client>,
 }
@@ -42,5 +47,24 @@ impl DbClient {
     );
     self.db.query(query).await?.check()?;
     Ok(())
+  }
+
+  pub async fn query(
+    &self,
+    sql: &str,
+    vars: std::collections::HashMap<String, serde_json::Value>,
+  ) -> Result<serde_json::Value, surrealdb::Error> {
+    let mut query = self.db.query(sql);
+    for (key, value) in vars {
+      query = query.bind((key, value));
+    }
+    let mut response = query.await?;
+
+    // First, deserialize into a `Vec` of `HashMap`s with `surrealdb::sql::Value`.
+    // This is more robust against special types like `Thing`.
+    let result: Option<surrealdb_types::Value> = response.take(0).unwrap();
+    let json_result: serde_json::Value = result.unwrap().into_json_value();
+
+    Ok(json_result)
   }
 }

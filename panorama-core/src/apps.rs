@@ -1,9 +1,12 @@
 use crate::db::DbClient;
+use anyhow::{Result, bail};
 use derivative::Derivative;
-use mlua::{Lua, LuaSerdeExt};
+use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct App {
@@ -81,8 +84,32 @@ impl AppManager {
     let lua_code = fs::read_to_string(&lua_path)?;
 
     let lua = Lua::new();
+
+    // Inject DB
+    let db_client = self.db.clone();
+    let db_query =
+      lua.create_async_function(move |lua, (sql, vars_lua): (String, mlua::Value)| {
+        let vars: HashMap<String, serde_json::Value> = lua.from_value(vars_lua).unwrap();
+        let db = db_client.clone();
+        async move {
+          let result = db
+            .query(&sql, vars)
+            .await
+            .map_err(|e| mlua::Error::ExternalError(Arc::new(e)))
+            .unwrap();
+          let result = serde_json::to_value(result).unwrap();
+          let result = json_to_lua(&lua, result).unwrap();
+          Ok(result)
+        }
+      })?;
+
+    let globals = lua.globals();
+    let db_table = lua.create_table()?;
+    db_table.set("query", db_query)?;
+    globals.set("db", db_table)?;
+
     lua.load(&lua_code).exec()?;
-    
+
     // Store runtime
     self.runtimes.insert(manifest.name.clone(), lua);
 
@@ -103,30 +130,75 @@ impl AppManager {
     Ok(())
   }
 
-  pub fn call_app_function(
+  pub async fn call_app_function(
     &self,
     app_name: &str,
     func_name: &str,
     req: serde_json::Value,
   ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     if let Some(lua) = self.runtimes.get(app_name) {
-       // Check if function is exposed? The caller (protocol handler) might want to check app.functions, but we can also just call it.
-       // For security, strictly we should check if func_name is in app.functions.
-       // Let's assume the caller or this method checks.
-       // But wait, the manifest defines what is exposed.
-       let app = self.get_app(app_name).ok_or("App metadata not found")?;
-       if !app.functions.contains(&func_name.to_string()) {
-           return Err(format!("Function '{}' is not exposed by app '{}'", func_name, app_name).into());
-       }
+      // Check if function is exposed? The caller (protocol handler) might want to check app.functions, but we can also just call it.
+      // For security, strictly we should check if func_name is in app.functions.
+      // Let's assume the caller or this method checks.
+      // But wait, the manifest defines what is exposed.
+      let app = self.get_app(app_name).ok_or("App metadata not found")?;
+      if !app.functions.contains(&func_name.to_string()) {
+        return Err(
+          format!(
+            "Function '{}' is not exposed by app '{}'",
+            func_name, app_name
+          )
+          .into(),
+        );
+      }
 
-       let globals = lua.globals();
-       let func: mlua::Function = globals.get(func_name)?;
-       let req_lua = lua.to_value(&req)?;
-       let res_lua: mlua::Value = func.call(req_lua)?;
-       let res_json: serde_json::Value = lua.from_value(res_lua)?;
-       Ok(res_json)
+      let globals = lua.globals();
+      let func: mlua::Function = globals.get(func_name)?;
+      let req_lua = lua.to_value(&req)?;
+
+      // Use call_async to support async functions in Lua (which might call our async DB)
+      let res_lua: mlua::Value = func.call_async(req_lua).await?;
+
+      let res_json: serde_json::Value = lua.from_value(res_lua)?;
+      Ok(res_json)
     } else {
-       Err(format!("App '{}' runtime not found", app_name).into())
+      Err(format!("App '{}' runtime not found", app_name).into())
+    }
+  }
+}
+
+fn json_to_lua(lua: &Lua, json: JsonValue) -> Result<LuaValue> {
+  match json {
+    JsonValue::Null => Ok(LuaValue::Nil),
+    JsonValue::Bool(b) => Ok(LuaValue::Boolean(b)),
+    JsonValue::Number(n) => {
+      if let Some(i) = n.as_i64() {
+        Ok(LuaValue::Integer(i))
+      } else if let Some(f) = n.as_f64() {
+        Ok(LuaValue::Number(f))
+      } else {
+        bail!("failed to convert")
+        // Err(bailmlua::Error::FromLuaConversionError {
+        //   from: "number",
+        //   to: "mlua::Value",
+        //   message: Some("invalid number".to_string()),
+        // })
+      }
+    }
+    JsonValue::String(s) => Ok(LuaValue::String(lua.create_string(&s)?)),
+    JsonValue::Array(arr) => {
+      let table = lua.create_table()?;
+      for (i, v) in arr.into_iter().enumerate() {
+        table.set(i + 1, json_to_lua(lua, v)?)?;
+      }
+      Ok(LuaValue::Table(table))
+    }
+    JsonValue::Object(obj) => {
+      let table = lua.create_table()?;
+      for (k, v) in obj {
+        table.set(k, json_to_lua(lua, v)?)?;
+      }
+      Ok(LuaValue::Table(table))
     }
   }
 }

@@ -9,6 +9,8 @@ fields:
     type: string
   journal/content:
     type: string
+  journal_day:
+    type: string
 
 functions:
   - load_page
