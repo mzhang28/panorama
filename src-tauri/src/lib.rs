@@ -35,7 +35,7 @@ pub fn run() {
       });
       Ok(())
     })
-    .register_asynchronous_uri_scheme_protocol("panorama-app", move |ctx, request, responder| {
+    .register_asynchronous_uri_scheme_protocol("panorama-static", move |ctx, request, responder| {
       let app_handle = ctx.app_handle().clone();
       tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<AppState>();

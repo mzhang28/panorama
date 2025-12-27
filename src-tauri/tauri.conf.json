@@ -19,8 +19,8 @@
     ],
     "security": {
       "csp": {
-        "default-src": "'self' panorama-app:",
-        "frame-src": "'self' panorama-app:"
+        "default-src": "'self' panorama-static:",
+        "frame-src": "'self' panorama-static:"
       }
     }
   },

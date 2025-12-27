@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Journal</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f4f5;
+            margin: 0;
+            padding: 20px;
+            color: #18181b;
+        }
+
+        #app {
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding-bottom: 50px;
+        }
+
+        .journal-entry {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 24px;
+            transition: box-shadow 0.2s;
+        }
+
+        .journal-entry:focus-within {
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .entry-header {
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #e4e4e7;
+        }
+
+        .entry-date {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #27272a;
+            margin: 0;
+        }
+
+        .entry-content {
+            width: 100%;
+            min-height: 200px;
+            border: none;
+            resize: none;
+            font-family: inherit;
+            font-size: 1rem;
+            line-height: 1.6;
+            color: #3f3f46;
+            outline: none;
+            background: transparent;
+        }
+
+        .loading-indicator {
+            text-align: center;
+            padding: 20px;
+            color: #71717a;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Journal entries will be injected here -->
+    </div>
+    <div id="loading" class="loading-indicator">Loading more days...</div>
+
+    <script>
+        // --- Stubbed APIs ---
+
+        // Mock Database
+        const mockDb = {};
+        
+        // Helper to generate IDs
+        const uuid = () => Math.random().toString(36).substr(2, 9);
+
+        // 1. Get Today's Date (YYYY-MM-DD)
+        const getTodayDate = () => {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        // 2. Load Page
+        const loadPage = async (pageId) => {
+            console.log(`[API] loadPage: ${pageId}`);
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    resolve(mockDb[pageId] || null);
+                }, 100); // Simulate network delay
+            });
+        };
+
+        // 3. Save Page
+        const savePage = async (pageId, title, content) => {
+            console.log(`[API] savePage: ${pageId}, Title: ${title}`);
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    if (mockDb[pageId]) {
+                        mockDb[pageId].title = title;
+                        mockDb[pageId].content = content;
+                        resolve(true);
+                    } else {
+                        resolve(false);
+                    }
+                }, 50);
+            });
+        };
+
+        // 4. Load Previous Daily
+        const loadPreviousDaily = async (currentDayStr) => {
+            console.log(`[API] loadPreviousDaily before: ${currentDayStr}`);
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    // Find all pages with journal_day < currentDayStr
+                    const pages = Object.values(mockDb).filter(p => p.journal_day && p.journal_day < currentDayStr);
+                    
+                    // Sort descending (latest first)
+                    pages.sort((a, b) => b.journal_day.localeCompare(a.journal_day));
+                    
+                    if (pages.length > 0) {
+                        resolve(pages[0]);
+                    } else {
+                        // If no previous entry exists in DB, simulate creating one for the previous day
+                        // In a real app, this might just return null, but for infinite scroll demo we generate "past" days
+                        
+                        // Parse current day
+                        const date = new Date(currentDayStr);
+                        date.setDate(date.getDate() - 1); // Subtract 1 day
+                        
+                        const prevDayStr = date.toISOString().split('T')[0];
+                        
+                        // Create it on the fly for the stub
+                        const newId = uuid();
+                        const newPage = {
+                            id: newId,
+                            title: prevDayStr,
+                            content: "",
+                            journal_day: prevDayStr
+                        };
+                        mockDb[newId] = newPage;
+                        resolve(newPage);
+                    }
+                }, 300);
+            });
+        };
+
+        // --- Application Logic ---
+
+        const app = document.getElementById('app');
+        const loadingIndicator = document.getElementById('loading');
+        let oldestLoadedDate = null;
+        let isLoading = false;
+
+        // Debounce helper for auto-saving
+        const debounce = (func, wait) => {
+            let timeout;
+            return (...args) => {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        };
+
+        function renderEntry(page) {
+            const entryDiv = document.createElement('div');
+            entryDiv.className = 'journal-entry';
+            entryDiv.dataset.id = page.id;
+            entryDiv.dataset.date = page.journal_day;
+
+            const header = document.createElement('div');
+            header.className = 'entry-header';
+            
+            const dateTitle = document.createElement('h2');
+            dateTitle.className = 'entry-date';
+            dateTitle.textContent = new Date(page.journal_day).toLocaleDateString(undefined, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+
+            header.appendChild(dateTitle);
+
+            const textarea = document.createElement('textarea');
+            textarea.className = 'entry-content';
+            textarea.placeholder = "Write about your day...";
+            textarea.value = page.content || "";
+
+            // Auto-save logic
+            const autoSave = debounce(async () => {
+                await savePage(page.id, page.title, textarea.value);
+            }, 500);
+
+            textarea.addEventListener('input', () => {
+                // Auto-resize
+                textarea.style.height = 'auto';
+                textarea.style.height = textarea.scrollHeight + 'px';
+                autoSave();
+            });
+
+            entryDiv.appendChild(header);
+            entryDiv.appendChild(textarea);
+            
+            // Append to the bottom of the list (since we are scrolling down into the past)
+            app.appendChild(entryDiv);
+
+            // Trigger initial resize
+            textarea.style.height = 'auto';
+            textarea.style.height = textarea.scrollHeight + 'px';
+        }
+
+        async function init() {
+            const today = getTodayDate();
+            
+            // Check if today exists in mockDb, if not create it
+            let todayPage = Object.values(mockDb).find(p => p.journal_day === today);
+            
+            if (!todayPage) {
+                const id = uuid();
+                todayPage = {
+                    id: id,
+                    title: today,
+                    content: "",
+                    journal_day: today
+                };
+                mockDb[id] = todayPage;
+                
+                // Pre-populate some mock data for yesterday for testing
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = yesterday.toISOString().split('T')[0];
+                const yId = uuid();
+                mockDb[yId] = {
+                    id: yId,
+                    title: yesterdayStr,
+                    content: "Yesterday was a good day. I started building the journal app.",
+                    journal_day: yesterdayStr
+                };
+            }
+
+            // Render Today
+            renderEntry(todayPage);
+            oldestLoadedDate = today;
+
+            // Setup Infinite Scroll
+            setupInfiniteScroll();
+        }
+
+        async function loadMore() {
+            if (isLoading || !oldestLoadedDate) return;
+            isLoading = true;
+            loadingIndicator.style.opacity = '1';
+
+            const prevPage = await loadPreviousDaily(oldestLoadedDate);
+            
+            if (prevPage) {
+                renderEntry(prevPage);
+                oldestLoadedDate = prevPage.journal_day;
+            } else {
+                loadingIndicator.textContent = "No more entries.";
+                // Remove scroll listener?
+            }
+
+            isLoading = false;
+            loadingIndicator.style.opacity = '0';
+        }
+
+        function setupInfiniteScroll() {
+            window.addEventListener('scroll', () => {
+                const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
+                
+                // Buffer of 100px
+                if (scrollTop + clientHeight >= scrollHeight - 100) {
+                    loadMore();
+                }
+            });
+            
+            // Initial load if screen is tall enough
+            if (document.documentElement.scrollHeight <= document.documentElement.clientHeight) {
+                loadMore();
+            }
+        }
+
+        // Start
+        init();
+
+    </script>
+</body>
+</html>
