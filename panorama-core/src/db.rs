@@ -63,7 +63,10 @@ impl DbClient {
     // First, deserialize into a `Vec` of `HashMap`s with `surrealdb::sql::Value`.
     // This is more robust against special types like `Thing`.
     let result: Option<surrealdb_types::Value> = response.take(0).unwrap();
-    let json_result: serde_json::Value = result.unwrap().into_json_value();
+    let json_result: serde_json::Value = match result {
+      Some(v) => v.into_json_value(),
+      None => JsonValue::Null,
+    };
 
     Ok(json_result)
   }
