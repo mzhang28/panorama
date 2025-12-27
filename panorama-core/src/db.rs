@@ -2,23 +2,25 @@ use anyhow::Result;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use surrealdb::Surreal;
-use surrealdb::Value;
+use surrealdb::engine::local::{Db, Mem};
 use surrealdb::engine::remote::ws::{Client, Ws};
 use surrealdb::opt::auth::Root;
+use surrealdb_types::Value as SurrealValue;
 
 #[derive(Clone, Debug)]
 pub struct DbClient {
-  db: Surreal<Client>,
+  db: Surreal<Db>,
 }
 
 impl DbClient {
   pub async fn new() -> Result<Self, surrealdb::Error> {
-    let db = Surreal::new::<Ws>("127.0.0.1:8000").await?;
-    db.signin(Root {
-      username: "root",
-      password: "root",
-    })
-    .await?;
+    // let db = Surreal::new::<Ws>("127.0.0.1:8000").await?;
+    let db = Surreal::new::<Mem>(()).await?;
+    // db.signin(Root {
+    //   username: "root".to_owned(),
+    //   password: "root".to_owned(),
+    // })
+    // .await?;
     db.use_ns("panorama").use_db("main").await?;
     Ok(Self { db })
   }
@@ -53,21 +55,15 @@ impl DbClient {
     &self,
     sql: &str,
     vars: std::collections::HashMap<String, serde_json::Value>,
-  ) -> Result<serde_json::Value, surrealdb::Error> {
+  ) -> Result<Vec<SurrealValue>, surrealdb::Error> {
+    println!("Query: {:?}\n{:?}", sql, vars);
     let mut query = self.db.query(sql);
     for (key, value) in vars {
       query = query.bind((key, value));
     }
     let mut response = query.await?;
 
-    // First, deserialize into a `Vec` of `HashMap`s with `surrealdb::sql::Value`.
-    // This is more robust against special types like `Thing`.
-    let result: Option<surrealdb_types::Value> = response.take(0).unwrap();
-    let json_result: serde_json::Value = match result {
-      Some(v) => v.into_json_value(),
-      None => JsonValue::Null,
-    };
-
-    Ok(json_result)
+    let result: Vec<surrealdb_types::Value> = response.take(0)?;
+    Ok(result)
   }
 }

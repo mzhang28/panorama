@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use surrealdb_types::Value as SurrealValue;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct App {
@@ -92,13 +93,14 @@ impl AppManager {
         let vars: HashMap<String, serde_json::Value> = lua.from_value(vars_lua).unwrap();
         let db = db_client.clone();
         async move {
-          let result = db
-            .query(&sql, vars)
-            .await
-            .map_err(|e| mlua::Error::ExternalError(Arc::new(e)))
-            .unwrap();
-          let result = serde_json::to_value(result).unwrap();
-          let result = json_to_lua(&lua, result).unwrap();
+          let result = db.query(&sql, vars).await.unwrap();
+          // let result = serde_json::to_value(result).unwrap();
+          // let result = json_to_lua(&lua, result).unwrap();
+          let mut results = Vec::new();
+          for val in result {
+            results.push(surreal_to_lua(&lua, val).unwrap());
+          }
+          let result = lua.create_sequence_from(results);
           Ok(result)
         }
       })?;
@@ -167,38 +169,44 @@ impl AppManager {
   }
 }
 
-fn json_to_lua(lua: &Lua, json: JsonValue) -> Result<LuaValue> {
-  match json {
-    JsonValue::Null => Ok(LuaValue::Nil),
-    JsonValue::Bool(b) => Ok(LuaValue::Boolean(b)),
-    JsonValue::Number(n) => {
-      if let Some(i) = n.as_i64() {
-        Ok(LuaValue::Integer(i))
-      } else if let Some(f) = n.as_f64() {
-        Ok(LuaValue::Number(f))
-      } else {
-        bail!("failed to convert")
-        // Err(bailmlua::Error::FromLuaConversionError {
-        //   from: "number",
-        //   to: "mlua::Value",
-        //   message: Some("invalid number".to_string()),
-        // })
+fn surreal_to_lua(lua: &Lua, value: SurrealValue) -> Result<LuaValue> {
+  Ok(match value {
+    SurrealValue::None => LuaValue::Nil,
+    SurrealValue::Null => LuaValue::Nil,
+    SurrealValue::Bool(b) => LuaValue::Boolean(b),
+    SurrealValue::Number(number) => match number {
+      surrealdb_types::Number::Int(n) => LuaValue::Integer(n),
+      surrealdb_types::Number::Float(n) => LuaValue::Number(n),
+      surrealdb_types::Number::Decimal(decimal) => todo!(),
+    },
+    SurrealValue::String(s) => lua.create_string(s).map(|s| LuaValue::String(s))?,
+    SurrealValue::Bytes(s) => lua.create_string(s.as_ref()).map(|s| LuaValue::String(s))?,
+    // SurrealValue::Duration(duration) => LuaValue::String(duration.to_string()),
+    // SurrealValue::Datetime(datetime) => LuaValue::String(datetime.to_string()),
+    SurrealValue::Uuid(uuid) => lua
+      .create_string(uuid.to_string())
+      .map(|s| LuaValue::String(s))?,
+    // SurrealValue::Geometry(geometry) => LuaValue::String(geometry.to_string()),
+    // SurrealValue::Table(table) => LuaValue::String(table.to_string()),
+    SurrealValue::RecordId(record_id) => lua
+      .create_string(format!("<record:{:?}>", record_id))
+      .map(|s| LuaValue::String(s))?,
+    // SurrealValue::File(file) => LuaValue::String(file.to_string()),
+    // SurrealValue::Range(range) => LuaValue::String(range.to_string()),
+    // SurrealValue::Regex(regex) => LuaValue::String(regex.to_string()),
+    // SurrealValue::Array(array) => {
+    //   LuaValue::Array(array.into_iter().map(|v| surreal_to_lua(lua, v)).collect())
+    // }
+    SurrealValue::Object(object) => {
+      let table = lua.create_table_with_capacity(object.len(), 0)?;
+      for (k, v) in object.into_iter() {
+        let v2 = surreal_to_lua(lua, v)?;
+        table.set(k, v2)?;
       }
-    }
-    JsonValue::String(s) => Ok(LuaValue::String(lua.create_string(&s)?)),
-    JsonValue::Array(arr) => {
-      let table = lua.create_table()?;
-      for (i, v) in arr.into_iter().enumerate() {
-        table.set(i + 1, json_to_lua(lua, v)?)?;
-      }
-      Ok(LuaValue::Table(table))
-    }
-    JsonValue::Object(obj) => {
-      let table = lua.create_table()?;
-      for (k, v) in obj {
-        table.set(k, json_to_lua(lua, v)?)?;
-      }
-      Ok(LuaValue::Table(table))
-    }
-  }
+      LuaValue::Table(table)
+    } // SurrealValue::Set(set) => {
+    //   LuaValue::Array(set.into_iter().map(|v| surreal_to_lua(lua, v)).collect())
+    // }
+    _ => todo!("lol"),
+  })
 }
