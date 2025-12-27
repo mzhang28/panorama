@@ -1,6 +1,9 @@
 {
   "name": "journal",
   "private": true,
+  "scripts": {
+    "dev": "vite"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
