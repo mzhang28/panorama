@@ -19,8 +19,9 @@
     ],
     "security": {
       "csp": {
-        "default-src": "'self' panorama-static:",
-        "frame-src": "'self' panorama-static:"
+        "default-src": "'self' panorama-static: panorama-api:",
+        "frame-src": "'self' panorama-static: panorama-api:",
+        "connect-src": "'self' ws://localhost:* wss://localhost:* ws://journal:*"
       }
     }
   },

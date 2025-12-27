@@ -75,85 +75,43 @@
     <div id="loading" class="loading-indicator">Loading more days...</div>
 
     <script>
-        // --- Stubbed APIs ---
-
-        // Mock Database
-        const mockDb = {};
+        // --- API Client ---
         
-        // Helper to generate IDs
-        const uuid = () => Math.random().toString(36).substr(2, 9);
+        const API_BASE = 'panorama-api://journal';
 
-        // 1. Get Today's Date (YYYY-MM-DD)
-        const getTodayDate = () => {
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
+        const apiCall = async (func, body = {}) => {
+            try {
+                const res = await fetch(`${API_BASE}/${func}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                if (!res.ok) throw new Error(res.statusText);
+                return await res.json();
+            } catch (e) {
+                console.error(`API Error [${func}]:`, e);
+                return null;
+            }
+        };
+
+        // 1. Get Today
+        const getTodayPage = async () => {
+            return await apiCall('get_today');
         };
 
         // 2. Load Page
         const loadPage = async (pageId) => {
-            console.log(`[API] loadPage: ${pageId}`);
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    resolve(mockDb[pageId] || null);
-                }, 100); // Simulate network delay
-            });
+            return await apiCall('load_page', { pageId });
         };
 
         // 3. Save Page
         const savePage = async (pageId, title, content) => {
-            console.log(`[API] savePage: ${pageId}, Title: ${title}`);
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    if (mockDb[pageId]) {
-                        mockDb[pageId].title = title;
-                        mockDb[pageId].content = content;
-                        resolve(true);
-                    } else {
-                        resolve(false);
-                    }
-                }, 50);
-            });
+            return await apiCall('save_page', { pageId, title, content });
         };
 
         // 4. Load Previous Daily
         const loadPreviousDaily = async (currentDayStr) => {
-            console.log(`[API] loadPreviousDaily before: ${currentDayStr}`);
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    // Find all pages with journal_day < currentDayStr
-                    const pages = Object.values(mockDb).filter(p => p.journal_day && p.journal_day < currentDayStr);
-                    
-                    // Sort descending (latest first)
-                    pages.sort((a, b) => b.journal_day.localeCompare(a.journal_day));
-                    
-                    if (pages.length > 0) {
-                        resolve(pages[0]);
-                    } else {
-                        // If no previous entry exists in DB, simulate creating one for the previous day
-                        // In a real app, this might just return null, but for infinite scroll demo we generate "past" days
-                        
-                        // Parse current day
-                        const date = new Date(currentDayStr);
-                        date.setDate(date.getDate() - 1); // Subtract 1 day
-                        
-                        const prevDayStr = date.toISOString().split('T')[0];
-                        
-                        // Create it on the fly for the stub
-                        const newId = uuid();
-                        const newPage = {
-                            id: newId,
-                            title: prevDayStr,
-                            content: "",
-                            journal_day: prevDayStr
-                        };
-                        mockDb[newId] = newPage;
-                        resolve(newPage);
-                    }
-                }, 300);
-            });
+            return await apiCall('load_previous_daily', { currentDayStr });
         };
 
         // --- Application Logic ---
@@ -183,7 +141,15 @@
             
             const dateTitle = document.createElement('h2');
             dateTitle.className = 'entry-date';
-            dateTitle.textContent = new Date(page.journal_day).toLocaleDateString(undefined, {
+            
+            // Handle date string (YYYY-MM-DD)
+            // Note: new Date("YYYY-MM-DD") is UTC, but we want local day?
+            // Actually new Date("2024-01-01") is usually treated as UTC in JS, which might show previous day in local time.
+            // Better to split and construct.
+            const [y, m, d] = page.journal_day.split('-').map(Number);
+            const dateObj = new Date(y, m - 1, d);
+
+            dateTitle.textContent = dateObj.toLocaleDateString(undefined, {
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
@@ -221,37 +187,12 @@
         }
 
         async function init() {
-            const today = getTodayDate();
+            const todayPage = await getTodayPage();
             
-            // Check if today exists in mockDb, if not create it
-            let todayPage = Object.values(mockDb).find(p => p.journal_day === today);
-            
-            if (!todayPage) {
-                const id = uuid();
-                todayPage = {
-                    id: id,
-                    title: today,
-                    content: "",
-                    journal_day: today
-                };
-                mockDb[id] = todayPage;
-                
-                // Pre-populate some mock data for yesterday for testing
-                const yesterday = new Date(today);
-                yesterday.setDate(yesterday.getDate() - 1);
-                const yesterdayStr = yesterday.toISOString().split('T')[0];
-                const yId = uuid();
-                mockDb[yId] = {
-                    id: yId,
-                    title: yesterdayStr,
-                    content: "Yesterday was a good day. I started building the journal app.",
-                    journal_day: yesterdayStr
-                };
+            if (todayPage) {
+                renderEntry(todayPage);
+                oldestLoadedDate = todayPage.journal_day;
             }
-
-            // Render Today
-            renderEntry(todayPage);
-            oldestLoadedDate = today;
 
             // Setup Infinite Scroll
             setupInfiniteScroll();

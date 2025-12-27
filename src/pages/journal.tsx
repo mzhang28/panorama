@@ -5,7 +5,7 @@ export default function JournalPage() {
         <h2 className="text-xl font-bold">Journal App (via panorama-app://)</h2>
       </div>
       <iframe
-        src="panorama-app://journal/"
+        src="panorama-static://journal/"
         className="grow w-full border-none"
         title="Journal App"
       />

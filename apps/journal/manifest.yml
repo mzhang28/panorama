@@ -10,5 +10,11 @@ fields:
   journal/content:
     type: string
 
+functions:
+  - load_page
+  - save_page
+  - load_previous_daily
+  - get_today
+
 dev:
   frontend_server: "http://localhost:7999"

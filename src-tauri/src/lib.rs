@@ -59,10 +59,12 @@ pub fn run() {
             match client.get(&target_url).send().await {
               Ok(res) => {
                 let status = res.status().as_u16();
+                let content_type = res.headers().get("Content-Type").unwrap().to_owned();
+                println!("Content Type: {:?}", content_type);
                 let body = res.bytes().await.unwrap_or_default();
                 let response = Response::builder()
                   .status(status)
-                  .header("Content-Type", "text/html")
+                  .header("Content-Type", content_type)
                   .header("Access-Control-Allow-Origin", "*")
                   .body(body.to_vec())
                   .unwrap();
@@ -99,6 +101,54 @@ pub fn run() {
               .body("App not found".as_bytes().to_vec())
               .unwrap(),
           );
+        }
+      });
+    })
+    .register_asynchronous_uri_scheme_protocol("panorama-api", move |ctx, request, responder| {
+      let app_handle = ctx.app_handle().clone();
+      tauri::async_runtime::spawn(async move {
+        let state = app_handle.state::<AppState>();
+        let uri = request.uri();
+        let app_name = uri.host().unwrap_or("");
+        let path = uri.path();
+        let func_name = path.strip_prefix("/").unwrap_or(path);
+
+        println!("panorama-api call: app={}, func={}", app_name, func_name);
+
+        let method = request.method().as_str().to_string();
+        let body_bytes = request.body();
+        let body_json: serde_json::Value = if !body_bytes.is_empty() {
+          serde_json::from_slice(body_bytes).unwrap_or(serde_json::Value::Null)
+        } else {
+          serde_json::Value::Null
+        };
+
+        let req_obj = serde_json::json!({
+          "method": method,
+          "body": body_json
+        });
+
+        let manager = state.app_manager.lock().await;
+        match manager.call_app_function(app_name, func_name, req_obj) {
+          Ok(res) => {
+            let res_bytes = serde_json::to_vec(&res).unwrap_or_default();
+            let response = Response::builder()
+              .status(StatusCode::OK)
+              .header("Content-Type", "application/json")
+              .header("Access-Control-Allow-Origin", "*")
+              .body(res_bytes)
+              .unwrap();
+            responder.respond(response);
+          }
+          Err(e) => {
+            eprintln!("Lua call error: {:?}", e);
+            responder.respond(
+              Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(format!("Error: {:?}", e).into_bytes())
+                .unwrap(),
+            );
+          }
         }
       });
     })
