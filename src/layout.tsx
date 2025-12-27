@@ -10,7 +10,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <main>
+        <main className="w-full h-full">
           <SidebarTrigger />
           {children}
         </main>

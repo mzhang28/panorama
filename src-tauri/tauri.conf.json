@@ -18,7 +18,10 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self' panorama-app:",
+        "frame-src": "'self' panorama-app:"
+      }
     }
   },
   "bundle": {
@@ -31,5 +34,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
-  }
+  },
+  "plugins": {}
 }

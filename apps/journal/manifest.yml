@@ -1,0 +1,14 @@
+name: "journal"
+version: "0.1.0"
+authors: "Michael Zhang <mail@mzhang.io>"
+lua_entrypoint: "main.lua"
+permissions: "privileged"
+
+fields:
+  journal/title:
+    type: string
+  journal/content:
+    type: string
+
+dev:
+  frontend_server: "http://localhost:7999"
