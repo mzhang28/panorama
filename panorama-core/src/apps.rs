@@ -72,11 +72,17 @@ impl AppManager {
     // Handle fields
     if let Some(fields) = &manifest.fields {
       for (field_name, field) in fields {
-        let field_type = &field.type_;
+        let mut field_type = field.type_.clone();
+        if !field_type.starts_with("option<") {
+            field_type = format!("option<{}>", field_type);
+        }
+        if field.type_ == "any" {
+            field_type = format!("{} FLEXIBLE", field_type);
+        }
         println!("Ensuring field: {} of type {}", field_name, field_type);
         self
           .db
-          .ensure_field("nodes", field_name, field_type)
+          .ensure_field("nodes", field_name, &field_type)
           .await?;
       }
     }

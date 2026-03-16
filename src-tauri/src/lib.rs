@@ -25,9 +25,17 @@ pub fn run() {
         let mut manager = AppManager::new(db);
 
         // Load journal app for now
-        let journal_path = Path::new("../apps/journal").canonicalize().unwrap();
-        let err = manager.load_app(&journal_path).await;
-        println!("Loading journal: {:?}", err);
+        {
+          let journal_path = Path::new("../apps/journal").canonicalize().unwrap();
+          let err = manager.load_app(&journal_path).await;
+          println!("Loading journal: {:?}", err);
+        }
+
+        {
+          let fitness_path = Path::new("../apps/fitness").canonicalize().unwrap();
+          let err = manager.load_app(&fitness_path).await;
+          println!("Loading fitness: {:?}", err);
+        }
 
         handle.manage(AppState {
           app_manager: Arc::new(Mutex::new(manager)),

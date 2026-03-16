@@ -1,0 +1,19 @@
+name: "fitness"
+version: "0.1.0"
+lua_entrypoint: "main.lua"
+permissions: "privileged"
+
+fields:
+  fitness/type:
+    type: string
+  fitness/timestamp:
+    type: string
+  fitness/data:
+    type: any
+
+functions:
+  - log_activity
+  - get_activities
+
+dev:
+  frontend_server: "http://localhost:7998"
