@@ -20,3 +20,4 @@ dist-ssr/
 /public
 /hellosu
 /hellosu.db*
+proto/gen

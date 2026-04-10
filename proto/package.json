@@ -1,0 +1,20 @@
+{
+  "name": "@panorama/proto",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./*": "./gen/*"
+  },
+  "scripts": {
+    "generate": "buf generate"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "1.10.0",
+    "@connectrpc/connect": "1.6.1"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.67.0",
+    "@bufbuild/protoc-gen-es": "1.10.0",
+    "@connectrpc/protoc-gen-connect-es": "^1.7.0"
+  }
+}

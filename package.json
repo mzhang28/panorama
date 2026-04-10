@@ -1,0 +1,23 @@
+{
+  "name": "panorama",
+  "version": "0.1.0",
+  "workspaces": [
+    "proto",
+    "backend",
+    "frontend",
+    "e2e"
+  ],
+  "scripts": {
+    "dev": "bun --filter backend dev & bun --filter frontend dev",
+    "test": "bun --filter e2e test"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "1.10.0",
+    "@connectrpc/protoc-gen-connect-es": "^1.7.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "1.10.0",
+    "@connectrpc/connect": "1.6.1"
+  }
+}
