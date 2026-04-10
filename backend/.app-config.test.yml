@@ -6,27 +6,21 @@ tabs:
         type: weight-tracker-input
         title: E2E Weight Input
         grid:
-          x: 0
-          'y': 0
           w: 6
-          h: 2
+          h: 1
       - id: e2e-weight-graph
         type: built-in-graph
         title: E2E Weight Graph
         query: weight_kg
         timeRange: 7d
         grid:
-          x: 0
-          'y': 2
-          w: 12
-          h: 6
-      - id: widget-1775795824464
+          w: 6
+          h: 1
+      - id: widget-1775797142746
         type: built-in-graph
         title: New Weight Graph
         query: weight_kg
         timeRange: 7d
         grid:
-          x: 0
-          'y': 10
-          w: 12
-          h: 4
+          w: 9
+          h: 1

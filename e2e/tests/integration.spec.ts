@@ -18,13 +18,13 @@ test.describe('Panorama Extensible DB & Weight Tracker', () => {
       '      - id: e2e-weight-input',
       '        type: weight-tracker-input',
       '        title: "E2E Weight Input"',
-      '        grid: { x: 0, y: 0, w: 6, h: 2 }',
+      '        grid: { w: 6, h: 1 }',
       '      - id: e2e-weight-graph',
       '        type: built-in-graph',
       '        title: "E2E Weight Graph"',
       '        query: "weight_kg"',
       '        timeRange: "7d"',
-      '        grid: { x: 0, y: 2, w: 12, h: 6 }'
+      '        grid: { w: 6, h: 1 }'
     ].join('\n');
     
     for (const configPath of configs) {

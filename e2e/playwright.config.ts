@@ -21,7 +21,7 @@ export default defineConfig({
     {
       command: 'bun run --cwd ../backend dev',
       url: 'http://localhost:3001/api/config',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       env: {
         APP_CONFIG_ENV: 'test',
       },
@@ -29,7 +29,7 @@ export default defineConfig({
     {
       command: 'bun run --cwd ../frontend dev',
       url: 'http://localhost:5173',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
     },
   ],
 });

@@ -199,7 +199,7 @@ function App() {
           </button>
         </header>
 
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-hidden p-6">
           {!activeTab ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
               <Layout size={48} className="mb-2 opacity-20" />
@@ -207,9 +207,9 @@ function App() {
             </div>
           ) : (
             <div 
-              className="grid grid-cols-12 gap-6"
+              className="grid grid-cols-12 gap-6 h-full"
               style={{ 
-                gridAutoRows: 'minmax(100px, auto)',
+                gridAutoRows: 'minmax(0, 1fr)',
               }}
             >
               {activeTab?.widgets?.map((widget: any) => {
@@ -221,10 +221,10 @@ function App() {
                   <div 
                     key={widget.id}
                     style={{
-                      gridColumn: `span ${grid?.w || 4}`,
-                      gridRow: `span ${grid?.h || 2}`,
+                      gridColumn: `span ${grid?.w || 3}`,
+                      gridRow: `span ${grid?.h || 1}`,
                     }}
-                    className="min-h-[200px]"
+                    className="min-h-0"
                   >
                     <WidgetComp {...widget} tabId={activeTab.id} />
                   </div>
@@ -253,7 +253,7 @@ function App() {
                       title: 'New Weight Graph',
                       query: 'weight_kg',
                       timeRange: '7d',
-                      grid: { x: 0, y: 10, w: 12, h: 4 }
+                      grid: { w: 9, h: 1 }
                     }
                   })}
                   className="flex items-center gap-3 p-3 border rounded-lg hover:bg-blue-50 hover:border-blue-200 transition text-left"
@@ -270,7 +270,7 @@ function App() {
                     widget: {
                       type: 'weight-tracker-input',
                       title: 'Weight Logger',
-                      grid: { x: 0, y: 0, w: 4, h: 2 }
+                      grid: { w: 3, h: 1 }
                     }
                   })}
                   className="flex items-center gap-3 p-3 border rounded-lg hover:bg-green-50 hover:border-green-200 transition text-left"

@@ -75,9 +75,6 @@ async function bootstrap() {
       });
       ddl += colDefs.join(', ') + ')';
       
-      // In SQLite, adding columns is also okay if they don't exist, but for a WIP, we just ensure the table exists
-      // SQLite Database instance is available on db.$client if using Bun
-      // But we can use sql.raw
       await db.run(sql.raw(ddl));
     }
   }
@@ -87,12 +84,10 @@ async function bootstrap() {
 async function queryEngine(query: string, timeRange?: string) {
   const cutoff = parsePromQLTimeRange(timeRange || 'all');
   
-  // Simple: match the query string to a column name in any third-party table
   for (const manifest of appRegistry) {
     for (const table of manifest.tables) {
       const col = table.columns.find(c => c.name === query);
       if (col) {
-        // Build join query with filtering
         const rows = await db.all(sql.raw(`
           SELECT t.${query} as value, n.created_at as timestamp 
           FROM ${table.name} t
@@ -113,6 +108,7 @@ async function getConfig(forceReload = true) {
   if (cachedConfig && !forceReload) return cachedConfig;
   try {
     const filepath = await getConfigFilePath();
+    logger.info({ filepath, env: process.env.APP_CONFIG_ENV }, 'Loading config from disk');
     const content = await fs.readFile(filepath, 'utf8');
     const config: any = yaml.load(content);
     cachedConfig = config;
@@ -125,7 +121,7 @@ async function getConfig(forceReload = true) {
 
 // API Routes
 app.get('/api/config', async (c) => {
-  const config = await getConfig(true); // Always reload for now to handle test resets
+  const config = await getConfig(true);
   return c.json(config);
 });
 
@@ -164,11 +160,10 @@ app.put('/api/config/widget/:tabId/:widgetId', async (c) => {
     const widget = tab.widgets.find((w: any) => w.id === widgetId);
     if (!widget) return c.json({ error: 'Widget not found' }, 404);
     
-    // Update widget properties (e.g., timeRange)
     Object.assign(widget, body);
     
     await fs.writeFile(filepath, yaml.dump(config), 'utf8');
-    cachedConfig = null; // Invalidate cache
+    cachedConfig = null;
     return c.json({ success: true });
   } catch (err) {
     logger.error({ err }, 'Failed to update config file');
@@ -188,11 +183,10 @@ app.post('/api/config/widget/:tabId', async (c) => {
     const tab = config.tabs.find((t: any) => t.id === tabId);
     if (!tab) return c.json({ error: 'Tab not found' }, 404);
     
-    // Add new widget
     const newWidget = {
       id: `widget-${Date.now()}`,
       ...body,
-      grid: body.grid || { x: 0, y: 0, w: 4, h: 2 }
+      grid: body.grid || { w: 3, h: 1 }
     };
     
     tab.widgets.push(newWidget);
@@ -223,7 +217,6 @@ app.post('/api/apps/weight-tracker/entry', async (c) => {
 
 app.get('/', (c) => c.text('Panorama Backend Running'));
 
-// Bootstrap and run
 (async () => {
   await bootstrap();
   logger.info('System Ready.');
