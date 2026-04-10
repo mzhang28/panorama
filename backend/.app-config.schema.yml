@@ -16,6 +16,7 @@ properties:
               type: { type: string }
               title: { type: string }
               query: { type: string }
+              timeRange: { type: string }
               grid:
                 type: object
                 properties:

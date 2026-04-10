@@ -6,11 +6,31 @@ import { pino } from 'pino';
 import { sql } from 'drizzle-orm';
 import { weightTrackerManifest } from './apps/weight-tracker';
 import { loadConfig } from '@app-config/main';
+import yaml from 'js-yaml';
+import fs from 'fs/promises';
+import path from 'path';
 
 const logger = pino();
 const app = new Hono();
 
 app.use('*', cors());
+
+// Helper for PromQL time parsing
+function parsePromQLTimeRange(timeStr: string): number {
+  if (!timeStr || timeStr === 'all') return 0;
+  const match = timeStr.match(/^(\d+)([hdmw])$/);
+  if (!match) return 0;
+  const val = parseInt(match[1]);
+  const unit = match[2];
+  const now = Date.now();
+  switch (unit) {
+    case 'm': return now - val * 60 * 1000;
+    case 'h': return now - val * 60 * 60 * 1000;
+    case 'd': return now - val * 24 * 60 * 60 * 1000;
+    case 'w': return now - val * 7 * 24 * 60 * 60 * 1000;
+    default: return 0;
+  }
+}
 
 // Registry of apps
 const appRegistry = [weightTrackerManifest];
@@ -64,26 +84,21 @@ async function bootstrap() {
 }
 
 // PromQL-like Query Engine
-async function queryEngine(query: string) {
+async function queryEngine(query: string, timeRange?: string) {
+  const cutoff = parsePromQLTimeRange(timeRange || 'all');
+  
   // Simple: match the query string to a column name in any third-party table
   for (const manifest of appRegistry) {
     for (const table of manifest.tables) {
       const col = table.columns.find(c => c.name === query);
       if (col) {
-        // Build join query. Joins app table with nodes for potential graph features
-        // SELECT val, timestamp FROM app_table JOIN nodes ON app_table.node_id = nodes.id
-        const results = await db.run(sql.raw(`
-          SELECT ${query} as value, timestamp 
-          FROM ${table.name} 
-          ORDER BY timestamp ASC
-        `));
-        // Database.run in Bun returns { results, ... } or just rows?
-        // Actually Database.all is for rows.
-        // Let's use db.all instead of db.run for results.
+        // Build join query with filtering
         const rows = await db.all(sql.raw(`
-          SELECT ${query} as value, timestamp 
-          FROM ${table.name} 
-          ORDER BY timestamp ASC
+          SELECT t.${query} as value, n.created_at as timestamp 
+          FROM ${table.name} t
+          JOIN nodes n ON t.node_id = n.id
+          WHERE n.created_at >= ${cutoff}
+          ORDER BY n.created_at ASC
         `));
         return rows;
       }
@@ -114,9 +129,41 @@ app.get('/api/config', async (c) => {
 
 app.get('/api/query', async (c) => {
   const q = c.req.query('q');
+  const t = c.req.query('t');
   if (!q) return c.json([]);
-  const results = await queryEngine(q);
+  const results = await queryEngine(q, t);
   return c.json(results);
+});
+
+app.put('/api/config/widget/:tabId/:widgetId', async (c) => {
+  const tabId = c.req.param('tabId');
+  const widgetId = c.req.param('widgetId');
+  const body = await c.req.json();
+  
+  const env = process.env.APP_CONFIG_ENV || '';
+  const filename = env ? `.app-config.${env}.yml` : '.app-config.yml';
+  const filepath = path.resolve(process.cwd(), filename);
+  
+  try {
+    const content = await fs.readFile(filepath, 'utf8');
+    const config: any = yaml.load(content);
+    
+    const tab = config.tabs.find((t: any) => t.id === tabId);
+    if (!tab) return c.json({ error: 'Tab not found' }, 404);
+    
+    const widget = tab.widgets.find((w: any) => w.id === widgetId);
+    if (!widget) return c.json({ error: 'Widget not found' }, 404);
+    
+    // Update widget properties (e.g., timeRange)
+    Object.assign(widget, body);
+    
+    await fs.writeFile(filepath, yaml.dump(config), 'utf8');
+    cachedConfig = null; // Invalidate cache
+    return c.json({ success: true });
+  } catch (err) {
+    logger.error({ err }, 'Failed to update config file');
+    return c.json({ error: 'Failed to update config file' }, 500);
+  }
 });
 
 app.post('/api/apps/weight-tracker/entry', async (c) => {
@@ -126,8 +173,8 @@ app.post('/api/apps/weight-tracker/entry', async (c) => {
   await db.transaction(async (tx) => {
     await tx.insert(schema.nodes).values({ id: nodeId, type: 'weight_entry' });
     await tx.run(sql`
-      INSERT INTO app_weight_entries (node_id, weight_kg, timestamp)
-      VALUES (${nodeId}, ${body.weight}, ${Date.now()})
+      INSERT INTO app_weight_entries (node_id, weight_kg)
+      VALUES (${nodeId}, ${body.weight})
     `);
   });
   

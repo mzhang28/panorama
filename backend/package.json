@@ -15,9 +15,11 @@
     "@panorama/proto": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.12",
+    "js-yaml": "^4.1.1",
     "pino": "^10.3.1"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/pino": "^7.0.5",
     "better-sqlite3": "^12.8.0",
     "drizzle-kit": "^0.31.10"

@@ -23,7 +23,6 @@ export const weightTrackerManifest: AppManifest = {
       columns: [
         { name: 'node_id', type: 'text', notNull: true, references: 'nodes(id)' },
         { name: 'weight_kg', type: 'real', notNull: true },
-        { name: 'timestamp', type: 'integer', notNull: true },
       ],
     },
   ],

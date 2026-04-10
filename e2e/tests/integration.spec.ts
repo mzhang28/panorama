@@ -43,4 +43,24 @@ test.describe('Panorama Extensible DB & Weight Tracker', () => {
      const tab = page.locator('button', { hasText: 'E2E Test Dashboard' });
      await expect(tab).toBeVisible();
   });
+
+  test('can change and persist the time range filter', async ({ page }) => {
+    await expect(page.locator('h2')).toContainText('E2E Test Dashboard');
+    
+    // Check the default time range
+    const select = page.locator('select');
+    await expect(select).toHaveValue('7d');
+    
+    // Change to '24h'
+    await select.selectOption('24h');
+    
+    // The select should update
+    await expect(select).toHaveValue('24h');
+    
+    // Refresh the page to verify it's persisted in the config
+    await page.reload();
+    await expect(page.locator('h2')).toContainText('E2E Test Dashboard');
+    const selectAfterReload = page.locator('select');
+    await expect(selectAfterReload).toHaveValue('24h');
+  });
 });

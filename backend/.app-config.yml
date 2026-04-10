@@ -10,6 +10,7 @@ tabs:
         type: built-in-graph
         title: "Weight Over Time"
         query: "weight_kg"
+        timeRange: "7d"
         grid: { x: 0, y: 2, w: 12, h: 6 }
   - id: notes
     title: "Notes"

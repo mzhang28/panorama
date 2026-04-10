@@ -51,18 +51,45 @@ const WidgetRegistry: Record<string, React.FC<any>> = {
     );
   },
 
-  'built-in-graph': ({ id, title, query: queryString }) => {
+  'built-in-graph': ({ id, title, query: queryString, timeRange, tabId }) => {
+    const queryClient = useQueryClient();
+    const activeTimeRange = timeRange || '7d';
+
     const { data: chartData, isLoading } = useQuery({
-      queryKey: ['query', queryString],
+      queryKey: ['query', queryString, activeTimeRange],
       queryFn: async () => {
-        const res = await fetch(`${API_BASE}/query?q=${queryString}`);
+        const res = await fetch(`${API_BASE}/query?q=${queryString}&t=${activeTimeRange}`);
         return res.json();
       },
     });
 
+    const updateConfig = useMutation({
+      mutationFn: async (newRange: string) => {
+        await fetch(`${API_BASE}/config/widget/${tabId}/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeRange: newRange }),
+        });
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['config'] });
+      },
+    });
+
+    const timeOptions = ['1h', '6h', '24h', '3d', '7d', '30d', 'all'];
+
     return (
       <div className="flex flex-col gap-2 p-4 border rounded bg-white shadow-sm h-full overflow-hidden">
-        <h3 className="font-semibold flex items-center gap-2"><BarChart2 size={18}/> {title}</h3>
+        <div className="flex justify-between items-center">
+          <h3 className="font-semibold flex items-center gap-2"><BarChart2 size={18}/> {title}</h3>
+          <select 
+            value={activeTimeRange}
+            onChange={(e) => updateConfig.mutate(e.target.value)}
+            className="text-xs border rounded p-1 bg-gray-50 outline-none"
+          >
+            {timeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+        </div>
         <div className="flex-1 min-h-0">
           {isLoading ? <p>Loading...</p> : (
             <ResponsiveContainer width="100%" height="100%">
@@ -163,7 +190,7 @@ function App() {
                   }}
                   className="min-h-[200px]"
                 >
-                  <WidgetComp {...widget} />
+                  <WidgetComp {...widget} tabId={activeTab.id} />
                 </div>
               );
             })}
