@@ -14,9 +14,19 @@ tabs:
         type: built-in-graph
         title: E2E Weight Graph
         query: weight_kg
-        timeRange: 24h
+        timeRange: 7d
         grid:
           x: 0
           'y': 2
           w: 12
           h: 6
+      - id: widget-1775795824464
+        type: built-in-graph
+        title: New Weight Graph
+        query: weight_kg
+        timeRange: 7d
+        grid:
+          x: 0
+          'y': 10
+          w: 12
+          h: 4

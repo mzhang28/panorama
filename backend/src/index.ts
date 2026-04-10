@@ -109,22 +109,28 @@ async function queryEngine(query: string, timeRange?: string) {
 
 // Config Loading
 let cachedConfig: any = null;
-async function getConfig() {
-  if (cachedConfig) return cachedConfig;
+async function getConfig(forceReload = true) {
+  if (cachedConfig && !forceReload) return cachedConfig;
   try {
-    const config = await loadConfig();
+    const filepath = await getConfigFilePath();
+    const content = await fs.readFile(filepath, 'utf8');
+    const config: any = yaml.load(content);
     cachedConfig = config;
     return config;
   } catch (err) {
-    logger.error({ err }, 'Failed to load app-config');
+    logger.error({ err }, 'Failed to load config from disk');
     return { tabs: [] };
   }
 }
 
 // API Routes
 app.get('/api/config', async (c) => {
-  const config = await getConfig();
+  const config = await getConfig(true); // Always reload for now to handle test resets
   return c.json(config);
+});
+
+app.get('/api/apps', (c) => {
+  return c.json(appRegistry);
 });
 
 app.get('/api/query', async (c) => {
@@ -135,14 +141,18 @@ app.get('/api/query', async (c) => {
   return c.json(results);
 });
 
+async function getConfigFilePath() {
+  const env = process.env.APP_CONFIG_ENV || '';
+  const filename = env ? `.app-config.${env}.yml` : '.app-config.yml';
+  const localPath = path.resolve(process.cwd(), filename);
+  return localPath;
+}
+
 app.put('/api/config/widget/:tabId/:widgetId', async (c) => {
   const tabId = c.req.param('tabId');
   const widgetId = c.req.param('widgetId');
   const body = await c.req.json();
-  
-  const env = process.env.APP_CONFIG_ENV || '';
-  const filename = env ? `.app-config.${env}.yml` : '.app-config.yml';
-  const filepath = path.resolve(process.cwd(), filename);
+  const filepath = await getConfigFilePath();
   
   try {
     const content = await fs.readFile(filepath, 'utf8');
@@ -163,6 +173,36 @@ app.put('/api/config/widget/:tabId/:widgetId', async (c) => {
   } catch (err) {
     logger.error({ err }, 'Failed to update config file');
     return c.json({ error: 'Failed to update config file' }, 500);
+  }
+});
+
+app.post('/api/config/widget/:tabId', async (c) => {
+  const tabId = c.req.param('tabId');
+  const body = await c.req.json();
+  const filepath = await getConfigFilePath();
+  
+  try {
+    const content = await fs.readFile(filepath, 'utf8');
+    const config: any = yaml.load(content);
+    
+    const tab = config.tabs.find((t: any) => t.id === tabId);
+    if (!tab) return c.json({ error: 'Tab not found' }, 404);
+    
+    // Add new widget
+    const newWidget = {
+      id: `widget-${Date.now()}`,
+      ...body,
+      grid: body.grid || { x: 0, y: 0, w: 4, h: 2 }
+    };
+    
+    tab.widgets.push(newWidget);
+    
+    await fs.writeFile(filepath, yaml.dump(config), 'utf8');
+    cachedConfig = null;
+    return c.json(newWidget);
+  } catch (err) {
+    logger.error({ err }, 'Failed to add widget to config');
+    return c.json({ error: 'Failed to add widget' }, 500);
   }
 });
 

@@ -1,0 +1,26 @@
+type: object
+properties:
+  tabs:
+    type: array
+    items:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        widgets:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              type: { type: string }
+              title: { type: string }
+              query: { type: string }
+              timeRange: { type: string }
+              grid:
+                type: object
+                properties:
+                  x: { type: number }
+                  y: { type: number }
+                  w: { type: number }
+                  h: { type: number }

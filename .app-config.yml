@@ -1,0 +1,17 @@
+tabs:
+  - id: dashboard
+    title: "Main Dashboard"
+    widgets:
+      - id: weight-input
+        type: weight-tracker-input
+        title: "Log Weight"
+        grid: { x: 0, y: 0, w: 4, h: 2 }
+      - id: weight-graph
+        type: built-in-graph
+        title: "Weight Over Time"
+        query: "weight_kg"
+        timeRange: "7d"
+        grid: { x: 0, y: 2, w: 12, h: 6 }
+  - id: notes
+    title: "Notes"
+    widgets: []
