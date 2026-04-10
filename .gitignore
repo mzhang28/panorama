@@ -1,5 +1,20 @@
+node_modules/
+.DS_Store
+dist/
+dist-ssr/
+*.local
+.env
+.env.*
+!.env.example
+
+# Bun/SQLite
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Build artifacts
 /target
-/.env
 /output.log
 /config.toml
 /public

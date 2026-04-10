@@ -1,0 +1,6 @@
+- always use the language package manager (bun, cargo) to install dependencies and do things rather than editing the manifest (package.json, Cargo.toml) file directly
+- prefer more clear code and less comments. comments should only be used in very complicated situations (almost never)
+- do not use try/catch blocks unless it is required for control flow (almost never). errors should bubble up to the top
+- use logging frameworks (pino)
+- simplicity over all. less lines of code good. if framework generators add a bunch of code, strip down to the very minimum needed to get the job done.
+- if there is some ambiguity, make your best judgement and accumulate both the problem and your mitigation into OBSTACLES.md
