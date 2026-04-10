@@ -20,8 +20,11 @@ export default defineConfig({
   webServer: [
     {
       command: 'bun run --cwd ../backend dev',
-      url: 'http://localhost:3001/api/greetings',
+      url: 'http://localhost:3001/api/config',
       reuseExistingServer: !process.env.CI,
+      env: {
+        APP_CONFIG_ENV: 'test',
+      },
     },
     {
       command: 'bun run --cwd ../frontend dev',

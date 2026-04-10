@@ -1,0 +1,13 @@
+tabs:
+  - id: e2e-tab
+    title: "E2E Test Dashboard"
+    widgets:
+      - id: e2e-weight-input
+        type: weight-tracker-input
+        title: "E2E Weight Input"
+        grid: { x: 0, y: 0, w: 6, h: 2 }
+      - id: e2e-weight-graph
+        type: built-in-graph
+        title: "E2E Weight Graph"
+        query: "weight_kg"
+        grid: { x: 0, y: 2, w: 12, h: 6 }
