@@ -1,0 +1,7 @@
+/target
+/.env
+/output.log
+/config.toml
+/public
+/hellosu
+/hellosu.db*
