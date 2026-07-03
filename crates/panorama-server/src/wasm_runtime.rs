@@ -152,7 +152,7 @@ pub async fn execute_wasm_handler(
 
     let c3 = ctx.clone();
     linker.func_wrap("env", "host_ctx_update_node",
-        move |mut caller: wasmtime::Caller<'_, WasiCtx>, id_ptr: i32, id_len: i32, f_ptr: i32, f_len: i32| -> i32 {
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, id_ptr: i32, id_len: i32, f_ptr: i32, f_len: i32, r_ptr: i32| -> i32 {
             let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
                 Some(m) => m, None => return 0,
             };
@@ -183,10 +183,11 @@ pub async fn execute_wasm_handler(
             };
 
             let data_mut = mem.data_mut(&mut caller);
-            let r_ptr = 0; // result goes to a fixed offset
-            (); // unused r_ptr — we return 0 for update (the WASM adapter doesn't read the result)
-            let _ = (out_bytes, data_mut);
-            0
+            let r_start = r_ptr as usize;
+            if r_start >= data_mut.len() { return 0; }
+            let wl = out_bytes.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + wl].copy_from_slice(&out_bytes[..wl]);
+            wl as i32
         }
     ).map_err(|e| PluginError::internal(format!("link host_ctx_update_node: {}", e)))?;
 

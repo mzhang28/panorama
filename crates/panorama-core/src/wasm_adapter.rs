@@ -31,7 +31,7 @@ use uuid::Uuid;
 extern "C" {
     fn host_ctx_create_node(fields_ptr: i32, fields_len: i32, result_ptr: i32) -> i32;
     fn host_ctx_get_node(id_ptr: i32, id_len: i32, result_ptr: i32) -> i32;
-    fn host_ctx_update_node(id_ptr: i32, id_len: i32, fields_ptr: i32, fields_len: i32) -> i32;
+    fn host_ctx_update_node(id_ptr: i32, id_len: i32, fields_ptr: i32, fields_len: i32, result_ptr: i32) -> i32;
     fn host_ctx_delete_node(id_ptr: i32, id_len: i32);
     fn host_ctx_query(query_ptr: i32, query_len: i32, result_ptr: i32) -> i32;
     fn host_ctx_log(msg_ptr: i32, msg_len: i32);
@@ -123,6 +123,7 @@ fn call_host(name: &str, input: &[u8], out_buf: &mut [u8]) -> Option<usize> {
                 id_bytes.len() as i32,
                 fields_bytes.as_ptr() as i32,
                 fields_bytes.len() as i32,
+                out_buf.as_mut_ptr() as i32,
             )
         }
         "delete_node" => unsafe {
