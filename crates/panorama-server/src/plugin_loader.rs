@@ -179,6 +179,17 @@ impl PluginLoader {
         None
     }
 
+    /// List all available static UI file paths for a loaded plugin.
+    pub async fn list_ui_files(&self, plugin_id: &str) -> Option<Vec<String>> {
+        let wasm = self.wasm_plugins.read().await;
+        if let Some(wp) = wasm.get(plugin_id) {
+            let mut paths: Vec<String> = wp.ui_files.keys().cloned().collect();
+            paths.sort();
+            return Some(paths);
+        }
+        None
+    }
+
     /// Dispatch an HTTP request to a plugin.
     /// For native plugins, calls the trait method directly.
     /// For WASM plugins, executes via the WASM runtime.

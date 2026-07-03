@@ -67,6 +67,8 @@ pub fn build_router(state: AppState) -> Router {
         // Plugin metadata
         .route("/api/plugins", get(list_plugins))
         .route("/api/plugins/{id}", get(get_plugin))
+        .route("/api/plugins/{id}/static", get(get_plugin_static_files))
+        .route("/api/plugins/{id}/files", get(get_plugin_static_files))
         // Plugin UI asset serving (must come before catch-all dispatch)
         .route("/plugin/{plugin_id}/ui/{*path}", get(plugin_ui_handler))
         // Plugin HTTP endpoint dispatch
@@ -333,10 +335,27 @@ async fn get_plugin(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
     let p = state.plugin_loader.get(&id).await
         .ok_or_else(|| ApiError::not_found("Plugin not found"))?;
+    let static_files = state.plugin_loader.list_ui_files(&id).await;
     Ok(Json(serde_json::json!({
         "id": p.info.id, "name": p.info.name, "version": p.info.version,
         "description": p.info.description, "schemas": p.schemas,
         "endpoints": p.endpoints, "ui_components": p.ui_components,
+        "static_files": static_files,
+    })))
+}
+
+async fn get_plugin_static_files(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let files = state
+        .plugin_loader
+        .list_ui_files(&id)
+        .await
+        .ok_or_else(|| ApiError::not_found("Plugin static files not found"))?;
+    Ok(Json(serde_json::json!({
+        "plugin_id": id,
+        "files": files,
     })))
 }
 
