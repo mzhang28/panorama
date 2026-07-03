@@ -22,6 +22,8 @@ Here are the basic high-level design requirements:
   - Schemas may be used to inform things like how UIs display certain nodes.
     - UIs can also be made for preferred schemas, they'll just have to be a bit lenient when the node isn't compliant, maybe even with a warning of how they are noncompliant.
   - Schemas are versioned, and come with some built-in notion of compatibility (semver? or maybe just a major-minor)
+    - Owners of schemas are encouraged to write migration scripts for updates
+    - Migration scripts are encouraged to keep old versions around in separate nodes (remember u cna just create arbitrary fields like "old X")
   - TODO: Think about how to design around computed field updates based on dependencies and whether or not to track reverse dependencies
     - i think the design of this will HEAVILY be influenced by usage patterns, so i kinda want to just build out a v0.0 and start developing apps on it and see how it feels. i will definitely have opinions.
 - Spaces will handle multi-user permissions.
@@ -72,9 +74,11 @@ Here are the basic high-level design requirements:
       - Read. The queryer has a policy about what computations they want to invoke and will be responsible.
     - Cycle tracking
       - right now have a checker for cycles, maybe eventually a depth parameter?
+    - computed fields might be allowed to be a wasm blob or at least we should try to do something JIT'able so we can have user-defined functions that run in database context
 - We will have an internal object storage system API
   - Fields aren't meant to store big blobs that don't change a lot
   - Apps should really store big blobs in object storage and refer to them via a reference
+  - garbage collection won't be implemented for now. we'll just have a way to sort by biggest file size and allow u to query to see what's needed
 - End-to-end encryption will be nice eventually but not planned for v0.x
 - Other workflows that should be able to be supported, and may need careful planning:
   - Exporting/importing
