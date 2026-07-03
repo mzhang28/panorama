@@ -32,7 +32,9 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 
 # Build WASM plugins
-RUN cargo build --release -p wasm-plugins --target wasm32-wasip1
+RUN for app in journal wakatime grafana trips beli subsonic files; do \
+      RUSTFLAGS="-C link-arg=--allow-undefined" cargo build --release -p "panorama-app-${app}" --target wasm32-wasip1; \
+    done
 
 # Build server
 RUN cargo build --release -p panorama-server
