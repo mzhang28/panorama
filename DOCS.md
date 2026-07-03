@@ -64,15 +64,15 @@ via ObjectRef fields rather than storing large data inline.
 │  └──────────┘  └──────────┘  └──────────────────────┘  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │
 │  │ Node     │  │ Schema   │  │ Object Storage       │  │
-│  │ Storage  │  │ Registry │  │ (file-based)         │  │
+│  │ Storage  │  │ Registry │  │ (SQLite + files)     │  │
 │  └──────────┘  └──────────┘  └──────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
 
-1. **Write**: Client → REST API → Node Storage → JSON file on disk
-2. **Read**: Client → REST API → Node Storage → JSON response
+1. **Write**: Client → REST API → Node Storage → SQLite database
+2. **Read**: Client → REST API → Node Storage → SQL query → JSON response
 3. **Plugin Request**: Client → `/plugin/{id}/*` → Plugin Loader → WASM Runtime → Response
 4. **Object Upload**: Client → Object Storage API → File on disk
 
@@ -168,16 +168,19 @@ panorama/
 │   ├── panorama-app-beli/      # Restaurant rating app (depends ONLY on core)
 │   ├── panorama-app-subsonic/  # Music streaming app (depends ONLY on core)
 │   └── panorama-app-files/     # File manager app (depends ONLY on core)
-├── frontend/                   # Vite + React + Tanstack frontend
+├── frontend/                   # Vite + React + TanStack frontend (Module Federation host)
 │   ├── src/
 │   │   ├── api/client.ts       # API client for backend communication
-│   │   ├── components/         # React components
-│   │   └── plugins/            # Plugin UI loading
-│   └── e2e/                    # Playwright E2E tests
+│   │   ├── api/plugin-loader.tsx  # Dynamic Module Federation remote loading
+│   │   └── components/         # Core React components (NodeViewer, SchemaViewer, PluginPanel)
+│   ├── e2e/                    # Playwright E2E tests
+│   └── vite.config.ts          # Module Federation host config
 ├── scripts/
-│   ├── build-panoapp.sh        # Build .panoapp packages
-│   └── gen-manifest.py         # Generate manifest.json for plugins
+│   ├── build-panoapp.sh        # Build plugin UIs + .panoapp packages
+│   ├── e2e-harness.sh          # Isolated E2E test harness (builds everything, spawns temp server)
+│   └── package-panoapp.py      # .panoapp ZIP packager
 ├── dist/panoapp/               # Built .panoapp packages
+├── QUERY_DESIGN.md             # Panorama Query Language v0 specification
 ├── DESIGN.md                   # Original design document
 └── DOCS.md                     # This documentation
 ```
@@ -279,7 +282,10 @@ The `PluginContext` is the ONLY way plugins interact with the platform:
 | `list_objects(bucket, prefix) -> Vec<ObjectRef>` | List objects |
 | `plugin_id() -> &str` | Get the plugin's ID |
 | `base_path() -> String` | Get the plugin's HTTP base path |
+| `query(query_string) -> Vec<Value>` | Execute a query in the Panorama Query Language |
 | `log(level, message)` | Log through the platform |
+
+See `QUERY_DESIGN.md` for the full query language specification.
 
 ### Capability System
 
@@ -304,13 +310,14 @@ Major version bumps are required for capability changes.
 # Rust unit/integration tests
 cargo test --workspace
 
-# Frontend E2E tests (requires server running)
-cd frontend
-npx playwright install chromium
-PANORAMA_DATA_DIR=/tmp/panorama-test-data \
-  cargo run -p panorama-server &
-npm run dev &
-npx playwright test
+# Isolated E2E tests (handles build, temp server, cleanup automatically)
+bash scripts/e2e-harness.sh
+
+# E2E with pre-built artifacts (faster iteration)
+bash scripts/e2e-harness.sh --no-build
+
+# Filter specific tests
+bash scripts/e2e-harness.sh -g "Journal"
 ```
 
 ---
@@ -498,6 +505,7 @@ File uploads with resumable transfer support.
 | `PUT` | `/api/nodes/{id}` | Update a node |
 | `DELETE` | `/api/nodes/{id}` | Delete a node |
 | `GET` | `/api/nodes` | Query nodes (?limit=, ?sort_by=, ?filter.ns:field=) |
+| `POST` | `/api/query` | Execute a Panorama Query Language query |
 
 ### Schemas
 
@@ -539,17 +547,18 @@ File uploads with resumable transfer support.
 
 ### Data Storage
 
-All data is stored as JSON files on disk under `$PANORAMA_DATA_DIR/`:
-- `nodes/` — Node JSON files (one per node)
+Data is stored under `$PANORAMA_DATA_DIR/`:
+- `panorama.db` — SQLite database (nodes, fields as JSON blobs, WAL mode)
 - `objects/` — Object storage buckets and files
 - `plugins/` — Loaded .panoapp packages
 
 ### Performance
 
-Panorama v0.x is designed for flexibility, not performance. The JSON file-based
-storage loads all nodes into memory and queries via in-memory indexes. This works
-well for personal-scale data (thousands of nodes) but is not suitable for
-production-scale workloads.
+Panorama stores nodes in SQLite with JSON field blobs and WAL mode. Queries use
+`json_extract` for field-level filtering with parameterized statements. The query
+language compiler emits CTE-based SQL and a prepared statement cache (LRU, 256
+entries) avoids re-compilation for hot queries. This works well for personal-scale
+data (tens of thousands of nodes).
 
 ### Security
 

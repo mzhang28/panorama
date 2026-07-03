@@ -8,21 +8,23 @@ default:
 build-wasm:
     bash scripts/build-wasm.sh
 
-# Package .panoapp files from manifests + WASM
+# Package .panoapp files (builds plugin UIs + WASM + zips)
 build-panoapps:
     bash scripts/build-panoapp.sh
 
-# Build everything (WASM + .panoapp + server binary)
+# Build everything (WASM + plugin UIs + .panoapp + frontend + server)
 build:
     bash scripts/build-wasm.sh
     bash scripts/build-panoapp.sh
-    cargo build -p panorama-server
+    cd frontend && npm ci && npm run build
+    cargo build --release -p panorama-server
 
-# Start the server (loads .panoapp from data/plugins/)
+# Build + start the server (loads .panoapp from data/plugins/)
 serve: build-panoapps
+    cargo build --release -p panorama-server
     bash scripts/serve.sh
 
-# Install frontend dependencies  
+# Install frontend dependencies
 install-frontend:
     cd frontend && npm install
 
@@ -34,9 +36,13 @@ frontend: install-frontend
 test-setup: install-frontend
     cd frontend && npx playwright install chromium
 
-# Run E2E tests (server + frontend must be running)
+# Run isolated E2E tests (builds everything, spawns temp server, cleans up)
 test-e2e:
-    cd frontend && npx playwright test
+    bash scripts/e2e-harness.sh
+
+# Run E2E tests with pre-built artifacts (skip build phase)
+test-e2e-quick:
+    bash scripts/e2e-harness.sh --no-build
 
 # Run Rust tests
 test-rust:
@@ -44,13 +50,13 @@ test-rust:
 
 # Type-check everything
 check:
-    cargo check
+    cargo check --workspace
     cd frontend && npx tsc --noEmit
 
 # Clean build artifacts
 clean:
     cargo clean
-    rm -rf dist data
+    rm -rf dist data frontend/dist
     @echo "Cleaned."
 
 # ── Docker ───────────────────────────────────────────────────

@@ -130,7 +130,8 @@ gantt
     section Data & Schemas
     Node Model & SQLite Storage       :done,    des1, 2026-07-01, 2026-07-03
     System Schemas (NodeTime/Info)     :done,    des2, 2026-07-01, 2026-07-03
-    Required Schema Write Checks       :active,  des3, 2026-07-04, 2026-07-06
+    Required Schema Write Checks       :done,    des3, 2026-07-03, 2026-07-03
+    Panorama Query Language v0         :done,    des3b, 2026-07-03, 2026-07-03
     Schemas & Types as DB Nodes        :crit,    des4, 2026-07-06, 2026-07-08
     Computed Fields Engine             :crit,    des5, 2026-07-08, 2026-07-10
     section Security & Plugins
@@ -151,7 +152,7 @@ gantt
 ## Action Plan & Phased Roadmap to 100% Completion
 
 ### Phase 1: Core Engine & Schema Hardening
-1. **Required Schema Write Enforcement**: Update `NodeStorage::create` and `NodeStorage::update` in [`storage.rs`](file:///home/michael/Projects/panorama2/crates/panorama-server/src/storage.rs) to call `Schema::validate()` when required schemas are present, returning an error on invalid writes.
+1. **Required Schema Write Enforcement** ✅ — COMPLETE. `SchemaRegistry::validate_required()` checks all Required-mode schemas on node create/update via API + PluginContext paths.
 2. **Self-Hosted Schemas as Nodes**: Store schemas and types as standard `Node` entries in the node storage, adhering to `Schema` and `Type` meta-schemas.
 3. **Computed Fields Execution Engine**: Wire `evaluate_simple_expression` into node create/update pipeline for `Eager` mode and create an async background worker queue for `Deferred` mode.
 
@@ -166,6 +167,6 @@ gantt
 3. **Export/Import Utilities**: Create `/api/export` and `/api/import` endpoints producing/consuming standard JSON/ZIP archives.
 
 ### Phase 4: UI & Application Workflow Refinement
-1. **Trip Planner Map View**: Integrate an interactive Leaflet/OpenLayers map component in `frontend/src/plugins`.
+1. **Trip Planner Map View**: Integrate an interactive Leaflet/OpenLayers map component in the trips plugin UI (`crates/panorama-app-trips/ui/`).
 2. **Journal Block Parser**: Add client-side markdown parsing to automatically slice notes into paragraph nodes linked via `paragraph_refs`.
 3. **Dashboard PromQL Parser**: Implement a lightweight PromQL expression parser for time-series aggregation in `panorama-app-grafana`.
