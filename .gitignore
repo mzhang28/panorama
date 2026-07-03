@@ -37,3 +37,7 @@ frontend/test-results/
 
 *.tsbuildinfo
 .vite/
+
+# Flamegraph & Perf profiling
+flamegraph*.svg
+perf.data*

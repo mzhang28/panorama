@@ -48,6 +48,10 @@ test-e2e-quick:
 test-rust:
     cargo test --workspace
 
+# Profile Rust integration tests and generate a flamegraph
+profile-tests:
+    bash scripts/profile-tests.sh
+
 # Type-check everything
 check:
     cargo check --workspace
