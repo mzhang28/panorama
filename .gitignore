@@ -33,3 +33,4 @@ dist-ssr
 data/
 *.db-shm
 *.db-wal
+frontend/test-results/
