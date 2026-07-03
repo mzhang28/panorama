@@ -11,4 +11,7 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 bytes = "1"
-tokio = { version = "1", features = ["full"] }
+
+[[bin]]
+name = "beli"
+path = "src/wasm_main.rs"

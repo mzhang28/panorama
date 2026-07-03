@@ -1,12 +1,22 @@
-//! WASM runtime — wasmtime + WASI preview1 + host functions.
+//! WASM runtime — wasmtime + WASI preview1 + PluginContext host functions.
+//!
+//! Host functions exposed to WASM plugins mirror the `PluginContext` trait.
+//! They go through `RuntimeContext`, which enforces capability checks,
+//! schema validation, and meta-table invariants — exactly the same path
+//! native plugins take.  No backdoors.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use bytes::Bytes;
-use panorama_core::plugin::{HttpRequest, HttpResponse, PluginError};
+use panorama_core::capabilities::CapabilityGrants;
+use panorama_core::plugin::{HttpRequest, HttpResponse, LogLevel, PluginContext, PluginError};
 use uuid::Uuid;
 
+use crate::plugin_runtime::RuntimeContext;
 use crate::storage::NodeStorage;
+use crate::schema_registry::SchemaRegistry;
+use crate::object_store::ObjectStorage;
 
 type WasiCtx = wasmtime_wasi::preview1::WasiP1Ctx;
 
@@ -14,8 +24,11 @@ pub async fn execute_wasm_handler(
     wasm_bytes: &[u8],
     endpoint: &str,
     request: &HttpRequest,
+    plugin_id: &str,
+    capabilities: &CapabilityGrants,
     storage: &NodeStorage,
-    _object_storage: &crate::object_store::ObjectStorage,
+    schema_registry: &SchemaRegistry,
+    object_storage: &ObjectStorage,
 ) -> Result<HttpResponse, PluginError> {
     let mut config = wasmtime::Config::new();
     config.async_support(true);
@@ -51,161 +64,202 @@ pub async fn execute_wasm_handler(
         |cx: &mut WasiCtx| cx,
     ).map_err(|e| PluginError::internal(format!("wasi: {}", e)))?;
 
-    // ── Host functions ──────────────────────────────────────────────────
+    // ── Build RuntimeContext (shared by all host functions) ──────────────
 
-    let s = storage.clone();
-    linker.func_wrap("env", "host_query",
-        move |mut caller: wasmtime::Caller<'_, WasiCtx>, q_ptr: i32, q_len: i32, r_ptr: i32| -> i32 {
+    let ctx = Arc::new(RuntimeContext::new(
+        plugin_id,
+        storage.clone(),
+        schema_registry.clone(),
+        object_storage.clone(),
+        capabilities.clone(),
+    ));
+
+    // ── host_ctx_create_node ───────────────────────────────────────────
+
+    let c1 = ctx.clone();
+    linker.func_wrap("env", "host_ctx_create_node",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, f_ptr: i32, f_len: i32, r_ptr: i32| -> i32 {
             let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
-                Some(m) => m,
-                None => return 0,
+                Some(m) => m, None => return 0,
             };
             let data = mem.data(&caller);
-            let q_start = q_ptr as usize;
-            let q_end = q_start.saturating_add(q_len as usize);
-            if q_end > data.len() {
-                return 0;
-            }
-            let qs = match std::str::from_utf8(&data[q_start..q_end]) {
-                Ok(s) => s,
-                Err(_) => return 0,
-            };
-
-            let rows = match s.query_lang(qs) {
-                Ok(r) => r,
-                Err(_) => return 0,
-            };
-
-            let json = serde_json::to_vec(&rows).unwrap_or_default();
-
-            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
-                Some(m) => m,
-                None => return 0,
-            };
-            let data_mut = mem.data_mut(&mut caller);
-            let r_start = r_ptr as usize;
-            if r_start >= data_mut.len() {
-                return 0;
-            }
-            let write_len = json.len().min(data_mut.len() - r_start);
-            data_mut[r_start..r_start + write_len].copy_from_slice(&json[..write_len]);
-            write_len as i32
-        }
-    ).map_err(|e| PluginError::internal(format!("link host_query: {}", e)))?;
-
-    let s2 = storage.clone();
-    linker.func_wrap("env", "host_create_node",
-        move |mut caller: wasmtime::Caller<'_, WasiCtx>, ptr: i32, len: i32, r_ptr: i32| -> i32 {
-            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
-                Some(m) => m,
-                None => return 0,
-            };
-            let data = mem.data(&caller);
-            let start = ptr as usize;
-            let end = start.saturating_add(len as usize);
+            let start = f_ptr as usize;
+            let end = start.saturating_add(f_len as usize);
             if end > data.len() { return 0; }
+
             let json = match std::str::from_utf8(&data[start..end]) {
-                Ok(s) => s,
-                Err(_) => return 0,
+                Ok(s) => s, Err(_) => return 0,
             };
-            let id = if let Ok(fields) = serde_json::from_str::<HashMap<String, panorama_core::types::FieldValue>>(json) {
-                let mut node = panorama_core::types::Node::new(Uuid::nil());
-                for (k, v) in fields { node.set_field(&k, v); }
-                let node_id = node.id;
-                match s2.create(node) {
-                    Ok(_) => node_id.to_string(),
-                    Err(_) => return 0,
-                }
-            } else {
-                return 0;
+            let fields: HashMap<String, panorama_core::types::FieldValue> = match serde_json::from_str(json) {
+                Ok(f) => f, Err(_) => return 0,
             };
-            let id_bytes = id.as_bytes();
+
+            let mut node = panorama_core::types::Node::new(Uuid::nil());
+            for (k, v) in fields { node.set_field(&k, v); }
+
+            let result = pollster::block_on(c1.as_ref().create_node(node));
+            let out_bytes = match result {
+                Ok(n) => serde_json::to_vec(&n).unwrap_or_default(),
+                Err(e) => serde_json::to_vec(&serde_json::json!({"error": e.message})).unwrap_or_default(),
+            };
+
             let data_mut = mem.data_mut(&mut caller);
             let r_start = r_ptr as usize;
             if r_start >= data_mut.len() { return 0; }
-            let write_len = id_bytes.len().min(data_mut.len() - r_start);
-            data_mut[r_start..r_start + write_len].copy_from_slice(&id_bytes[..write_len]);
-            write_len as i32
+            let wl = out_bytes.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + wl].copy_from_slice(&out_bytes[..wl]);
+            wl as i32
         }
-    ).map_err(|e| PluginError::internal(format!("link host_create_node: {}", e)))?;
+    ).map_err(|e| PluginError::internal(format!("link host_ctx_create_node: {}", e)))?;
 
-    let s3 = storage.clone();
-    linker.func_wrap("env", "host_delete_node",
-        move |mut caller: wasmtime::Caller<'_, WasiCtx>, ptr: i32, len: i32| {
-            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
-                Some(m) => m,
-                None => return,
-            };
-            let data = mem.data(&caller);
-            let start = ptr as usize;
-            let end = start.saturating_add(len as usize);
-            if end > data.len() { return; }
-            let id_str = match std::str::from_utf8(&data[start..end]) {
-                Ok(s) => s,
-                Err(_) => return,
-            };
-            if let Ok(id) = Uuid::parse_str(id_str) { let _ = s3.delete(&id); }
-        }
-    ).map_err(|e| PluginError::internal(format!("link host_delete_node: {}", e)))?;
+    // ── host_ctx_get_node ──────────────────────────────────────────────
 
-    let s4 = storage.clone();
-    linker.func_wrap("env", "host_update_node",
-        move |mut caller: wasmtime::Caller<'_, WasiCtx>, id_ptr: i32, id_len: i32, f_ptr: i32, f_len: i32| {
-            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
-                Some(m) => m,
-                None => return,
-            };
-            let data = mem.data(&caller);
-            let id_start = id_ptr as usize;
-            let id_end = id_start.saturating_add(id_len as usize);
-            if id_end > data.len() { return; }
-            let id_str = match std::str::from_utf8(&data[id_start..id_end]) {
-                Ok(s) => s,
-                Err(_) => return,
-            };
-            let id = match Uuid::parse_str(id_str) { Ok(id) => id, Err(_) => return };
-            let f_start = f_ptr as usize;
-            let f_end = f_start.saturating_add(f_len as usize);
-            if f_end > data.len() { return; }
-            let json = match std::str::from_utf8(&data[f_start..f_end]) {
-                Ok(s) => s,
-                Err(_) => return,
-            };
-            if let Ok(fields) = serde_json::from_str::<HashMap<String, panorama_core::types::FieldValue>>(json) {
-                let _ = s4.update(&id, fields);
-            }
-        }
-    ).map_err(|e| PluginError::internal(format!("link host_update_node: {}", e)))?;
-
-    let s5 = storage.clone();
-    linker.func_wrap("env", "host_get_node",
+    let c2 = ctx.clone();
+    linker.func_wrap("env", "host_ctx_get_node",
         move |mut caller: wasmtime::Caller<'_, WasiCtx>, id_ptr: i32, id_len: i32, r_ptr: i32| -> i32 {
             let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
-                Some(m) => m,
-                None => return 0,
+                Some(m) => m, None => return 0,
             };
             let data = mem.data(&caller);
+            let start = id_ptr as usize;
+            let end = start.saturating_add(id_len as usize);
+            if end > data.len() { return 0; }
+
+            let id_str = match std::str::from_utf8(&data[start..end]) {
+                Ok(s) => s, Err(_) => return 0,
+            };
+            let id = match Uuid::parse_str(id_str) {
+                Ok(id) => id, Err(_) => return 0,
+            };
+
+            let result = pollster::block_on(c2.as_ref().get_node(id));
+            let out_bytes = match result {
+                Ok(Some(n)) => serde_json::to_vec(&n).unwrap_or_default(),
+                Ok(None) => serde_json::to_vec(&serde_json::Value::Null).unwrap_or_default(),
+                Err(e) => serde_json::to_vec(&serde_json::json!({"error": e.message})).unwrap_or_default(),
+            };
+
+            let data_mut = mem.data_mut(&mut caller);
+            let r_start = r_ptr as usize;
+            if r_start >= data_mut.len() { return 0; }
+            let wl = out_bytes.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + wl].copy_from_slice(&out_bytes[..wl]);
+            wl as i32
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_ctx_get_node: {}", e)))?;
+
+    // ── host_ctx_update_node ───────────────────────────────────────────
+
+    let c3 = ctx.clone();
+    linker.func_wrap("env", "host_ctx_update_node",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, id_ptr: i32, id_len: i32, f_ptr: i32, f_len: i32| -> i32 {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m, None => return 0,
+            };
+            let data = mem.data(&caller);
+            // Read id
             let id_start = id_ptr as usize;
             let id_end = id_start.saturating_add(id_len as usize);
             if id_end > data.len() { return 0; }
             let id_str = match std::str::from_utf8(&data[id_start..id_end]) {
-                Ok(s) => s,
-                Err(_) => return 0,
+                Ok(s) => s, Err(_) => return 0,
             };
             let id = match Uuid::parse_str(id_str) { Ok(id) => id, Err(_) => return 0 };
-            let node = match s5.get(&id) {
-                Some(n) => n,
-                None => return 0,
+            // Read fields JSON
+            let f_start = f_ptr as usize;
+            let f_end = f_start.saturating_add(f_len as usize);
+            if f_end > data.len() { return 0; }
+            let f_json = match std::str::from_utf8(&data[f_start..f_end]) {
+                Ok(s) => s, Err(_) => return 0,
             };
-            let json = serde_json::to_vec(&node).unwrap_or_default();
+            let fields: HashMap<String, panorama_core::types::FieldValue> = match serde_json::from_str(f_json) {
+                Ok(f) => f, Err(_) => return 0,
+            };
+
+            let result = pollster::block_on(c3.as_ref().update_node(id, fields));
+            let out_bytes = match result {
+                Ok(n) => serde_json::to_vec(&n).unwrap_or_default(),
+                Err(e) => serde_json::to_vec(&serde_json::json!({"error": e.message})).unwrap_or_default(),
+            };
+
+            let data_mut = mem.data_mut(&mut caller);
+            let r_ptr = 0; // result goes to a fixed offset
+            (); // unused r_ptr — we return 0 for update (the WASM adapter doesn't read the result)
+            let _ = (out_bytes, data_mut);
+            0
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_ctx_update_node: {}", e)))?;
+
+    // ── host_ctx_delete_node ───────────────────────────────────────────
+
+    let c4 = ctx.clone();
+    linker.func_wrap("env", "host_ctx_delete_node",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, id_ptr: i32, id_len: i32| {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m, None => return,
+            };
+            let data = mem.data(&caller);
+            let start = id_ptr as usize;
+            let end = start.saturating_add(id_len as usize);
+            if end > data.len() { return; }
+            let id_str = match std::str::from_utf8(&data[start..end]) {
+                Ok(s) => s, Err(_) => return,
+            };
+            if let Ok(id) = Uuid::parse_str(id_str) {
+                let _ = pollster::block_on(c4.as_ref().delete_node(id));
+            }
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_ctx_delete_node: {}", e)))?;
+
+    // ── host_ctx_query ─────────────────────────────────────────────────
+
+    let c5 = ctx.clone();
+    linker.func_wrap("env", "host_ctx_query",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, q_ptr: i32, q_len: i32, r_ptr: i32| -> i32 {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m, None => return 0,
+            };
+            let data = mem.data(&caller);
+            let start = q_ptr as usize;
+            let end = start.saturating_add(q_len as usize);
+            if end > data.len() { return 0; }
+            let qs = match std::str::from_utf8(&data[start..end]) {
+                Ok(s) => s, Err(_) => return 0,
+            };
+
+            let result = pollster::block_on(c5.as_ref().query(qs));
+            let rows = match result {
+                Ok(r) => r,
+                Err(_) => vec![],
+            };
+            let json = serde_json::to_vec(&rows).unwrap_or_default();
+
             let data_mut = mem.data_mut(&mut caller);
             let r_start = r_ptr as usize;
             if r_start >= data_mut.len() { return 0; }
-            let write_len = json.len().min(data_mut.len() - r_start);
-            data_mut[r_start..r_start + write_len].copy_from_slice(&json[..write_len]);
-            write_len as i32
+            let wl = json.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + wl].copy_from_slice(&json[..wl]);
+            wl as i32
         }
-    ).map_err(|e| PluginError::internal(format!("link host_get_node: {}", e)))?;
+    ).map_err(|e| PluginError::internal(format!("link host_ctx_query: {}", e)))?;
+
+    // ── host_ctx_log ───────────────────────────────────────────────────
+
+    let c6 = ctx.clone();
+    linker.func_wrap("env", "host_ctx_log",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, msg_ptr: i32, msg_len: i32| {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m, None => return,
+            };
+            let data = mem.data(&caller);
+            let start = msg_ptr as usize;
+            let end = start.saturating_add(msg_len as usize);
+            if end > data.len() { return; }
+            if let Ok(msg) = std::str::from_utf8(&data[start..end]) {
+                let _ = pollster::block_on(c6.as_ref().log(LogLevel::Info, msg));
+            }
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_ctx_log: {}", e)))?;
 
     // ── Instantiate & run ───────────────────────────────────────────────
 
@@ -217,7 +271,7 @@ pub async fn execute_wasm_handler(
     start.call_async(&mut store, ()).await
         .map_err(|e| PluginError::internal(format!("trap: {}", e)))?;
 
-    // ── Read stdout (status + body JSON) ────────────────────────────────
+    // ── Read stdout ────────────────────────────────────────────────────
 
     let output_bytes = stdout_pipe.contents();
     let output_str = String::from_utf8_lossy(&output_bytes);

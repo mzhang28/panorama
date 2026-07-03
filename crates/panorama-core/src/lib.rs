@@ -5,6 +5,8 @@ pub mod schema;
 pub mod field;
 pub mod object_store;
 pub mod query;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_adapter;
 
 pub use types::*;
 pub use plugin::*;

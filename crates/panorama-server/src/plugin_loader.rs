@@ -194,12 +194,16 @@ impl PluginLoader {
         };
 
         if let Some(wp) = wasm_plugin {
-            // Execute via WASM runtime
+            // Execute via WASM runtime — passes plugin_id + capabilities
+            // so host functions enforce the same checks as native dispatch
             return wasm_runtime::execute_wasm_handler(
                 &wp.wasm_bytes,
                 endpoint,
                 &request,
+                &wp.info.info.id,
+                &wp.info.capabilities,
                 &self.storage,
+                &self.schema_registry,
                 &self.object_storage,
             ).await;
         }

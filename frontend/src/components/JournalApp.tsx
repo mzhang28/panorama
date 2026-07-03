@@ -22,13 +22,17 @@ interface Paragraph {
 const PLUGIN_ID = 'com.panorama.journal'
 
 function fieldStr(entry: JournalEntry, key: string): string | undefined {
-  const f = entry.fields[key]
+  const node = (entry as any)?.n || entry
+  const fields = node?.fields || node?.fields_json || {}
+  const f = fields[key]
   if (!f || f.value === null || f.value === undefined) return undefined
   return String(f.value)
 }
 
 function fieldBool(entry: JournalEntry, key: string): boolean {
-  const f = entry.fields[key]
+  const node = (entry as any)?.n || entry
+  const fields = node?.fields || node?.fields_json || {}
+  const f = fields[key]
   if (!f) return false
   return f.value === true || f.value === 'true'
 }
@@ -40,10 +44,8 @@ async function listEntries(params: Record<string, string> = {}): Promise<Journal
   const res = await callPluginEndpoint(PLUGIN_ID, `entries?${qs}`)
   if (!res.ok) throw new Error(await res.text())
   const data = await res.json()
-  // Plugin endpoint returns array of JSON rows
-  if (Array.isArray(data)) return data
-  if (data && Array.isArray(data.rows)) return data.rows
-  return []
+  const raw = Array.isArray(data) ? data : (data && Array.isArray(data.rows)) ? data.rows : []
+  return raw.map((item: any) => item?.n || item)
 }
 
 async function createEntry(body: {
@@ -507,16 +509,18 @@ function EntryForm({
   onCancel?: () => void
   isPending: boolean
 }) {
-  const [title, setTitle] = useState(initialTitle)
-  const [content, setContent] = useState(initialContent)
-  const [mood, setMood] = useState(initialMood)
+  const [title, setTitle] = useState(initialTitle ?? '')
+  const [content, setContent] = useState(initialContent ?? '')
+  const [mood, setMood] = useState(initialMood ?? '')
   const [preview, setPreview] = useState(false)
 
   const handleSubmit = () => {
-    if (!title.trim() && !content.trim()) return
+    const t = (title || '').trim()
+    const c = (content || '').trim()
+    if (!t && !c) return
     const data: { title: string; content: string; mood?: string } = {
-      title: title.trim() || 'Untitled Entry',
-      content: content.trim(),
+      title: t || 'Untitled Entry',
+      content: c,
     }
     if (mood) data.mood = mood
     onSubmit(data)

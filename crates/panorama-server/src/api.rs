@@ -342,6 +342,7 @@ async fn get_plugin(
 
 // -- Plugin HTTP dispatch --
 
+#[axum::debug_handler]
 async fn plugin_handler(
     State(state): State<Arc<AppState>>,
     Path((plugin_id, path)): Path<(String, String)>,
@@ -461,6 +462,20 @@ fn execute_query(
                     Err(_) => serde_json::Value::Null,
                 };
                 obj.insert(col.clone(), json_val);
+            }
+            if let Some(v) = obj.get("fields_json").cloned() {
+                obj.insert("fields".to_string(), v);
+            }
+            if let Some(v) = obj.get("preferred_schemas_json").cloned() {
+                obj.insert("preferred_schemas".to_string(), v);
+            }
+            if let Some(v) = obj.get("app_managed_json").cloned() {
+                obj.insert("app_managed".to_string(), v);
+            }
+            if column_names.len() == 1 && column_names[0] == "n" {
+                if let Some(val) = obj.remove("n") {
+                    return Ok(val);
+                }
             }
             Ok(serde_json::Value::Object(obj))
         })
