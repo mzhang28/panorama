@@ -3,7 +3,7 @@ import { listPlugins, listSchemas } from './api/client'
 import { NodeViewer } from './components/NodeViewer'
 import { PluginPanel } from './components/PluginPanel'
 import { SchemaViewer } from './components/SchemaViewer'
-import { useState, Suspense, useEffect } from 'react'
+import { useState, Suspense, useEffect, useCallback } from 'react'
 import {
   registerPluginRemote,
   loadPluginComponent,
@@ -14,6 +14,9 @@ type View = 'nodes' | 'schemas' | 'plugins' | 'app'
 export default function App() {
   const [view, setView] = useState<View>('nodes')
   const [selectedPlugin, setSelectedPlugin] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
   const { data: plugins = [] } = useQuery({
     queryKey: ['plugins'],
@@ -39,9 +42,27 @@ export default function App() {
     }
   }, [selectedPlugin])
 
+  const navClick = (v: View) => {
+    setView(v)
+    setSelectedPlugin(null)
+    closeSidebar()
+  }
+
+  const pluginClick = (id: string) => {
+    setSelectedPlugin(selectedPlugin === id ? null : id)
+    setView(selectedPlugin === id ? 'plugins' : 'app')
+    closeSidebar()
+  }
+
   return (
     <div className="app-container">
-      <aside className="sidebar">
+      {/* Sidebar overlay for mobile */}
+      <div
+        className={`sidebar-overlay${sidebarOpen ? ' open' : ''}`}
+        onClick={closeSidebar}
+      />
+
+      <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
         <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
           Panorama
         </h1>
@@ -55,31 +76,13 @@ export default function App() {
             gap: 4,
           }}
         >
-          <button
-            className={view === 'nodes' ? 'primary' : ''}
-            onClick={() => {
-              setView('nodes')
-              setSelectedPlugin(null)
-            }}
-          >
+          <button className={view === 'nodes' ? 'primary' : ''} onClick={() => navClick('nodes')}>
             Nodes
           </button>
-          <button
-            className={view === 'schemas' ? 'primary' : ''}
-            onClick={() => {
-              setView('schemas')
-              setSelectedPlugin(null)
-            }}
-          >
+          <button className={view === 'schemas' ? 'primary' : ''} onClick={() => navClick('schemas')}>
             Schemas ({schemas.length})
           </button>
-          <button
-            className={view === 'plugins' ? 'primary' : ''}
-            onClick={() => {
-              setView('plugins')
-              setSelectedPlugin(null)
-            }}
-          >
+          <button className={view === 'plugins' ? 'primary' : ''} onClick={() => navClick('plugins')}>
             Plugins ({plugins.length})
           </button>
         </nav>
@@ -106,14 +109,7 @@ export default function App() {
                 background:
                   selectedPlugin === p.id ? 'var(--bg-hover)' : undefined,
               }}
-              onClick={() => {
-                setSelectedPlugin(
-                  selectedPlugin === p.id ? null : p.id,
-                )
-                setView(
-                  selectedPlugin === p.id ? 'plugins' : 'app',
-                )
-              }}
+              onClick={() => pluginClick(p.id)}
             >
               <div style={{ fontWeight: 600 }}>{p.name}</div>
               <div className="text-muted" style={{ fontSize: 11 }}>
@@ -130,6 +126,16 @@ export default function App() {
       </aside>
 
       <main className="main-content">
+        {/* Hamburger */}
+        <button
+          className="hamburger"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          aria-label="Toggle menu"
+          style={{ marginBottom: 12 }}
+        >
+          ☰
+        </button>
+
         {view === 'nodes' && <NodeViewer />}
         {view === 'schemas' && <SchemaViewer schemas={schemas} />}
         {view === 'plugins' && (
@@ -139,6 +145,7 @@ export default function App() {
             onSelect={(id) => {
               setSelectedPlugin(id)
               setView('app')
+              closeSidebar()
             }}
           />
         )}

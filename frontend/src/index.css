@@ -18,6 +18,7 @@ body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.6;
+  -webkit-tap-highlight-color: transparent;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -32,6 +33,8 @@ button {
   color: var(--text);
   font-size: 14px;
   transition: all 0.15s;
+  min-height: 44px;
+  touch-action: manipulation;
 }
 button:hover { background: var(--bg-hover); border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: white; }
@@ -43,30 +46,56 @@ input, textarea, select {
   border-radius: 6px;
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
+  font-size: 16px;  /* prevents iOS zoom on focus */
+  min-height: 44px;
 }
 input:focus, textarea:focus { border-color: var(--accent); outline: none; }
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
 
 .app-container {
   display: flex;
   min-height: 100vh;
+  position: relative;
 }
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
 
 .sidebar {
   width: 260px;
+  min-width: 260px;
   background: var(--bg-card);
   border-right: 1px solid var(--border);
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  transition: transform 0.25s ease;
+  z-index: 100;
 }
 
 .main-content {
   flex: 1;
   padding: 24px;
   max-width: 1200px;
+  min-width: 0;
 }
+
+/* ── Hamburger ───────────────────────────────────────────────────────────── */
+
+.hamburger {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 24px;
+  padding: 4px 8px;
+  min-height: unset;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text);
+}
+
+/* ── Cards & layout helpers ──────────────────────────────────────────────── */
 
 .card {
   background: var(--bg-card);
@@ -81,3 +110,98 @@ input:focus, textarea:focus { border-color: var(--accent); outline: none; }
 .mt-2 { margin-top: 16px; }
 .mb-1 { margin-bottom: 8px; }
 .text-muted { color: var(--text-muted); font-size: 13px; }
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Sidebar overlay (mobile) ────────────────────────────────────────────── */
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 99;
+}
+
+/* ── Responsive: up to 768px ─────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .hamburger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay.open {
+    display: block;
+  }
+
+  .main-content {
+    padding: 16px;
+    max-width: 100%;
+  }
+
+  /* Stack flex rows on mobile */
+  .flex-row {
+    flex-wrap: wrap;
+  }
+
+  /* Cards take full width */
+  .card {
+    padding: 12px;
+  }
+
+  /* Full-width form inputs */
+  input, textarea, select {
+    width: 100%;
+  }
+
+  /* Tables: force stacked layout */
+  table, thead, tbody, th, td, tr {
+    display: block;
+  }
+  thead { display: none; }
+  tr {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 0;
+  }
+  td {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0 !important;
+    text-align: right;
+  }
+  td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    text-align: left;
+    color: var(--text-muted);
+    margin-right: 12px;
+  }
+  td[data-label=""]::before { content: none; }
+
+  /* Hide action columns on very small screens if needed */
+  button {
+    font-size: 13px;
+    padding: 6px 12px;
+    min-height: 40px;
+  }
+}

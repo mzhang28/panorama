@@ -146,47 +146,49 @@ function NodeDetail({
       </p>
 
       <h4 style={{ marginTop: 16 }}>Fields</h4>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={{ textAlign: 'left', padding: 4 }}>Key</th>
-            <th style={{ textAlign: 'left', padding: 4 }}>Type</th>
-            <th style={{ textAlign: 'left', padding: 4 }}>Value</th>
-            <th style={{ textAlign: 'left', padding: 4 }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Object.entries(node.fields).map(([key, field]) => (
-            <tr key={key} style={{ borderTop: '1px solid var(--border)' }}>
-              <td style={{ padding: 4 }}>{key}</td>
-              <td style={{ padding: 4 }}>{field.type}</td>
-              <td style={{ padding: 4 }}>
-                {editingField === key ? (
-                  <input
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && saveField()}
-                    style={{ width: '100%' }}
-                  />
-                ) : (
-                  <span style={{ wordBreak: 'break-all', maxWidth: 400 }}>
-                    {typeof field.value === 'object'
-                      ? JSON.stringify(field.value)
-                      : String(field.value ?? '')}
-                  </span>
-                )}
-              </td>
-              <td style={{ padding: 4 }}>
-                {editingField === key ? (
-                  <button onClick={saveField}>Save</button>
-                ) : (
-                  <button onClick={() => startEdit(key, field.value)}>Edit</button>
-                )}
-              </td>
+      <div className="table-wrap">
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', padding: 4 }}>Key</th>
+              <th style={{ textAlign: 'left', padding: 4 }}>Type</th>
+              <th style={{ textAlign: 'left', padding: 4 }}>Value</th>
+              <th style={{ textAlign: 'left', padding: 4 }}>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {Object.entries(node.fields).map(([key, field]) => (
+              <tr key={key} style={{ borderTop: '1px solid var(--border)' }}>
+                <td data-label="Key" style={{ padding: 4 }}>{key}</td>
+                <td data-label="Type" style={{ padding: 4 }}>{field.type}</td>
+                <td data-label="Value" style={{ padding: 4 }}>
+                  {editingField === key ? (
+                    <input
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && saveField()}
+                      style={{ width: '100%' }}
+                    />
+                  ) : (
+                    <span style={{ wordBreak: 'break-all' }}>
+                      {typeof field.value === 'object'
+                        ? JSON.stringify(field.value)
+                        : String(field.value ?? '')}
+                    </span>
+                  )}
+                </td>
+                <td data-label="Actions" style={{ padding: 4 }}>
+                  {editingField === key ? (
+                    <button onClick={saveField}>Save</button>
+                  ) : (
+                    <button onClick={() => startEdit(key, field.value)}>Edit</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
