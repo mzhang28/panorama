@@ -15,7 +15,9 @@ init({
 // Set of already-registered remote names to avoid re-registration
 const registeredRemotes = new Set<string>()
 
-// Dev mode: map plugin IDs to their local Vite dev server URLs
+// Dev mode: map plugin IDs to their local Vite dev server URLs.
+// In production (vite build + embedded frontend) these are ignored because
+// import.meta.env.DEV is false — plugins always load from the backend.
 const DEV_PLUGIN_URLS: Record<string, string> = {
   'com.panorama.journal': 'http://localhost:5174',
   'com.panorama.wakatime': 'http://localhost:5175',
@@ -49,7 +51,8 @@ export function registerPluginRemote(pluginId: string): void {
   if (registeredRemotes.has(name)) return
 
   const entry = getRemoteEntryUrl(pluginId)
-  registerRemotes([{ name, entry }])
+  // type: 'module' — the Vite federation plugin outputs ESM remote entries
+  registerRemotes([{ name, entry, type: 'module' }])
   registeredRemotes.add(name)
 }
 

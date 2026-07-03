@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::{header, StatusCode},
+    http::{header, StatusCode, Uri},
     response::{Json, Response},
     routing::{get, post},
     Router,
@@ -69,6 +69,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/plugin/{plugin_id}/ui/{*path}", get(plugin_ui_handler))
         // Plugin HTTP endpoint dispatch
         .route("/plugin/{plugin_id}/{*path}", get(plugin_handler).post(plugin_handler).put(plugin_handler).delete(plugin_handler).patch(plugin_handler))
+        // SPA fallback — serve embedded frontend if present
+        .fallback(get(frontend_spa_fallback))
         .with_state(state)
 }
 
@@ -336,4 +338,24 @@ async fn plugin_ui_handler(
             .unwrap()),
         None => Err(ApiError::not_found("UI asset not found")),
     }
+}
+
+// -- Frontend SPA fallback (embedded via rust-embed) --
+
+/// Serves the production frontend build embedded in the binary.
+/// Tries to serve the exact static file first; falls back to `index.html`
+/// for client-side (SPA) routing.  When the frontend isn't embedded (dev
+/// builds without a pre-built `frontend/dist/`), returns 404.
+async fn frontend_spa_fallback(
+    uri: Uri,
+) -> Result<Response, (StatusCode, Json<ApiError>)> {
+    let path = uri.path().trim_start_matches('/');
+
+    if let Some(resp) = crate::frontend::try_serve(path) {
+        return Ok(resp);
+    }
+    if let Some(resp) = crate::frontend::serve_index() {
+        return Ok(resp);
+    }
+    Err(ApiError::not_found("Not found"))
 }

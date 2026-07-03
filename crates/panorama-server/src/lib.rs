@@ -3,6 +3,7 @@ pub mod schema_registry;
 pub mod plugin_loader;
 pub mod object_store;
 pub mod api;
+pub mod frontend;
 pub mod plugin_runtime;
 pub mod spaces;
 pub mod panoapp;

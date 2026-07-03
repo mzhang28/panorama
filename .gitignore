@@ -36,3 +36,4 @@ data/
 frontend/test-results/
 
 *.tsbuildinfo
+.vite/

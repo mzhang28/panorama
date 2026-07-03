@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { federation } from '@module-federation/vite'
 
+const BACKEND_PORT = process.env.VITE_BACKEND_PORT || '3000'
+const FRONTEND_PORT = Number(process.env.VITE_PORT) || 5173
+
 export default defineConfig({
   plugins: [
     react(),
@@ -16,10 +19,10 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 5173,
+    port: FRONTEND_PORT,
     proxy: {
-      '/api': 'http://127.0.0.1:3000',
-      '/plugin': 'http://127.0.0.1:3000',
+      '/api': `http://127.0.0.1:${BACKEND_PORT}`,
+      '/plugin': `http://127.0.0.1:${BACKEND_PORT}`,
     },
   },
 })
