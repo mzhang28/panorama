@@ -4,11 +4,10 @@
 //! build time), this module serves the built SPA.  Otherwise the server runs
 //! API-only — the frontend is served elsewhere (nginx, Vite dev, etc.).
 
-use axum::{
-    body::Body,
-    http::{header, StatusCode},
-    response::Response,
-};
+use axum::response::Response;
+
+#[cfg(frontend_embedded)]
+use axum::{body::Body, http::{header, StatusCode}};
 
 /// rust-embed struct — the folder is relative to the crate root
 /// (`crates/panorama-server/`), so `../../frontend/dist` resolves to the
@@ -21,11 +20,11 @@ struct FrontendAssets;
 /// Try to serve a static frontend asset.  Returns `None` when the frontend
 /// isn't embedded or the requested file isn't found — the caller should
 /// fall back to `index.html` (SPA routing).
-pub fn try_serve(path: &str) -> Option<Response> {
+pub fn try_serve(_path: &str) -> Option<Response> {
     #[cfg(frontend_embedded)]
     {
-        if let Some(data) = FrontendAssets::get(path) {
-            let mime = mime_for(path);
+        if let Some(data) = FrontendAssets::get(_path) {
+            let mime = mime_for(_path);
             return Some(
                 Response::builder()
                     .status(StatusCode::OK)
@@ -56,6 +55,7 @@ pub fn serve_index() -> Option<Response> {
     None
 }
 
+#[cfg(frontend_embedded)]
 fn mime_for(path: &str) -> &'static str {
     let ext = path.rsplit('.').next().unwrap_or("");
     match ext {

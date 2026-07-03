@@ -71,8 +71,9 @@ ENV PANORAMA_LISTEN=0.0.0.0:3000
 # Plugins stored outside data dir so volume mount doesn't hide them
 COPY --from=builder /panoapp /var/lib/panorama/plugins
 
-# Entrypoint: seed plugins into volume on first run
-RUN printf '#!/bin/sh\nmkdir -p %s/plugins\ncp -n /var/lib/panorama/plugins/* %s/plugins/ 2>/dev/null || true\nexec panorama-server\n' "$PANORAMA_DATA_DIR" "$PANORAMA_DATA_DIR" > /entrypoint.sh && chmod +x /entrypoint.sh
+# Entrypoint: keep plugin files up to date with the image.
+# Nodes and objects are user data — only plugins/ is managed by the image.
+RUN printf '#!/bin/sh\nmkdir -p "%s/plugins"\ncp -f /var/lib/panorama/plugins/* "%s/plugins/" 2>/dev/null || true\nexec panorama-server\n' "$PANORAMA_DATA_DIR" "$PANORAMA_DATA_DIR" > /entrypoint.sh && chmod +x /entrypoint.sh
 
 EXPOSE 3000
 
