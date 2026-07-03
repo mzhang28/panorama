@@ -115,7 +115,24 @@ n.event.attendees@at(cursor_x)    -- value at a specific causal cut
 
 ### 3.7 Predicates
 
-Basic comparison: `=`, `!=`, `<`, `<=`, `>`, `>=`. Set membership: `IN [...]`. String pattern: `LIKE`. Null-ish check: `IS NULL`, `IS NOT NULL` (i.e., field absent). Boolean composition: `AND`, `OR`, `NOT`.
+Operators: `=`, `!=`, `<`, `<=`, `>`, `>=`, `IN [...]`, `LIKE`, `CONTAINS`, `IS NULL`, `IS NOT NULL`. Boolean composition: `AND`, `OR`, `NOT`.
+
+Not every operator is valid on every type. Validity is checked at compile time whenever the field's type is known (i.e., it's part of a `CONFORMS TO` schema or has a declared type); for untyped ad-hoc fields, validity is checked at runtime against the value envelope's `t` tag.
+
+| Type | Valid operators | Notes |
+|---|---|---|
+| number | `= != < <= > >= IN IS NULL IS NOT NULL` | Standard total order. |
+| string | `= != < <= > >= IN LIKE IS NULL IS NOT NULL` | `<`/`>` are byte-wise lexicographic, not locale-aware, in v0. |
+| timestamp | `= != < <= > >= IN IS NULL IS NOT NULL` | Same as number. |
+| boolean | `= != IS NULL IS NOT NULL` | No ordering. |
+| ref | `= != IS NULL IS NOT NULL` | Equality is node-id identity. No ordering. |
+| or-set / array (any element type) | `CONTAINS IS NULL IS NOT NULL` | No `<`/`>`/`=` against the whole set in v0 — a set has no natural order and set-equality is a scan-worthy operation, not an index-friendly one. `CONTAINS` checks single-element membership and can be indexed (see §6). |
+| counter | `= != < <= > >=` (against merged numeric value) | `IN`/`IS NULL` generally not meaningful; omitted rather than banned. |
+| rga-text | `= != LIKE IS NULL IS NOT NULL` | `<`/`>` deliberately excluded — lexicographic ordering on long collaboratively-edited text is rarely what anyone wants and invites accidental full scans. Use `LIKE` or (future) full-text search. |
+
+Using an operator against an incompatible type is a compile-time error when the type is statically known, and a runtime error otherwise (fails the row, does not silently coerce).
+
+Per §4.3, any operator applied to a missing field evaluates to `NULL` and is excluded by `WHERE`'s three-valued logic — this applies uniformly regardless of which operator table row is in play.
 
 ### 3.8 Ordering, limits
 
@@ -197,7 +214,11 @@ IR ::=
   | OrderBy(field_path, dir)
   | Limit(n)
   | Skip(n)
+
+op ::= EQ | NEQ | LT | LTE | GT | GTE | CONTAINS | IN_SET | LIKE | IS_NULL | IS_NOT_NULL
 ```
+
+`op` is validated against the type-compatibility table in §3.7 at IR construction time — an `IndexedPredicate` or `ScanPredicate` with an invalid (type, op) pair never reaches the planner.
 
 Each IR node carries annotations (estimated cardinality, cost, whether an index is available). This is the layer that gets traced/profiled per query-id.
 
@@ -266,6 +287,34 @@ field_stats
 ### 6.3 Meta tables are queryable
 
 The same query language can be pointed at meta tables via a system namespace (`system.schema_tables`, `system.managed_indexes`, etc.), subject to admin capability. This is how tooling introspects the storage layout without a separate API.
+
+### 6.4 Index control surface
+
+Index management is a **meta-mutation**, not a data mutation, and not part of the read-only query language in §3. It has two entry points:
+
+**Declared at schema-install time.** An app's `TableDeclaration` marks a field `indexed: true` (per the original `FieldDefinition` shape). On install, this creates a `managed_indexes` row in `building` state and kicks off async construction. This is the common case — most indexes should be declared by the app that knows its own access patterns, not discovered later.
+
+**Ad-hoc admin/dev statements**, for cases the app didn't anticipate or for fields on ad-hoc/unschemed data:
+
+```
+CREATE INDEX ON schema("com.example.event").start_time;
+DROP INDEX ON schema("com.example.event").start_time;
+PROMOTE FIELD schema("com.example.event").notes;
+```
+
+`CREATE INDEX` inserts a `managed_indexes` row (`status = 'building'`) and returns immediately; the index is not used by the planner until `status = 'ready'`. `PROMOTE FIELD` is a separate, heavier operation — it moves a field out of JSONB into a typed column on the schema-shadow table (dual-write migration per the earlier storage design), which is a prerequisite for the cheapest index form but not required for `CREATE INDEX` itself (a JSONB expression index works without promotion, just at higher cost).
+
+These statements require an admin/schema-owner capability — they are not available to arbitrary apps, since an unindexed field becoming indexed changes write-path cost for everyone writing that field.
+
+### 6.5 Feedback loop: field_stats → index suggestions
+
+Tracking scan/order-by frequency per field (the `field_stats` table in §6.1) is the right mechanism for deciding what to index — the alternative is guessing at install time and never revisiting it, which is how systems end up either under-indexed (slow queries) or over-indexed (write amplification for indexes nobody uses).
+
+Two things matter for making this actually useful rather than noisy:
+
+**Windowed, not lifetime, counters.** `field_stats` should be maintained as rolling counts over a trailing window (e.g., hourly buckets rolled up to a 7- or 30-day view), not a single running total. A one-time bulk import that hammers `SCAN` on a field shouldn't permanently bias the advisor toward indexing something that's never touched again after import day.
+
+**Suggest, don't auto-apply.** A periodic background job reads `field_stats`, and for any (schema, field) pair where `scan_count` or `order_by_count` in the trailing window exceeds a threshold, it surfaces a suggestion — e.g., writes a system-namespaced node the admin tooling can query (`system.index_suggestions`), or fires a reactor notification. It does **not** call `CREATE INDEX` itself by default. Index creation has a real write-path cost, and that trade-off should be a decision the schema owner makes, not something that happens silently in the background. An explicit `auto_apply: true` flag per app/schema can opt into automatic creation later, once you trust the thresholds — but that shouldn't be the default.
 
 ## 7. Two-Phase Compilation
 
