@@ -11,6 +11,9 @@ Here are the basic high-level design requirements:
     However, as we will see later, this will have some asterisks.
 - Nodes can have schemas.
   - Schemas are basically groups of fields, along with some basic requirements of them.
+  - Schemas are their own nodes
+    - Types are ALSO their own nodes, with the Type system schema!
+    - the concept of Schemas and Types are built in to the system :P
   - Schemas can either be preferred or required.
     - Preferred schemas allow their nodes to fall out of schema, however, it will raise a warning about why
       - Preferred schemas are set using a designated system-level field on the node
@@ -75,6 +78,16 @@ Here are the basic high-level design requirements:
     - Cycle tracking
       - right now have a checker for cycles, maybe eventually a depth parameter?
     - computed fields might be allowed to be a wasm blob or at least we should try to do something JIT'able so we can have user-defined functions that run in database context
+- Transactions
+  - i'd like there to be some notion of writing to multiple nodes' metadata atomically
+  - we can gate the ability to even do transactions on nodes adopting the more strict schema/field requirements maybe
+  - however, transactions should be reached for ultimately LAST, as they are very heavy handed and require synchronization with the central server
+    - if the device is currently offline and can't reach the server, it should be able to tell the UI to display to the user that currently a transaction is impossible.
+    - because this is so disastrous, apps should give a fallback in this case.
+      but if ur expecting users to mostly be online, that's fine.
+- Speaking of synchronization
+  - basically we will have a central server that needs to stay up
+  - it may be proxied tho, via something like tailscale
 - We will have an internal object storage system API
   - Fields aren't meant to store big blobs that don't change a lot
   - Apps should really store big blobs in object storage and refer to them via a reference
