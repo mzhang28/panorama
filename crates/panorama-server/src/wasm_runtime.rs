@@ -74,9 +74,51 @@ pub async fn execute_wasm_handler(
         capabilities.clone(),
     ));
 
-    // ── host_ctx_create_node ───────────────────────────────────────────
+    // ── host_ctx_create_nodes ──────────────────────────────────────────
 
     let c1 = ctx.clone();
+    linker.func_wrap("env", "host_ctx_create_nodes",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, f_ptr: i32, f_len: i32, r_ptr: i32| -> i32 {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m, None => return 0,
+            };
+            let data = mem.data(&caller);
+            let start = f_ptr as usize;
+            let end = start.saturating_add(f_len as usize);
+            if end > data.len() { return 0; }
+
+            let json = match std::str::from_utf8(&data[start..end]) {
+                Ok(s) => s, Err(_) => return 0,
+            };
+
+            let nodes: Vec<panorama_core::types::Node> = if let Ok(ns) = serde_json::from_str(json) {
+                ns
+            } else if let Ok(fields) = serde_json::from_str::<HashMap<String, panorama_core::types::FieldValue>>(json) {
+                let mut n = panorama_core::types::Node::new(Uuid::nil());
+                for (k, v) in fields { n.set_field(&k, v); }
+                vec![n]
+            } else {
+                return 0;
+            };
+
+            let result = pollster::block_on(c1.as_ref().create_nodes(nodes));
+            let out_bytes = match result {
+                Ok(ns) => serde_json::to_vec(&ns).unwrap_or_default(),
+                Err(e) => serde_json::to_vec(&serde_json::json!({"error": e.message})).unwrap_or_default(),
+            };
+
+            let data_mut = mem.data_mut(&mut caller);
+            let r_start = r_ptr as usize;
+            if r_start >= data_mut.len() { return 0; }
+            let wl = out_bytes.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + wl].copy_from_slice(&out_bytes[..wl]);
+            wl as i32
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_ctx_create_nodes: {}", e)))?;
+
+    // ── host_ctx_create_node ───────────────────────────────────────────
+
+    let c1_single = ctx.clone();
     linker.func_wrap("env", "host_ctx_create_node",
         move |mut caller: wasmtime::Caller<'_, WasiCtx>, f_ptr: i32, f_len: i32, r_ptr: i32| -> i32 {
             let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
@@ -97,9 +139,10 @@ pub async fn execute_wasm_handler(
             let mut node = panorama_core::types::Node::new(Uuid::nil());
             for (k, v) in fields { node.set_field(&k, v); }
 
-            let result = pollster::block_on(c1.as_ref().create_node(node));
+            let result = pollster::block_on(c1_single.as_ref().create_nodes(vec![node]));
             let out_bytes = match result {
-                Ok(n) => serde_json::to_vec(&n).unwrap_or_default(),
+                Ok(mut ns) if !ns.is_empty() => serde_json::to_vec(&ns.remove(0)).unwrap_or_default(),
+                Ok(_) => serde_json::to_vec(&serde_json::json!({"error": "No node created"})).unwrap_or_default(),
                 Err(e) => serde_json::to_vec(&serde_json::json!({"error": e.message})).unwrap_or_default(),
             };
 

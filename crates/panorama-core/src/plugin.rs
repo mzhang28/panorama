@@ -86,8 +86,18 @@ pub trait Plugin: Send + Sync {
 pub trait PluginContext: Send + Sync {
     // -- Node operations --
 
-    /// Create a new node
-    async fn create_node(&self, node: Node) -> Result<Node, PluginError>;
+    /// Create multiple nodes in a batch operation.
+    async fn create_nodes(&self, nodes: Vec<Node>) -> Result<Vec<Node>, PluginError>;
+
+    /// Create a single node (special case of create_nodes).
+    async fn create_node(&self, node: Node) -> Result<Node, PluginError> {
+        let mut results = self.create_nodes(vec![node]).await?;
+        if results.is_empty() {
+            Err(PluginError::internal("create_nodes returned empty vector".into()))
+        } else {
+            Ok(results.remove(0))
+        }
+    }
 
     /// Get a node by ID
     async fn get_node(&self, id: Uuid) -> Result<Option<Node>, PluginError>;

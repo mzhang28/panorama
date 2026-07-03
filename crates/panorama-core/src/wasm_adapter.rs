@@ -29,6 +29,7 @@ use uuid::Uuid;
 // ── Host function imports (wasm32 only) ─────────────────────────────────────
 
 extern "C" {
+    fn host_ctx_create_nodes(fields_ptr: i32, fields_len: i32, result_ptr: i32) -> i32;
     fn host_ctx_create_node(fields_ptr: i32, fields_len: i32, result_ptr: i32) -> i32;
     fn host_ctx_get_node(id_ptr: i32, id_len: i32, result_ptr: i32) -> i32;
     fn host_ctx_update_node(id_ptr: i32, id_len: i32, fields_ptr: i32, fields_len: i32, result_ptr: i32) -> i32;
@@ -108,6 +109,9 @@ impl WasmPluginContext {
 
 fn call_host(name: &str, input: &[u8], out_buf: &mut [u8]) -> Option<usize> {
     let result_len = match name {
+        "create_nodes" => unsafe {
+            host_ctx_create_nodes(input.as_ptr() as i32, input.len() as i32, out_buf.as_mut_ptr() as i32)
+        }
         "create_node" => unsafe {
             host_ctx_create_node(input.as_ptr() as i32, input.len() as i32, out_buf.as_mut_ptr() as i32)
         }
@@ -144,16 +148,16 @@ fn call_host(name: &str, input: &[u8], out_buf: &mut [u8]) -> Option<usize> {
 
 #[async_trait]
 impl PluginContext for WasmPluginContext {
-    async fn create_node(&self, node: Node) -> Result<Node, PluginError> {
-        let json = serde_json::to_vec(&node.fields).unwrap_or_default();
-        let mut buf = vec![0u8; 32768];
-        match call_host("create_node", &json, &mut buf) {
+    async fn create_nodes(&self, nodes: Vec<Node>) -> Result<Vec<Node>, PluginError> {
+        let json = serde_json::to_vec(&nodes).unwrap_or_default();
+        let mut buf = vec![0u8; 131072];
+        match call_host("create_nodes", &json, &mut buf) {
             Some(len) => {
                 let len = len.min(buf.len());
                 serde_json::from_slice(&buf[..len])
                     .map_err(|e| PluginError::internal(e.to_string()))
             }
-            None => Err(PluginError::internal("host_ctx_create_node failed".into())),
+            None => Err(PluginError::internal("host_ctx_create_nodes failed".into())),
         }
     }
 

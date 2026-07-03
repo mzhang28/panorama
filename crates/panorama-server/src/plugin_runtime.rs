@@ -71,15 +71,16 @@ impl RuntimeContext {
 
 #[async_trait]
 impl PluginContext for RuntimeContext {
-    async fn create_node(&self, node: Node) -> Result<Node, PluginError> {
-        // Enforce required schemas before persisting
-        if let Err(errors) = self.schema_registry.validate_required(&node.fields, &node.preferred_schemas) {
-            return Err(PluginError::bad_request(&format!(
-                "Schema validation failed: {}", errors.join("; ")
-            )));
+    async fn create_nodes(&self, nodes: Vec<Node>) -> Result<Vec<Node>, PluginError> {
+        for node in &nodes {
+            if let Err(errors) = self.schema_registry.validate_required(&node.fields, &node.preferred_schemas) {
+                return Err(PluginError::bad_request(&format!(
+                    "Schema validation failed: {}", errors.join("; ")
+                )));
+            }
         }
         self.storage
-            .create(node)
+            .create_batch(nodes)
             .map_err(|e| PluginError::internal(e))
     }
 

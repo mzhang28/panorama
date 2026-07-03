@@ -202,37 +202,43 @@ impl NodeStorage {
         })
     }
 
-    /// Create a node.  Wraps the INSERT + meta-table sync in a single
-    /// transaction so field_presence and node_schema_conformance stay
-    /// consistent with the node row.
-    pub fn create(&self, node: Node) -> Result<Node, String> {
+    /// Create multiple nodes in a single transaction.
+    /// Wraps all INSERTs + meta-table syncs in a single transaction so
+    /// field_presence and node_schema_conformance stay consistent.
+    pub fn create_batch(&self, nodes: Vec<Node>) -> Result<Vec<Node>, String> {
+        if nodes.is_empty() {
+            return Ok(Vec::new());
+        }
         let conn = self.write_pool.get().map_err(|e| e.to_string())?;
-        let fields_json = serde_json::to_string(&node.fields).map_err(|e| e.to_string())?;
-        let schemas_json = serde_json::to_string(&node.preferred_schemas).map_err(|e| e.to_string())?;
-        let app_managed_json = node.app_managed.as_ref()
-            .map(|a| serde_json::to_string(a).unwrap_or_default());
 
         conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
 
         let result = (|| -> Result<(), String> {
-            conn.execute(
-                "INSERT INTO nodes (id, space_id, fields_json, preferred_schemas_json, app_managed_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    node.id.to_string(),
-                    node.space_id.to_string(),
-                    fields_json,
-                    schemas_json,
-                    app_managed_json,
-                    node.created_at.to_rfc3339(),
-                    node.updated_at.to_rfc3339(),
-                ],
-            ).map_err(|e| format!("Insert failed: {}", e))?;
+            for node in &nodes {
+                let fields_json = serde_json::to_string(&node.fields).map_err(|e| e.to_string())?;
+                let schemas_json = serde_json::to_string(&node.preferred_schemas).map_err(|e| e.to_string())?;
+                let app_managed_json = node.app_managed.as_ref()
+                    .map(|a| serde_json::to_string(a).unwrap_or_default());
 
-            // §6.2 write invariants — same transaction
-            MetaStore::sync_field_presence(&conn, &node.id, &node.fields)
-                .map_err(|e| format!("field_presence sync: {}", e))?;
-            MetaStore::sync_schema_conformance(&conn, &node.id, &node.preferred_schemas)
-                .map_err(|e| format!("schema_conformance sync: {}", e))?;
+                conn.execute(
+                    "INSERT INTO nodes (id, space_id, fields_json, preferred_schemas_json, app_managed_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        node.id.to_string(),
+                        node.space_id.to_string(),
+                        fields_json,
+                        schemas_json,
+                        app_managed_json,
+                        node.created_at.to_rfc3339(),
+                        node.updated_at.to_rfc3339(),
+                    ],
+                ).map_err(|e| format!("Insert failed: {}", e))?;
+
+                // §6.2 write invariants — same transaction
+                MetaStore::sync_field_presence(&conn, &node.id, &node.fields)
+                    .map_err(|e| format!("field_presence sync: {}", e))?;
+                MetaStore::sync_schema_conformance(&conn, &node.id, &node.preferred_schemas)
+                    .map_err(|e| format!("schema_conformance sync: {}", e))?;
+            }
 
             Ok(())
         })();
@@ -240,13 +246,19 @@ impl NodeStorage {
         match result {
             Ok(()) => {
                 conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
-                Ok(node)
+                Ok(nodes)
             }
             Err(e) => {
                 conn.execute_batch("ROLLBACK").ok();
                 Err(e)
             }
         }
+    }
+
+    /// Create a single node as a special 1-element case of create_batch.
+    pub fn create(&self, node: Node) -> Result<Node, String> {
+        let mut results = self.create_batch(vec![node])?;
+        Ok(results.remove(0))
     }
 
     pub fn get(&self, id: &Uuid) -> Option<Node> {

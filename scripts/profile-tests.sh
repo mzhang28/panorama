@@ -19,6 +19,7 @@ echo "[INFO] Profiling binary: ${TEST_BIN}"
 echo "=== Running flamegraph ==="
 
 FLAMEGRAPH_BIN="$(command -v flamegraph || find "${HOME}" -name flamegraph -type f -executable 2>/dev/null | head -n 1)"
+FLAMEGRAPH_BIN="/home/michael/.cargo/bin/flamegraph"
 
 if [ -z "${FLAMEGRAPH_BIN}" ]; then
   echo "[ERROR] 'flamegraph' executable not found in PATH." >&2
