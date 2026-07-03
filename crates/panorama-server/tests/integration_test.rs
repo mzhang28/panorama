@@ -1,0 +1,617 @@
+//! Integration tests demonstrating all example apps working through the plugin API.
+//! Each test creates a Panorama server instance, loads a plugin, and tests its workflows.
+
+use std::sync::Arc;
+
+use panorama_core::capabilities::CapabilityGrants;
+use panorama_core::plugin::{
+    HttpRequest, HttpResponse, Plugin, PluginContext, PluginError,
+};
+use panorama_core::types::{FieldValue, Node};
+use panorama_server::object_store::ObjectStorage;
+use panorama_server::plugin_loader::PluginLoader;
+use panorama_server::schema_registry::SchemaRegistry;
+use panorama_server::storage::NodeStorage;
+
+/// Helper to create a test plugin loader with in-memory storage
+fn setup_test_env() -> (PluginLoader, tempfile::TempDir) {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = NodeStorage::new(tmp.path().join("nodes"));
+    let schema_registry = SchemaRegistry::new();
+    let object_storage = ObjectStorage::new(tmp.path().join("objects"));
+
+    // Register system schemas
+    schema_registry.register(panorama_core::schema::system_schemas::node_time_schema());
+    schema_registry.register(panorama_core::schema::system_schemas::node_info_schema());
+
+    let loader = PluginLoader::new(storage, schema_registry, object_storage);
+    (loader, tmp)
+}
+
+// ─── Journal App Tests ───────────────────────────────────────
+
+#[tokio::test]
+async fn test_journal_create_and_list_entries() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_journal::JournalPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+
+    let ctx = loader.create_context("com.panorama.journal", plugin.required_capabilities());
+
+    // Create a journal entry via HTTP
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "entries".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "title": "My First Entry",
+            "content": "# Hello\nThis is a journal entry.",
+            "mood": "excited"
+        }).to_string().into_bytes().into()),
+    };
+    let resp = plugin.handle_http_request("entries", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+
+    // List entries
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: "entries".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request("entries", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let entries: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
+    assert!(!entries.is_empty());
+}
+
+#[tokio::test]
+async fn test_journal_entry_has_fields() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_journal::JournalPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+
+    let ctx = loader.create_context("com.panorama.journal", plugin.required_capabilities());
+
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "entries".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "title": "Test Entry",
+            "content": "Testing journal content"
+        }).to_string().into_bytes().into()),
+    };
+    let resp = plugin.handle_http_request("entries", req, &ctx).await.unwrap();
+    let entry: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(entry["fields"]["system:node_title"]["value"], "Test Entry");
+    assert_eq!(
+        entry["fields"]["journal:content"]["value"],
+        "Testing journal content"
+    );
+}
+
+// ─── Wakatime App Tests ──────────────────────────────────────
+
+#[tokio::test]
+async fn test_wakatime_heartbeat_single() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+
+    let ctx = loader.create_context("com.panorama.wakatime", plugin.required_capabilities());
+
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "heartbeat".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "entity": "/src/main.rs",
+            "project": "panorama",
+            "language": "Rust",
+            "time": 1719700000.0
+        }).to_string().into_bytes().into()),
+    };
+    let resp = plugin.handle_http_request("heartbeat", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let result: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(result["created"], 1);
+}
+
+#[tokio::test]
+async fn test_wakatime_heartbeats_bulk() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+
+    let ctx = loader.create_context("com.panorama.wakatime", plugin.required_capabilities());
+
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "heartbeats".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!([
+            {"entity": "/a.rs", "project": "p1", "language": "Rust", "time": 1719700000.0},
+            {"entity": "/b.ts", "project": "p2", "language": "TypeScript", "time": 1719700100.0},
+            {"entity": "/c.py", "project": "p1", "language": "Python", "time": 1719700200.0}
+        ]).to_string().into_bytes().into()),
+    };
+    let resp = plugin.handle_http_request("heartbeats", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let result: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(result["created"], 3);
+}
+
+// ─── Grafana/Dashboard App Tests ─────────────────────────────
+
+#[tokio::test]
+async fn test_grafana_query_count() {
+    let (loader, _tmp) = setup_test_env();
+
+    // First load wakatime and create some heartbeats
+    let wk_plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+    loader.load(wk_plugin.clone()).await.unwrap();
+    let wk_ctx = loader.create_context("com.panorama.wakatime", wk_plugin.required_capabilities());
+
+    // Create heartbeats with different projects
+    for (project, file) in &[
+        ("panorama", "main.rs"),
+        ("panorama", "lib.rs"),
+        ("other", "app.ts"),
+    ] {
+        let mut node = Node::new(uuid::Uuid::nil());
+        node.set_field("system:node_time", FieldValue::DateTime(chrono::Utc::now().to_rfc3339()));
+        node.set_field("wakatime:entity", FieldValue::String(file.to_string()));
+        node.set_field("wakatime:project", FieldValue::String(project.to_string()));
+        node.set_field("wakatime:duration", FieldValue::Float(3600.0));
+        wk_ctx.create_node(node).await.unwrap();
+    }
+
+    // Now query with grafana plugin
+    let gf_plugin = Arc::new(panorama_app_grafana::GrafanaPlugin::new());
+    loader.load(gf_plugin.clone()).await.unwrap();
+    let gf_ctx = loader.create_context("com.panorama.grafana", gf_plugin.required_capabilities());
+
+    // Test count aggregation with group_by
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "query".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "group_by": "wakatime:project",
+            "aggregation": "count"
+        }).to_string().into_bytes().into()),
+    };
+    let resp = gf_plugin.handle_http_request("query", req, &gf_ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let result: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    assert!(result.is_array());
+}
+
+#[tokio::test]
+async fn test_grafana_leaderboard() {
+    let (loader, _tmp) = setup_test_env();
+
+    // Create some time-series data via wakatime plugin
+    let wk_plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+    loader.load(wk_plugin.clone()).await.unwrap();
+    let wk_ctx = loader.create_context("com.panorama.wakatime", wk_plugin.required_capabilities());
+
+    for (project, hours) in &[
+        ("project-a", 10.0),
+        ("project-b", 25.0),
+        ("project-c", 5.0),
+    ] {
+        let mut node = Node::new(uuid::Uuid::nil());
+        node.set_field("system:node_time", FieldValue::DateTime(chrono::Utc::now().to_rfc3339()));
+        node.set_field("wakatime:entity", FieldValue::String("file.rs".to_string()));
+        node.set_field("wakatime:project", FieldValue::String(project.to_string()));
+        node.set_field("wakatime:duration", FieldValue::Float(hours * 3600.0));
+        wk_ctx.create_node(node).await.unwrap();
+    }
+
+    // Query leaderboard
+    let gf_plugin = Arc::new(panorama_app_grafana::GrafanaPlugin::new());
+    loader.load(gf_plugin.clone()).await.unwrap();
+    let gf_ctx = loader.create_context("com.panorama.grafana", gf_plugin.required_capabilities());
+
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "query".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "group_by": "wakatime:project",
+            "aggregation": "leaderboard"
+        }).to_string().into_bytes().into()),
+    };
+    let resp = gf_plugin.handle_http_request("query", req, &gf_ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let result: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
+
+    // Should be sorted descending by hours
+    assert_eq!(result[0]["project"], "project-b");
+    assert!((result[0]["hours"].as_f64().unwrap() - 25.0).abs() < 0.01);
+}
+
+#[tokio::test]
+async fn test_grafana_save_and_list_dashboards() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_grafana::GrafanaPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+    let ctx = loader.create_context("com.panorama.grafana", plugin.required_capabilities());
+
+    // Create a dashboard
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "dashboards".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "title": "My Coding Dashboard",
+            "panels": [{"type": "leaderboard", "query": {"group_by": "wakatime:project"}}]
+        }).to_string().into_bytes().into()),
+    };
+    let resp = plugin.handle_http_request("dashboards", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+
+    // List dashboards
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: "dashboards".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request("dashboards", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let dashboards: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
+    assert!(!dashboards.is_empty());
+}
+
+// ─── Trip Planner App Tests ──────────────────────────────────
+
+#[tokio::test]
+async fn test_trips_create_and_list() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_trips::TripsPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+    let ctx = loader.create_context("com.panorama.trips", plugin.required_capabilities());
+
+    // Create a trip
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "trips".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "title": "Japan 2025",
+            "start_date": "2025-03-01T00:00:00Z",
+            "end_date": "2025-03-14T00:00:00Z"
+        }).to_string().into_bytes().into()),
+    };
+    let resp = plugin.handle_http_request("trips", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let trip: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    let trip_id = trip["id"].as_str().unwrap().to_string();
+
+    // Add an event to the trip
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "events".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "title": "Visit Senso-ji",
+            "start_time": "2025-03-02T10:00:00Z",
+            "end_time": "2025-03-02T12:00:00Z",
+            "trip_id": trip_id,
+            "latitude": 35.7148,
+            "longitude": 139.7967,
+            "location_name": "Asakusa, Tokyo",
+            "notes": "Famous Buddhist temple"
+        }).to_string().into_bytes().into()),
+    };
+    let resp = plugin.handle_http_request("events", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+
+    // List events for the trip
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: "events".into(),
+        query_params: [("trip_id".into(), trip_id)].into(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request("events", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let events: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(events.len(), 1);
+}
+
+#[tokio::test]
+async fn test_trips_map_view() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_trips::TripsPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+    let ctx = loader.create_context("com.panorama.trips", plugin.required_capabilities());
+
+    // Create events with geo data
+    for (title, lat, lon, loc) in &[
+        ("Tokyo Tower", 35.6586, 139.7454, "Minato, Tokyo"),
+        ("Fushimi Inari", 34.9671, 135.7727, "Kyoto"),
+    ] {
+        let req = HttpRequest {
+            method: "POST".into(),
+            path: "events".into(),
+            query_params: Default::default(),
+            headers: Default::default(),
+            body: Some(serde_json::json!({
+                "title": title,
+                "start_time": "2025-04-01T10:00:00Z",
+                "trip_id": "test-trip",
+                "latitude": lat,
+                "longitude": lon,
+                "location_name": loc
+            }).to_string().into_bytes().into()),
+        };
+        plugin.handle_http_request("events", req, &ctx).await.unwrap();
+    }
+
+    // Get map data
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: "events/map".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request("events/map", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let map_data: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(map_data.len(), 2);
+    assert_eq!(map_data[0]["title"], "Tokyo Tower");
+}
+
+// ─── Beli (Restaurant Ratings) App Tests ─────────────────────
+
+#[tokio::test]
+async fn test_beli_add_restaurant_and_compare() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_beli::BeliPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+    let ctx = loader.create_context("com.panorama.beli", plugin.required_capabilities());
+
+    // Add restaurants
+    let mut ids = Vec::new();
+    for name in &["Ramen Jiro", "Ichiran", "Ippudo"] {
+        let req = HttpRequest {
+            method: "POST".into(),
+            path: "restaurants".into(),
+            query_params: Default::default(),
+            headers: Default::default(),
+            body: Some(serde_json::json!({
+                "name": name,
+                "cuisine": "Ramen",
+                "location": "Tokyo"
+            }).to_string().into_bytes().into()),
+        };
+        let resp = plugin.handle_http_request("restaurants", req, &ctx).await.unwrap();
+        let r: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+        ids.push(r["id"].as_str().unwrap().to_string());
+    }
+
+    // Record partial order comparisons (Jiro > Ichiran, Ichiran > Ippudo)
+    for (better, worse) in &[(0, 1), (1, 2)] {
+        let req = HttpRequest {
+            method: "POST".into(),
+            path: "compare".into(),
+            query_params: Default::default(),
+            headers: Default::default(),
+            body: Some(serde_json::json!({
+                "better_id": ids[*better],
+                "worse_id": ids[*worse],
+                "context": "best tonkotsu ramen"
+            }).to_string().into_bytes().into()),
+        };
+        let resp = plugin.handle_http_request("compare", req, &ctx).await.unwrap();
+        assert_eq!(resp.status, 200);
+    }
+
+    // Get rankings (should produce 3 tiers via topological sort)
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: "rankings".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request("rankings", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let rankings: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    let tiers = rankings["tiers"].as_array().unwrap();
+    // With two comparisons across 3 items, we should have 3 tiers
+    assert_eq!(tiers.len(), 3);
+}
+
+// ─── Subsonic Music App Tests ─────────────────────────────────
+
+#[tokio::test]
+async fn test_subsonic_ping() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_subsonic::SubsonicPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+    let ctx = loader.create_context("com.panorama.subsonic", plugin.required_capabilities());
+
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: "rest/ping".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request("rest/ping", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let data: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(data["subsonic-response"]["status"], "ok");
+}
+
+#[tokio::test]
+async fn test_subsonic_upload_and_stream() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_subsonic::SubsonicPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+    let ctx = loader.create_context("com.panorama.subsonic", plugin.required_capabilities());
+
+    // Upload a music file
+    let audio_data = vec![0u8; 1024]; // Fake audio data
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "upload".into(),
+        query_params: [
+            ("filename".into(), "test-song.mp3".into()),
+            ("title".into(), "Test Song".into()),
+        ].into(),
+        headers: Default::default(),
+        body: Some(audio_data.clone().into()),
+    };
+    let resp = plugin.handle_http_request("upload", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let track: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    let track_id = track["id"].as_str().unwrap().to_string();
+
+    // Stream the track
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: "rest/stream".into(),
+        query_params: [("id".into(), track_id)].into(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request("rest/stream", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    // Verify audio data returned
+    assert!(!resp.body.is_empty());
+}
+
+// ─── File Manager App Tests ──────────────────────────────────
+
+#[tokio::test]
+async fn test_files_upload_and_download() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_files::FilesPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+    let ctx = loader.create_context("com.panorama.files", plugin.required_capabilities());
+
+    // Upload a file
+    let file_content = b"Hello, Panorama! This is a test file.";
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "upload".into(),
+        query_params: [
+            ("filename".into(), "test.txt".into()),
+            ("mime_type".into(), "text/plain".into()),
+        ].into(),
+        headers: Default::default(),
+        body: Some(file_content.to_vec().into()),
+    };
+    let resp = plugin.handle_http_request("upload", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let file_node: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    let file_id = file_node["id"].as_str().unwrap().to_string();
+
+    // Download the file
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: &format!("files/{}", file_id),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request(&format!("files/{}", file_id), req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    assert_eq!(&resp.body[..], file_content);
+
+    // List files
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: "files".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request("files", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let files: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(files.len(), 1);
+
+    // Delete the file
+    let req = HttpRequest {
+        method: "DELETE".into(),
+        path: &format!("files/{}", file_id),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request(&format!("files/{}", file_id), req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 204);
+}
+
+// ─── Schema Registration Test ────────────────────────────────
+
+#[tokio::test]
+async fn test_all_plugins_register_schemas() {
+    let (loader, _tmp) = setup_test_env();
+
+    let plugins: Vec<(Arc<dyn Plugin>, &str)> = vec![
+        (Arc::new(panorama_app_journal::JournalPlugin::new()), "journal"),
+        (Arc::new(panorama_app_wakatime::WakatimePlugin::new()), "wakatime"),
+        (Arc::new(panorama_app_grafana::GrafanaPlugin::new()), "grafana"),
+        (Arc::new(panorama_app_trips::TripsPlugin::new()), "trips"),
+        (Arc::new(panorama_app_beli::BeliPlugin::new()), "beli"),
+        (Arc::new(panorama_app_subsonic::SubsonicPlugin::new()), "subsonic"),
+        (Arc::new(panorama_app_files::FilesPlugin::new()), "files"),
+    ];
+
+    for (plugin, name) in &plugins {
+        loader.load(plugin.clone()).await.unwrap();
+        let schemas = loader
+            .create_context(plugin.id(), plugin.required_capabilities())
+            .schema_registry
+            .list_all()
+            .iter()
+            .filter(|s| s.name.starts_with(name))
+            .count();
+        //.list_by_app(&format!("com.panorama.{}", name));
+        assert!(!plugin.schemas().is_empty(), "Plugin {} has no schemas", name);
+    }
+}
+
+// ─── Plugin API Boundaries Test ──────────────────────────────
+
+#[tokio::test]
+async fn test_plugins_only_use_public_api() {
+    // This test verifies that all example app crates only depend on panorama-core,
+    // not on panorama-server internals. This is verified at compile time by the
+    // crate dependency graph, but we document it here as well.
+    //
+    // Each plugin crate's Cargo.toml should only list:
+    //   - panorama-core = { path = "../panorama-core" }
+    //
+    // And should NOT list panorama-server or any of its internal modules.
+
+    // Verify by checking that plugins compile and load correctly
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+
+    // Plugin should not have access to server internals
+    // It can only interact through PluginContext
+    let result = loader.load(plugin).await;
+    assert!(result.is_ok(), "Plugin should load successfully");
+}

@@ -1,0 +1,41 @@
+{
+  "manifest_version": 1, "id": "com.panorama.beli", "name": "Beli", "version": "0.1.0",
+  "description": "Restaurant ratings with partial ordering — rank by pairwise comparisons, not star ratings",
+  "author": "Panorama",
+  "schemas": [
+    {
+      "name": "Restaurant", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
+      "fields": [
+        {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Restaurant name", "computed": null},
+        {"name": "cuisine", "namespace": "beli", "required": false, "field_type": null, "default": null, "description": "Type of cuisine", "computed": null},
+        {"name": "location", "namespace": "beli", "required": false, "field_type": null, "default": null, "description": "Address or neighborhood", "computed": null},
+        {"name": "notes", "namespace": "beli", "required": false, "field_type": null, "default": null, "description": "User notes about this restaurant", "computed": null}
+      ]
+    },
+    {
+      "name": "Comparison", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
+      "fields": [
+        {"name": "better_id", "namespace": "beli", "required": true, "field_type": null, "default": null, "description": "ID of the preferred restaurant (A > B)", "computed": null},
+        {"name": "worse_id", "namespace": "beli", "required": true, "field_type": null, "default": null, "description": "ID of the less preferred restaurant", "computed": null},
+        {"name": "context", "namespace": "beli", "required": false, "field_type": null, "default": null, "description": "Optional context (e.g., 'best ramen in Shibuya')", "computed": null}
+      ]
+    }
+  ],
+  "http_endpoints": [
+    {"method": "POST", "path": "/restaurants", "description": "Add a restaurant"},
+    {"method": "GET", "path": "/restaurants", "description": "List all restaurants"},
+    {"method": "POST", "path": "/compare", "description": "Record a pairwise comparison (A > B)"},
+    {"method": "GET", "path": "/rankings", "description": "Get partial order rankings (topological sort into tiers)"}
+  ],
+  "ui_components": [
+    {"id": "beli-main", "name": "Restaurant Rankings", "mount_point": "MainPage", "bundle_path": "ui/beli.js"}
+  ],
+  "capabilities": {
+    "version": 1, "reason": null, "network_hosts": [],
+    "field_read": ["beli:*", "system:node_title"], "field_write": ["beli:*", "system:node_title"],
+    "write_own_nodes": true, "app_managed_nodes": false,
+    "file_read": false, "file_write": false, "execute": false,
+    "dns_requests": false, "object_storage_read": false, "object_storage_write": false
+  },
+  "wasm_module": "plugin.wasm", "background_tasks": [], "env_vars": {}
+}

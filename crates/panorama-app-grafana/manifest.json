@@ -1,0 +1,33 @@
+{
+  "manifest_version": 1,
+  "id": "com.panorama.grafana",
+  "name": "Dashboards",
+  "version": "0.1.0",
+  "description": "Grafana-like dashboards for time-series data visualization with leaderboard queries",
+  "author": "Panorama",
+  "schemas": [{
+    "name": "Dashboard", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
+    "fields": [
+      {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Dashboard name", "computed": null},
+      {"name": "config", "namespace": "grafana", "required": true, "field_type": null, "default": null, "description": "Dashboard JSON configuration (panels, queries)", "computed": null}
+    ]
+  }],
+  "http_endpoints": [
+    {"method": "POST", "path": "/query", "description": "Execute a dashboard query (count, leaderboard, sum_duration)"},
+    {"method": "POST", "path": "/dashboards", "description": "Save a dashboard configuration"},
+    {"method": "GET", "path": "/dashboards", "description": "List saved dashboards"}
+  ],
+  "ui_components": [
+    {"id": "grafana-main", "name": "Dashboard View", "mount_point": "MainPage", "bundle_path": "ui/grafana.js"}
+  ],
+  "capabilities": {
+    "version": 1, "reason": null, "network_hosts": [],
+    "field_read": ["*"], "field_write": ["grafana:*", "system:node_title"],
+    "write_own_nodes": true, "app_managed_nodes": false,
+    "file_read": false, "file_write": false, "execute": false,
+    "dns_requests": false, "object_storage_read": false, "object_storage_write": false
+  },
+  "wasm_module": "plugin.wasm",
+  "background_tasks": [],
+  "env_vars": {}
+}

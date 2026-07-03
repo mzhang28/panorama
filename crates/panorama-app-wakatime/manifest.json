@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "id": "com.panorama.wakatime",
+  "name": "Wakatime",
+  "version": "0.1.0",
+  "description": "Receives Wakatime-compatible heartbeats for coding activity tracking",
+  "author": "Panorama",
+  "schemas": [{
+    "name": "Heartbeat", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
+    "fields": [
+      {"name": "node_time", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "When the heartbeat was recorded", "computed": null},
+      {"name": "entity", "namespace": "wakatime", "required": true, "field_type": null, "default": null, "description": "File path or entity being edited", "computed": null},
+      {"name": "project", "namespace": "wakatime", "required": false, "field_type": null, "default": null, "description": "Project name", "computed": null},
+      {"name": "language", "namespace": "wakatime", "required": false, "field_type": null, "default": null, "description": "Programming language", "computed": null},
+      {"name": "duration", "namespace": "wakatime", "required": false, "field_type": null, "default": null, "description": "Duration in seconds", "computed": null},
+      {"name": "category", "namespace": "wakatime", "required": false, "field_type": null, "default": null, "description": "Activity category (coding, browsing, etc.)", "computed": null}
+    ]
+  }],
+  "http_endpoints": [
+    {"method": "POST", "path": "/heartbeat", "description": "Receive a single heartbeat"},
+    {"method": "POST", "path": "/heartbeats", "description": "Receive multiple heartbeats (bulk)"}
+  ],
+  "ui_components": [
+    {"id": "wakatime-dashboard", "name": "Coding Activity Dashboard", "mount_point": "MainPage", "bundle_path": "ui/wakatime.js"}
+  ],
+  "capabilities": {
+    "version": 1, "reason": null, "network_hosts": [],
+    "field_read": ["wakatime:*"], "field_write": ["wakatime:*", "system:node_time"],
+    "write_own_nodes": true, "app_managed_nodes": false,
+    "file_read": false, "file_write": false, "execute": false,
+    "dns_requests": false, "object_storage_read": false, "object_storage_write": false
+  },
+  "wasm_module": "plugin.wasm",
+  "background_tasks": [],
+  "env_vars": {}
+}
