@@ -50,6 +50,7 @@ test-rust:
 
 # Profile Rust integration tests and generate a flamegraph
 profile-tests:
+    RUSTFLAGS="-C force-frame-pointers=yes" cargo test --profile release-with-debuginfo -p panorama-server --test integration_test --no-run
     bash scripts/profile-tests.sh
 
 # Type-check everything

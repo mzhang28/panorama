@@ -7,41 +7,31 @@ cd "${PROJECT_ROOT}"
 
 OUTPUT_SVG="${1:-flamegraph.svg}"
 
-echo "=== Building integration test binary (release-with-debuginfo) ==="
-export RUSTFLAGS="-C force-frame-pointers=yes ${RUSTFLAGS:-}"
-
-# 1. Build the integration test binary (cargo is only used here to compile)
-cargo test --profile release-with-debuginfo -p panorama-server --test integration_test --no-run
-
-# 2. Locate the compiled test binary executable
-TEST_BIN="$(ls -t target/release-with-debuginfo/deps/integration_test-* 2>/dev/null | grep -v '\.d$' | head -n 1)"
+# Find the most recently built integration test binary executable
+TEST_BIN="$(ls -t target/*/deps/integration_test-* 2>/dev/null | grep -v '\.d$' | head -n 1)"
 
 if [ -z "${TEST_BIN}" ] || [ ! -x "${TEST_BIN}" ]; then
-  echo "[ERROR] Could not find executable test binary in target/release-with-debuginfo/deps/" >&2
+  echo "[ERROR] Could not find executable integration test binary in target/ directories." >&2
   exit 1
 fi
 
-echo "[INFO] Target test binary: ${TEST_BIN}"
-echo "=== Running flamegraph tool directly ==="
+echo "[INFO] Profiling binary: ${TEST_BIN}"
+echo "=== Running flamegraph ==="
 
-# Locate standalone flamegraph tool
-FLAMEGRAPH_CMD="flamegraph"
-if [ -x "${HOME}/.cargo/bin/flamegraph" ]; then
-  FLAMEGRAPH_CMD="${HOME}/.cargo/bin/flamegraph"
-elif [ -n "${SUDO_USER:-}" ]; then
-  SUDO_USER_HOME="$(getent passwd "${SUDO_USER}" | cut -d: -f6 || echo "/home/${SUDO_USER}")"
-  if [ -x "${SUDO_USER_HOME}/.cargo/bin/flamegraph" ]; then
-    FLAMEGRAPH_CMD="${SUDO_USER_HOME}/.cargo/bin/flamegraph"
-  fi
+FLAMEGRAPH_BIN="$(command -v flamegraph || find "${HOME}" -name flamegraph -type f -executable 2>/dev/null | head -n 1)"
+
+if [ -z "${FLAMEGRAPH_BIN}" ]; then
+  echo "[ERROR] 'flamegraph' executable not found in PATH." >&2
+  exit 1
 fi
 
 if [ "$(id -u)" -eq 0 ]; then
-  echo "[INFO] Running flamegraph as root. Full kernel symbol resolution enabled."
-  "${FLAMEGRAPH_CMD}" -o "${OUTPUT_SVG}" -- "${TEST_BIN}"
+  echo "[INFO] Running as root. Full kernel symbol resolution enabled."
+  "${FLAMEGRAPH_BIN}" -o "${OUTPUT_SVG}" -- "${TEST_BIN}"
 else
-  echo "[INFO] Running flamegraph as unprivileged user."
-  echo "[HINT] Run with 'sudo ${FLAMEGRAPH_CMD} -o ${OUTPUT_SVG} -- ${TEST_BIN}' for full kernel symbol resolution."
-  "${FLAMEGRAPH_CMD}" -o "${OUTPUT_SVG}" -- "${TEST_BIN}"
+  echo "[INFO] Running as unprivileged user."
+  echo "[HINT] Run with 'sudo ${FLAMEGRAPH_BIN} -o ${OUTPUT_SVG} -- ${TEST_BIN}' for full kernel symbol resolution."
+  "${FLAMEGRAPH_BIN}" -o "${OUTPUT_SVG}" -- "${TEST_BIN}"
 fi
 
 echo "[SUCCESS] Flamegraph generated: ${OUTPUT_SVG}"
