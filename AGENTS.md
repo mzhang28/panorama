@@ -1,0 +1,2 @@
+- When I say "all tests must pass", I mean the result of running `just test-e2e` is a zero exit status. Nothing else can substitute for this result.
+  - Unless otherwise specified, you are responsible for ALL test failures, regardless if they were pre-existing or caused by other files.
