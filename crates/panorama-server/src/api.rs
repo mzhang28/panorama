@@ -80,11 +80,17 @@ pub fn build_router(state: AppState) -> Router {
 struct CreateNodeRequest {
     pub space_id: Option<Uuid>,
     pub fields: Option<HashMap<String, FieldValue>>,
+    /// Schemas this node claims to conform to (validated on create)
+    #[serde(default)]
+    pub schemas: Vec<panorama_core::types::SchemaRef>,
 }
 
 #[derive(Debug, Deserialize)]
 struct UpdateNodeRequest {
     pub fields: HashMap<String, FieldValue>,
+    /// Schemas to add/update (merged with existing, validated on update)
+    #[serde(default)]
+    pub schemas: Option<Vec<panorama_core::types::SchemaRef>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,6 +119,14 @@ async fn create_node(
             node.set_field(&key, value);
         }
     }
+    node.preferred_schemas = req.schemas;
+
+    // Enforce required schemas before persisting
+    if let Err(errors) = state.schema_registry.validate_required(&node.fields, &node.preferred_schemas)
+    {
+        return Err(ApiError::bad_request(&errors.join("; ")));
+    }
+
     state.storage.create(node).map(Json).map_err(|e| ApiError::internal(e))
 }
 
@@ -128,6 +142,26 @@ async fn update_node(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateNodeRequest>,
 ) -> Result<Json<Node>, (StatusCode, Json<ApiError>)> {
+    // Fetch existing node to merge schemas and validate
+    let existing = state.storage.get(&id).ok_or_else(|| ApiError::not_found("Node not found"))?;
+
+    let schemas = if let Some(new_schemas) = req.schemas {
+        new_schemas
+    } else {
+        existing.preferred_schemas.clone()
+    };
+
+    // Build the merged fields for validation
+    let mut merged = existing.fields.clone();
+    for (key, value) in &req.fields {
+        merged.insert(key.clone(), value.clone());
+    }
+
+    // Enforce required schemas with merged fields
+    if let Err(errors) = state.schema_registry.validate_required(&merged, &schemas) {
+        return Err(ApiError::bad_request(&errors.join("; ")));
+    }
+
     state.storage.update(&id, req.fields).map(Json).map_err(|e| ApiError::internal(e))
 }
 

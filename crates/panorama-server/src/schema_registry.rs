@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use dashmap::DashMap;
 use panorama_core::schema::Schema;
+use panorama_core::types::{FieldValue, SchemaRef};
 use uuid::Uuid;
 
 /// Registry for all schemas in the platform.
@@ -54,6 +56,41 @@ impl SchemaRegistry {
             .filter(|s| s.name.starts_with(&format!("{}/", app_id)))
             .map(|s| s.value().clone())
             .collect()
+    }
+
+    /// Validate `fields` against every **required** schema referenced by
+    /// `preferred_schemas`.  Returns `Ok(())` when all required schemas pass,
+    /// or `Err(messages)` with human-readable error lines for each violation.
+    /// Schemas in `Preferred` mode and schemas not found in the registry are
+    /// silently skipped — only `Required` schemas block the write.
+    pub fn validate_required(
+        &self,
+        fields: &HashMap<String, FieldValue>,
+        preferred_schemas: &[SchemaRef],
+    ) -> Result<(), Vec<String>> {
+        let mut errors: Vec<String> = Vec::new();
+
+        for schema_ref in preferred_schemas {
+            if let Some(schema) = self.get(&schema_ref.schema_node_id) {
+                if schema.schema_mode == panorama_core::schema::SchemaMode::Required {
+                    let result = schema.validate(fields);
+                    if !result.is_valid {
+                        for e in &result.errors {
+                            errors.push(format!(
+                                "[{}] {}: {}",
+                                schema.name, e.field_name, e.message
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 

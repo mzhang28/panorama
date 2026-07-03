@@ -68,6 +68,12 @@ impl RuntimeContext {
 #[async_trait]
 impl PluginContext for RuntimeContext {
     async fn create_node(&self, node: Node) -> Result<Node, PluginError> {
+        // Enforce required schemas before persisting
+        if let Err(errors) = self.schema_registry.validate_required(&node.fields, &node.preferred_schemas) {
+            return Err(PluginError::bad_request(&format!(
+                "Schema validation failed: {}", errors.join("; ")
+            )));
+        }
         self.storage
             .create(node)
             .map_err(|e| PluginError::internal(e))
@@ -86,6 +92,20 @@ impl PluginContext for RuntimeContext {
         for key in fields.keys() {
             self.check_field_write(key)?;
         }
+
+        // Validate merged fields against required schemas
+        if let Some(existing) = self.storage.get(&id) {
+            let mut merged = existing.fields.clone();
+            for (key, value) in &fields {
+                merged.insert(key.clone(), value.clone());
+            }
+            if let Err(errors) = self.schema_registry.validate_required(&merged, &existing.preferred_schemas) {
+                return Err(PluginError::bad_request(&format!(
+                    "Schema validation failed: {}", errors.join("; ")
+                )));
+            }
+        }
+
         self.storage
             .update(&id, fields)
             .map_err(|e| PluginError::internal(e))
