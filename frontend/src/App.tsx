@@ -3,6 +3,7 @@ import { listPlugins, listSchemas } from './api/client'
 import { NodeViewer } from './components/NodeViewer'
 import { PluginPanel } from './components/PluginPanel'
 import { SchemaViewer } from './components/SchemaViewer'
+import { JournalApp } from './components/JournalApp'
 import { useState, Suspense, useEffect, useCallback } from 'react'
 import {
   registerPluginRemote,
@@ -149,7 +150,7 @@ export default function App() {
             }}
           />
         )}
-        {view === 'app' && PluginComponent && selectedPlugin && (
+        {view === 'app' && selectedPlugin === 'com.panorama.journal' && (
           <div>
             <button
               onClick={() => {
@@ -160,11 +161,28 @@ export default function App() {
             >
               ← Back to Plugins
             </button>
-            <Suspense fallback={<p>Loading app...</p>}>
-              <PluginComponent pluginId={selectedPlugin} />
-            </Suspense>
+            <JournalApp />
           </div>
         )}
+        {view === 'app' &&
+          selectedPlugin !== 'com.panorama.journal' &&
+          PluginComponent &&
+          selectedPlugin && (
+            <div>
+              <button
+                onClick={() => {
+                  setView('plugins')
+                  setSelectedPlugin(null)
+                }}
+                style={{ marginBottom: 16 }}
+              >
+                ← Back to Plugins
+              </button>
+              <Suspense fallback={<p>Loading app...</p>}>
+                <PluginComponent pluginId={selectedPlugin} />
+              </Suspense>
+            </div>
+          )}
       </main>
     </div>
   )

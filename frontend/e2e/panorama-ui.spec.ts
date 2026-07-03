@@ -114,65 +114,276 @@ test.describe('Plugin Panel', () => {
 
 test.describe('Journal Plugin UI', () => {
 
-  test('opens journal from sidebar and renders the editor', async ({ page }) => {
+  // ── Core navigation & form rendering ───────────────────────────────────
+
+  test('opens journal from sidebar and shows header', async ({ page }) => {
     await page.goto('/');
     await page.click('button:has-text("Journal")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('Journal', { timeout: 5000 });
-    await expect(page.locator('input[placeholder="Entry title"]')).toBeVisible({ timeout: 3000 });
-    await expect(page.locator('textarea[placeholder*="Write your entry"]')).toBeVisible();
+    // "+ New Entry" toggle should be visible
+    await expect(page.locator('button:has-text("+ New Entry")')).toBeVisible({ timeout: 3000 });
   });
 
-  test('creates a journal entry through the form', async ({ page }) => {
+  test('clicking + New Entry opens the create form', async ({ page }) => {
     await page.goto('/');
     await page.click('button:has-text("Journal")');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(800);
+
+    // Form should NOT be visible until we click the button
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(300);
+
+    await expect(page.locator('input[placeholder="Entry title"]')).toBeVisible({ timeout: 3000 });
+    await expect(page.locator('textarea[placeholder*="Write your entry"]')).toBeVisible();
+    await expect(page.locator('button:has-text("Save Entry")')).toBeVisible();
+  });
+
+  test('mood selector has all mood options with emoji labels', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(300);
+
+    // Target the create form's mood select (inside card labeled "New Entry")
+    const moodSelect = page.locator('.card').filter({ hasText: 'New Entry' }).locator('select');
+    const options = await moodSelect.locator('option').allTextContents();
+    expect(options.some(o => o.includes('Happy'))).toBeTruthy();
+    expect(options.some(o => o.includes('Thoughtful'))).toBeTruthy();
+    expect(options.some(o => o.includes('Excited'))).toBeTruthy();
+    expect(options.some(o => o.includes('Calm'))).toBeTruthy();
+    expect(options.some(o => o.includes('Grateful'))).toBeTruthy();
+  });
+
+  test('markdown preview toggle shows rendered content', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(300);
+
+    // Type markdown
+    await page.locator('input[placeholder="Entry title"]').fill('Preview Test');
+    await page.locator('textarea[placeholder*="Write your entry"]').fill('# Hello\n\n**bold text**');
+    // Click Preview
+    await page.click('button:has-text("Preview")');
+    await page.waitForTimeout(300);
+
+    // Rendered markdown should show <h1> and <strong>
+    await expect(page.locator('.journal-entry-body h1')).toContainText('Hello', { timeout: 3000 });
+    await expect(page.locator('.journal-entry-body strong')).toContainText('bold text', { timeout: 3000 });
+  });
+
+  // ── Entry CRUD ─────────────────────────────────────────────────────────
+
+  test('creates a journal entry with mood and sees it in the list', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(300);
 
     const entryTitle = `Entry-${Date.now()}`;
     await page.locator('input[placeholder="Entry title"]').fill(entryTitle);
     await page.locator('textarea[placeholder*="Write your entry"]').fill('This journal entry was created by the E2E test.');
-    await page.selectOption('select', 'happy');
+    // Select "😊 Happy" in the create form's mood select
+    await page.locator('.card').filter({ hasText: 'New Entry' }).locator('select').selectOption('happy');
     await page.click('button:has-text("Save Entry")');
-    await page.waitForTimeout(800);
-
-    // Entry should appear in the list
-    await expect(page.locator(`strong:has-text("${entryTitle}")`).first()).toBeVisible({ timeout: 5000 });
-    // Mood should be visible
-    await expect(page.locator('text=Mood: happy').first()).toBeVisible({ timeout: 3000 });
-  });
-
-  test('clicking an entry expands to show content', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Journal")');
     await page.waitForTimeout(1000);
 
-    // Create an entry first
+    // Entry title should appear in the list
+    await expect(page.locator(`strong:has-text("${entryTitle}")`).first()).toBeVisible({ timeout: 5000 });
+    // Mood badge should be visible with the mood text
+    await expect(page.locator('.mood-badge').first()).toBeVisible({ timeout: 3000 });
+  });
+
+  test('clicking an entry expands detail with rendered markdown', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(300);
+
     const expandTitle = `Expand-${Date.now()}`;
     const expandContent = `Secret-${Date.now()}`;
     await page.locator('input[placeholder="Entry title"]').fill(expandTitle);
-    await page.locator('textarea[placeholder*="Write your entry"]').fill(expandContent);
+    await page.locator('textarea[placeholder*="Write your entry"]').fill(`# ${expandContent}`);
     await page.click('button:has-text("Save Entry")');
-    await page.waitForTimeout(500);
-
-    // Click the entry card
-    await page.locator(`strong:has-text("${expandTitle}")`).first().click();
-    await page.waitForTimeout(300);
-
-    // Content should now be visible
-    await expect(page.locator(`pre:has-text("${expandContent}")`).first()).toBeVisible({ timeout: 3000 });
-  });
-
-  test('mood selector has options', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Journal")');
     await page.waitForTimeout(1000);
 
-    const moodSelect = page.locator('select');
-    await expect(moodSelect).toBeVisible();
-    const options = await moodSelect.locator('option').allTextContents();
-    expect(options).toContain('happy');
-    expect(options).toContain('thoughtful');
-    expect(options).toContain('excited');
+    // Click the entry card to expand
+    await page.locator(`strong:has-text("${expandTitle}")`).first().click();
+    await page.waitForTimeout(500);
+
+    // Rendered markdown content should be visible in the detail panel
+    await expect(page.locator('.journal-entry-body').first()).toBeVisible({ timeout: 5000 });
+    // h1 heading should contain the content
+    await expect(page.locator('.journal-entry-body h1').first()).toContainText(expandContent, { timeout: 3000 });
+  });
+
+  test('creates entry with paragraph decomposition', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(300);
+
+    const paraTitle = `Para-${Date.now()}`;
+    await page.locator('input[placeholder="Entry title"]').fill(paraTitle);
+    // Two paragraphs separated by blank line
+    await page.locator('textarea[placeholder*="Write your entry"]').fill('First paragraph line.\n\nSecond paragraph line.');
+    await page.click('button:has-text("Save Entry")');
+    // Paragraph decomposition creates child nodes — needs extra time
+    await page.waitForTimeout(2000);
+
+    // Entry card should show paragraph count badge
+    await expect(page.locator(`strong:has-text("${paraTitle}")`).first()).toBeVisible({ timeout: 5000 });
+    // Should show "2 paragraphs" text on the entry card
+    await expect(page.locator('text=2 paragraphs').first()).toBeVisible({ timeout: 5000 });
+
+    // Click the entry to expand detail
+    await page.locator(`strong:has-text("${paraTitle}")`).first().click();
+    await page.waitForTimeout(800);
+
+    // Rendered markdown content should be visible in detail
+    await expect(page.locator('.journal-entry-body').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('edits an existing entry inline', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(300);
+
+    const editTitle = `EditMe-${Date.now()}`;
+    const updatedTitle = `Updated-${Date.now()}`;
+    await page.locator('input[placeholder="Entry title"]').fill(editTitle);
+    await page.locator('textarea[placeholder*="Write your entry"]').fill('Original content.');
+    await page.click('button:has-text("Save Entry")');
+    await page.waitForTimeout(800);
+
+    // Click the Edit button on the entry card
+    const card = page.locator('.card').filter({ hasText: editTitle });
+    await card.locator('button:has-text("Edit")').click();
+    await page.waitForTimeout(500);
+
+    // Edit form should appear — find the title input inside the "Edit Entry" card
+    await page.locator('.card').filter({ hasText: 'Edit Entry' }).locator('input[placeholder="Entry title"]').fill(updatedTitle);
+    await page.click('button:has-text("Save Changes")');
+    await page.waitForTimeout(1000);
+
+    // Updated title should appear
+    await expect(page.locator(`strong:has-text("${updatedTitle}")`).first()).toBeVisible({ timeout: 5000 });
+    // Old title should be gone
+    await expect(page.locator(`strong:has-text("${editTitle}")`)).toHaveCount(0, { timeout: 3000 });
+  });
+
+  test('soft-deletes an entry', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(300);
+
+    const delTitle = `DelMe-${Date.now()}`;
+    await page.locator('input[placeholder="Entry title"]').fill(delTitle);
+    await page.locator('textarea[placeholder*="Write your entry"]').fill('To be deleted.');
+    await page.click('button:has-text("Save Entry")');
+    await page.waitForTimeout(800);
+
+    // Click Delete button
+    const card = page.locator('.card').filter({ hasText: delTitle });
+    page.once('dialog', dialog => dialog.accept());
+    await card.locator('button:has-text("Delete")').click();
+    await page.waitForTimeout(800);
+
+    // Card should show "deleted" badge
+    await expect(page.locator('.card').filter({ hasText: 'deleted' }).first()).toBeVisible({ timeout: 5000 });
+  });
+
+  // ── Filters ────────────────────────────────────────────────────────────
+
+  test('mood filter filters entries by mood', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+
+    // Create a happy entry
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(200);
+    await page.locator('input[placeholder="Entry title"]').fill('Happy Entry');
+    await page.locator('textarea[placeholder*="Write your entry"]').fill('Happy content.');
+    await page.locator('.card').filter({ hasText: 'New Entry' }).locator('select').selectOption('happy');
+    await page.click('button:has-text("Save Entry")');
+    await page.waitForTimeout(1000);
+
+    // Create a calm entry
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(200);
+    await page.locator('input[placeholder="Entry title"]').fill('Calm Entry');
+    await page.locator('textarea[placeholder*="Write your entry"]').fill('Calm content.');
+    await page.locator('.card').filter({ hasText: 'New Entry' }).locator('select').selectOption('calm');
+    await page.click('button:has-text("Save Entry")');
+    await page.waitForTimeout(1000);
+
+    // Filter by happy mood using the filter bar select (first select)
+    const filterSelect = page.locator('.card').filter({ hasText: 'Filters' }).locator('select');
+    await filterSelect.selectOption('happy');
+    await page.waitForTimeout(1000);
+
+    // Only happy entry should be visible
+    await expect(page.locator('strong:has-text("Happy Entry")').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('strong:has-text("Calm Entry")')).toHaveCount(0, { timeout: 3000 });
+
+    // Clear filters
+    await page.click('button:has-text("Clear filters")');
+    await page.waitForTimeout(500);
+    await expect(page.locator('strong:has-text("Calm Entry")').first()).toBeVisible({ timeout: 3000 });
+  });
+
+  test('date range filter filters entries by date', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+
+    // Create an entry first so the list is non-empty
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(200);
+    await page.locator('input[placeholder="Entry title"]').fill('Date Filter Entry');
+    await page.locator('textarea[placeholder*="Write your entry"]').fill('For date filter testing.');
+    await page.click('button:has-text("Save Entry")');
+    await page.waitForTimeout(1000);
+
+    // Set a far-future date range — should filter everything out
+    const dateInputs = page.locator('.card').filter({ hasText: 'Filters' }).locator('input[type="date"]');
+    await dateInputs.nth(0).fill('2099-01-01');
+    await dateInputs.nth(1).fill('2099-12-31');
+    await page.waitForTimeout(800);
+
+    // Should show empty state
+    await expect(page.locator('text=No entries yet').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  // ── Filter bar toggle ──────────────────────────────────────────────────
+
+  test('can cancel create form without creating', async ({ page }) => {
+    await page.goto('/');
+    await page.click('button:has-text("Journal")');
+    await page.waitForTimeout(800);
+    await page.click('button:has-text("+ New Entry")');
+    await page.waitForTimeout(300);
+
+    // Form should be visible
+    await expect(page.locator('textarea[placeholder*="Write your entry"]')).toBeVisible();
+
+    // Click Cancel (the + New Entry button toggles to Cancel when form is open)
+    await page.click('button:has-text("Cancel")');
+    await page.waitForTimeout(300);
+
+    // Form should be hidden
+    await expect(page.locator('textarea[placeholder*="Write your entry"]')).toHaveCount(0, { timeout: 3000 });
   });
 });
 

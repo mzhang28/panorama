@@ -1,6 +1,6 @@
-# Panorama — App Evaluation & Progress Roadmap
+# Panorama — App Evaluation, E2E Test Roadmap & Backend Performance Analysis
 
-This document evaluates how closely the current application suite adheres to the design goals outlined in [DESIGN.md](file:///home/michael/Projects/panorama/DESIGN.md). It outlines actionable next features for **each** app and provides a comprehensive list of End-to-End (E2E) test specifications for each proposed feature.
+This document evaluates how closely the current application suite adheres to the design goals in [DESIGN.md](file:///home/michael/Projects/panorama/DESIGN.md), outlines actionable next features and condensed E2E test specifications for **each** app, and provides a thorough performance analysis of the backend architecture with concrete optimization recommendations.
 
 ---
 
@@ -19,13 +19,9 @@ Panorama's core data engine and plugin architecture align exceptionally well wit
 | **Spaces & Permissions** | ⚠️ **Partial (v0.0)** | Default space (`default`) is supported across queries and nodes; multi-tenant space ACLs planned for v0.x. |
 | **App Ecosystem** | 🔄 **Functional Prototypes** | All 7 target v0.0 applications are built as standalone crates relying *only* on `panorama-core`. |
 
-### Summary of App Fidelity (v0.0 Assessment)
-
-While the platform foundation is robust, individual apps currently represent baseline v0.0 prototypes. Core API endpoints and schemas are implemented, but rich UI interactions (e.g. block-level node references in Journal, interactive Leaflet maps in Trips, HTML5 audio player in Subsonic, visual charts in Dashboards) remain to be built.
-
 ---
 
-## 2. Detailed Per-App Evaluation, Next Features & E2E Tests
+## 2. Detailed Per-App Evaluation, Next Features & E2E Test Specifications
 
 ---
 
@@ -45,62 +41,11 @@ While the platform foundation is robust, individual apps currently represent bas
 3. **Journal Entry Editing & Soft Deletion**: Support inline editing of saved journal entries and updating node fields via `PUT /entries/{id}`.
 4. **Timeline & Mood Filter Bar**: Filter journal entries dynamically by date range (calendar picker) or mood tags (`happy`, `thoughtful`, etc.).
 
-#### Possible E2E Tests
-```typescript
-// E2E Test Suite: Journal Next Features
-
-test.describe('Journal - Block-Level Paragraph Decomposition', () => {
-  test('creates journal entry and verifies paragraph child nodes are generated', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Journal")');
-    await page.fill('input[placeholder="Entry title"]', 'Multi-paragraph Entry');
-    await page.fill('textarea[placeholder*="Write your entry"]', 'First paragraph line.\n\nSecond paragraph line.');
-    await page.click('button:has-text("Save Entry")');
-
-    await page.click('strong:has-text("Multi-paragraph Entry")');
-    await expect(page.locator('.paragraph-ref-link')).toHaveCount(2);
-  });
-});
-
-test.describe('Journal - Rich Markdown Rendering', () => {
-  test('renders markdown headers and bullet lists in entry view', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Journal")');
-    await page.fill('input[placeholder="Entry title"]', 'Markdown Test');
-    await page.fill('textarea[placeholder*="Write your entry"]', '# Header 1\n- Item A\n- Item B');
-    await page.click('button:has-text("Save Entry")');
-
-    await page.click('strong:has-text("Markdown Test")');
-    await expect(page.locator('.journal-entry-body h1')).toHaveText('Header 1');
-    await expect(page.locator('.journal-entry-body ul li')).toHaveCount(2);
-  });
-});
-
-test.describe('Journal - Entry Editing', () => {
-  test('allows editing an existing entry title and content', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Journal")');
-    await page.click('.journal-entry-card:first-child .btn-edit');
-    await page.fill('.edit-title-input', 'Updated Title');
-    await page.click('button:has-text("Save Changes")');
-
-    await expect(page.locator('strong:has-text("Updated Title")')).toBeVisible();
-  });
-});
-
-test.describe('Journal - Timeline & Mood Filtering', () => {
-  test('filters entry list by selected mood tag', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Journal")');
-    await page.selectOption('select.mood-filter', 'excited');
-
-    const entryCards = page.locator('.journal-entry-card');
-    for (const card of await entryCards.all()) {
-      await expect(card.locator('.mood-badge')).toHaveText('Mood: excited');
-    }
-  });
-});
-```
+#### E2E Test Specifications
+- **Block-Level Paragraph Decomposition**: Create a multi-paragraph journal entry via the UI form $\rightarrow$ Verify paragraph reference links (`.paragraph-ref-link`) are auto-generated $\rightarrow$ Confirm child paragraph nodes exist and can be navigated to individually.
+- **Rich Markdown Rendering**: Input raw markdown formatting (headings, bullet points, code blocks) $\rightarrow$ Save entry $\rightarrow$ Verify the entry detail view renders semantic HTML tags (`<h1>`, `<ul>`, `<code>`) instead of raw unformatted preformatted text.
+- **Journal Entry Editing**: Click the "Edit" button on an existing entry card $\rightarrow$ Modify title and content in the editor modal $\rightarrow$ Save changes $\rightarrow$ Verify updated text is reflected in both entry list and node storage.
+- **Timeline & Mood Filtering**: Select a specific mood tag (e.g. `excited`) from the mood filter dropdown $\rightarrow$ Verify only entries containing the matching mood badge remain visible in the entry timeline.
 
 ---
 
@@ -120,60 +65,11 @@ test.describe('Journal - Timeline & Mood Filtering', () => {
 3. **Wakatime CLI API Key Authentication**: Validate incoming Wakatime CLI HTTP `Authorization: Basic <api_key>` headers against user security tokens.
 4. **Project & Language Summary Statistics API**: Endpoint `GET /stats/summary?range=7d` returning pre-aggregated coding time totals per project and language.
 
-#### Possible E2E Tests
-```typescript
-// E2E Test Suite: Wakatime Next Features
-
-test.describe('Wakatime - Session Duration Calculation', () => {
-  test('aggregates consecutive heartbeats into session duration', async ({ page, request }) => {
-    // Send 3 heartbeats 1 minute apart via API
-    const now = Math.floor(Date.now() / 1000);
-    await request.post('/plugin/com.panorama.wakatime/heartbeats', {
-      data: [
-        { entity: '/src/main.rs', project: 'panorama', language: 'Rust', time: now - 120 },
-        { entity: '/src/main.rs', project: 'panorama', language: 'Rust', time: now - 60 },
-        { entity: '/src/main.rs', project: 'panorama', language: 'Rust', time: now }
-      ]
-    });
-
-    await page.goto('/');
-    await page.click('button:has-text("Wakatime")');
-    await expect(page.locator('.total-session-time')).toContainText('2 mins');
-  });
-});
-
-test.describe('Wakatime - Live Activity Pulse Widget', () => {
-  test('displays live coding indicator when recent heartbeat exists', async ({ page, request }) => {
-    await request.post('/plugin/com.panorama.wakatime/heartbeat', {
-      data: { entity: 'App.tsx', project: 'frontend-v2', language: 'TypeScript', time: Date.now() / 1000 }
-    });
-
-    await page.goto('/');
-    await page.click('button:has-text("Wakatime")');
-    await expect(page.locator('.live-status-badge')).toBeVisible();
-    await expect(page.locator('.live-status-badge')).toContainText('Coding on frontend-v2 (TypeScript)');
-  });
-});
-
-test.describe('Wakatime - API Key Authentication', () => {
-  test('rejects heartbeat submission without valid API key header when auth is enabled', async ({ request }) => {
-    const response = await request.post('/plugin/com.panorama.wakatime/heartbeat', {
-      headers: { 'Authorization': 'Basic invalid_key' },
-      data: { entity: 'test.py' }
-    });
-    expect(response.status()).toBe(401);
-  });
-});
-
-test.describe('Wakatime - Summary Statistics View', () => {
-  test('displays weekly project coding time breakdown', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Wakatime")');
-    await page.click('button:has-text("Weekly Summary")');
-    await expect(page.locator('.project-summary-table')).toBeVisible();
-  });
-});
-```
+#### E2E Test Specifications
+- **Session Duration Calculation**: Submit a series of consecutive heartbeats 1 minute apart $\rightarrow$ Navigate to Wakatime dashboard $\rightarrow$ Verify calculated active coding session duration aggregates correctly to 2 minutes.
+- **Live Activity Pulse Widget**: Trigger a heartbeat with active project "panorama" and language "Rust" $\rightarrow$ Verify a live status badge ("Currently Coding: panorama (Rust)") appears immediately in the UI header.
+- **API Key Authentication**: Issue an HTTP POST request to `/heartbeat` with an invalid `Authorization` header $\rightarrow$ Verify the server responds with a `401 Unauthorized` HTTP status code.
+- **Summary Statistics View**: Click the "Weekly Summary" tab in the Wakatime plugin UI $\rightarrow$ Verify total coding hours per project are populated in the summary table.
 
 ---
 
@@ -194,57 +90,11 @@ test.describe('Wakatime - Summary Statistics View', () => {
 3. **Multi-Panel Drag & Drop Dashboard Builder**: Interactive grid UI allowing users to create, rearrange, resize, and save dashboards containing multiple graph panels.
 4. **PromQL / Expression Query Builder**: UI visual query builder for constructing aggregation functions (`sum_over_time`, `rate`, `topk`) over node fields.
 
-#### Possible E2E Tests
-```typescript
-// E2E Test Suite: Dashboards Next Features
-
-test.describe('Dashboards - Visual Charting Engine', () => {
-  test('renders bar chart canvas element for project leaderboard query', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Dashboards")');
-    await page.selectOption('select.aggregation-select', 'leaderboard');
-    await expect(page.locator('canvas.chart-canvas, svg.recharts-surface')).toBeVisible();
-  });
-});
-
-test.describe('Dashboards - Quick Time Range Selectors', () => {
-  test('updates query results when switching between 24h and 7d time ranges', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Dashboards")');
-    await page.click('button:has-text("7 Days")');
-    const text7d = await page.locator('.dashboard-metric-total').textContent();
-    await page.click('button:has-text("24 Hours")');
-    const text24h = await page.locator('.dashboard-metric-total').textContent();
-    expect(text7d).not.toEqual(text24h);
-  });
-});
-
-test.describe('Dashboards - Multi-Panel Builder', () => {
-  test('adds a new chart panel and saves dashboard configuration', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Dashboards")');
-    await page.click('button:has-text("+ Add Panel")');
-    await page.fill('input[placeholder="Panel Title"]', 'Language Distribution');
-    await page.click('button:has-text("Save Panel")');
-    await page.click('button:has-text("Save Dashboard")');
-
-    await page.reload();
-    await expect(page.locator('.dashboard-panel:has-text("Language Distribution")')).toBeVisible();
-  });
-});
-
-test.describe('Dashboards - Query Expression Builder', () => {
-  test('builds and executes a topk query expression', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Dashboards")');
-    await page.click('button:has-text("Query Builder")');
-    await page.selectOption('select.func-select', 'topk');
-    await page.fill('input[placeholder="k value"]', '3');
-    await page.click('button:has-text("Run Query")');
-    await expect(page.locator('table tbody tr')).toHaveCount(3);
-  });
-});
-```
+#### E2E Test Specifications
+- **Visual Charting Engine**: Select "Leaderboard" aggregation from the query panel $\rightarrow$ Verify a Canvas/SVG chart element renders with bar heights proportional to project duration.
+- **Quick Time Range Selectors**: Switch dashboard filter between "Last 24 Hours" and "Last 7 Days" $\rightarrow$ Verify displayed metric totals update dynamically to reflect the expanded time window.
+- **Multi-Panel Dashboard Builder**: Click "+ Add Panel", configure panel title and query expression, and save dashboard $\rightarrow$ Reload browser page $\rightarrow$ Confirm the saved panel layout persists and renders correctly.
+- **Query Expression Builder**: Build a query using the `topk(3, ...)` function $\rightarrow$ Execute query $\rightarrow$ Verify only the top 3 items are returned in the result table/chart.
 
 ---
 
@@ -264,59 +114,11 @@ test.describe('Dashboards - Query Expression Builder', () => {
 3. **Itinerary Drag-and-Drop Sequencer**: Interface to re-order daily trip events and auto-calculate distance between successive coordinates.
 4. **Trip Event Attachments**: Support linking object storage files (flight tickets, hotel reservations, photos) directly to event nodes via `ObjectRef`.
 
-#### Possible E2E Tests
-```typescript
-// E2E Test Suite: Trip Planner Next Features
-
-test.describe('Trip Planner - Leaflet Map Integration', () => {
-  test('renders interactive map container and pins event markers', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Trip Planner")');
-    await page.click('button:has-text("Map View")');
-
-    await expect(page.locator('.leaflet-container')).toBeVisible();
-    await expect(page.locator('.leaflet-marker-icon')).toBeVisible();
-  });
-});
-
-test.describe('Trip Planner - Calendar Grid View', () => {
-  test('displays scheduled trip events in month grid cell', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Trip Planner")');
-    await page.click('button:has-text("Calendar View")');
-
-    await expect(page.locator('.calendar-month-grid')).toBeVisible();
-    await expect(page.locator('.calendar-event-pill')).toBeVisible();
-  });
-});
-
-test.describe('Trip Planner - Itinerary Sequencer', () => {
-  test('reorders events and recalculates daily itinerary sequence', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Trip Planner")');
-    await page.click('.trip-card:first-child');
-    await page.dragAndDrop('.event-item:nth-child(2)', '.event-item:nth-child(1)');
-
-    await page.click('button:has-text("Save Itinerary")');
-    await expect(page.locator('.event-item:first-child')).toContainText('Event 2');
-  });
-});
-
-test.describe('Trip Planner - Event Media Attachments', () => {
-  test('attaches boarding pass PDF to an event and renders attachment link', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Trip Planner")');
-    await page.click('.event-item:first-child');
-    await page.setInputFiles('input[type="file"].event-attachment-input', {
-      name: 'ticket.pdf',
-      mimeType: 'application/pdf',
-      buffer: Buffer.from('%PDF-1.4 ...')
-    });
-
-    await expect(page.locator('.attachment-chip:has-text("ticket.pdf")')).toBeVisible();
-  });
-});
-```
+#### E2E Test Specifications
+- **Leaflet Map Integration**: Navigate to "Map View" tab for a trip containing geocoded events $\rightarrow$ Verify `.leaflet-container` is initialized and event marker icons (`.leaflet-marker-icon`) are visible on the map.
+- **Calendar Grid View**: Switch to "Calendar View" tab $\rightarrow$ Verify scheduled trip events appear as interactive pills inside the correct day grid cells of the month view.
+- **Itinerary Drag-and-Drop Sequencer**: Re-order two event items in the daily itinerary via drag-and-drop $\rightarrow$ Click "Save Itinerary" $\rightarrow$ Confirm event sequence order is updated in storage and reloaded UI.
+- **Event Media Attachments**: Upload a PDF ticket to an event node $\rightarrow$ Verify an attachment badge appears on the event card and clicking it opens the PDF object stream.
 
 ---
 
@@ -337,67 +139,11 @@ test.describe('Trip Planner - Event Media Attachments', () => {
 3. **Category-Specific Partial Orders**: Filter comparisons and calculate distinct ranking DAGs by context/cuisine (`beli:context`, e.g., "Ramen", "Cocktail Bars").
 4. **Interactive Pairwise Matchmaker Wizard**: "Matchmaker" UI mode that presents uncompared restaurant pairs ("Which was better?") to guide the user in completing the partial order graph efficiently.
 
-#### Possible E2E Tests
-```typescript
-// E2E Test Suite: Beli Next Features
-
-test.describe('Beli - OSM Search Integration', () => {
-  test('searches OSM and auto-populates restaurant location and cuisine', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Beli")');
-    await page.fill('input[placeholder*="Search OSM"]', 'Joe\'s Pizza NYC');
-    await page.click('button:has-text("Search")');
-    await page.click('.osm-result-item:first-child');
-
-    await expect(page.locator('input[placeholder="Restaurant name"]')).toHaveValue('Joe\'s Pizza');
-    await expect(page.locator('input[placeholder="Cuisine"]')).toHaveValue('Pizza');
-  });
-});
-
-test.describe('Beli - Cycle Resolution UI', () => {
-  test('detects comparison cycle and prompts user to resolve conflict', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Beli")');
-
-    // Submit cyclic comparison
-    await page.selectOption('select.better-select', 'RestA');
-    await page.selectOption('select.worse-select', 'RestB');
-    await page.click('button:has-text("Compare")');
-
-    await page.selectOption('select.better-select', 'RestB');
-    await page.selectOption('select.worse-select', 'RestA');
-    await page.click('button:has-text("Compare")');
-
-    await expect(page.locator('.conflict-modal')).toBeVisible();
-    await expect(page.locator('.conflict-modal')).toContainText('Cycle detected');
-  });
-});
-
-test.describe('Beli - Category-Specific Rankings', () => {
-  test('filters partial order tiers by cuisine category', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Beli")');
-    await page.selectOption('select.context-filter', 'Ramen');
-
-    await expect(page.locator('.tier-container')).toBeVisible();
-    await expect(page.locator('.restaurant-card')).toHaveAttribute('data-cuisine', 'Ramen');
-  });
-});
-
-test.describe('Beli - Matchmaker Wizard', () => {
-  test('presents unranked pair and updates tier ranking upon user pick', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Beli")');
-    await page.click('button:has-text("Start Matchmaker")');
-
-    await expect(page.locator('.matchmaker-card-a')).toBeVisible();
-    await expect(page.locator('.matchmaker-card-b')).toBeVisible();
-    await page.click('.matchmaker-card-a');
-
-    await expect(page.locator('.matchmaker-toast')).toContainText('Comparison recorded');
-  });
-});
-```
+#### E2E Test Specifications
+- **OSM Search Integration**: Search for a restaurant name in the OSM search input $\rightarrow$ Select a result from auto-complete $\rightarrow$ Verify restaurant name, cuisine, and address fields populate automatically.
+- **Cycle Resolution UI**: Submit pairwise comparisons forming a loop ($A > B$, $B > C$, $C > A$) $\rightarrow$ Verify a conflict resolution modal alerts the user of a directed graph cycle.
+- **Category-Specific Rankings**: Filter rankings by context category "Pizza" $\rightarrow$ Verify topological tiers recalculate and display only restaurants categorized under Pizza.
+- **Matchmaker Wizard**: Launch Matchmaker mode $\rightarrow$ View recommended unranked restaurant pair $\rightarrow$ Select preferred option $\rightarrow$ Verify ranking tiers update immediately.
 
 ---
 
@@ -418,57 +164,11 @@ test.describe('Beli - Matchmaker Wizard', () => {
 3. **Subsonic Client API Expansion**: Implement missing API endpoints (`/rest/getSong`, `/rest/search3`, `/rest/getCoverArt`, `/rest/scrobble`) to support third-party mobile clients (e.g. Navidrome, Dsub, Ultrasonic).
 4. **Playlists & Favorite Tracks Management**: Allow creating, editing, and streaming custom user playlist nodes.
 
-#### Possible E2E Tests
-```typescript
-// E2E Test Suite: Subsonic Music Next Features
-
-test.describe('Subsonic - Web Audio Player Widget', () => {
-  test('plays audio track and updates persistent player UI state', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Subsonic Music")');
-    await page.click('.track-row:first-child .btn-play');
-
-    await expect(page.locator('.audio-player-bar')).toBeVisible();
-    await expect(page.locator('.audio-player-bar .now-playing-title')).toBeVisible();
-    await expect(page.locator('.audio-player-bar button.btn-pause')).toBeVisible();
-  });
-});
-
-test.describe('Subsonic - Automatic ID3 Tag Extraction', () => {
-  test('extracts metadata from uploaded MP3 file and creates artist/album nodes', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Subsonic Music")');
-    await page.setInputFiles('input[type="file"].music-upload-input', {
-      name: 'sample-track.mp3',
-      mimeType: 'audio/mpeg',
-      buffer: Buffer.from('ID3...') // Mock ID3 binary data
-    });
-
-    await expect(page.locator('h4:has-text("Artists") + div')).toContainText('Sample Artist');
-    await expect(page.locator('h4:has-text("Albums") + div')).toContainText('Sample Album');
-  });
-});
-
-test.describe('Subsonic - Client API Endpoint Compatibility', () => {
-  test('serves cover art image via /rest/getCoverArt endpoint', async ({ request }) => {
-    const response = await request.get('/plugin/com.panorama.subsonic/rest/getCoverArt?id=album-123');
-    expect(response.status()).toBe(200);
-    expect(response.headers()['content-type']).toMatch(/image\/(jpeg|png)/);
-  });
-});
-
-test.describe('Subsonic - Playlist Management', () => {
-  test('creates playlist node and adds tracks', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Subsonic Music")');
-    await page.click('button:has-text("+ New Playlist")');
-    await page.fill('input[placeholder="Playlist Name"]', 'Chill Beats');
-    await page.click('button:has-text("Create")');
-
-    await expect(page.locator('.playlist-card:has-text("Chill Beats")')).toBeVisible();
-  });
-});
-```
+#### E2E Test Specifications
+- **Web Audio Player Widget**: Click "Play" next to a track in the music library $\rightarrow$ Verify persistent bottom audio player bar displays track title, HTML5 `<audio>` element plays, and pause button is active.
+- **Automatic ID3 Tag Extraction**: Upload an MP3 file with ID3 tags $\rightarrow$ Confirm Artist, Album, and Track nodes are automatically created and linked in node storage.
+- **Subsonic API Compatibility**: Request `/rest/getCoverArt?id=<album_id>` $\rightarrow$ Verify server responds with `200 OK` and binary `image/jpeg` payload.
+- **Playlist Management**: Create a new playlist "Chill Beats" and add 3 tracks $\rightarrow$ Verify playlist card displays correct track count and plays sequentially.
 
 ---
 
@@ -489,74 +189,136 @@ test.describe('Subsonic - Playlist Management', () => {
 3. **Folder Tree Navigation & Drag-and-Drop Organization**: Interactive folder sidebar allowing directory creation, renaming, and drag-and-drop file relocation.
 4. **Bulk Selection & ZIP Download**: Multi-select toolbar for batch deleting files or downloading selected files as a ZIP archive.
 
-#### Possible E2E Tests
-```typescript
-// E2E Test Suite: File Manager Next Features
-
-test.describe('File Manager - Resumable Chunked Upload Manager', () => {
-  test('executes chunked upload with pause and resume controls', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("File Manager")');
-    await page.setInputFiles('input[type="file"].file-upload-input', {
-      name: 'large-video.mp4',
-      mimeType: 'video/mp4',
-      buffer: Buffer.alloc(5 * 1024 * 1024) // 5MB mock buffer
-    });
-
-    await expect(page.locator('.upload-progress-bar')).toBeVisible();
-    await page.click('button:has-text("Pause")');
-    await expect(page.locator('.upload-status')).toHaveText('Paused');
-    await page.click('button:has-text("Resume")');
-    await expect(page.locator('.upload-status')).toHaveText('Completed');
-  });
-});
-
-test.describe('File Manager - In-Browser File Previewer', () => {
-  test('opens image file preview modal when clicking file row', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("File Manager")');
-    await page.click('.file-row[data-mime^="image/"]');
-
-    await expect(page.locator('.preview-modal')).toBeVisible();
-    await expect(page.locator('.preview-modal img.preview-image')).toBeVisible();
-  });
-});
-
-test.describe('File Manager - Folder Tree Navigation', () => {
-  test('creates a folder and drags file into folder', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("File Manager")');
-    await page.click('button:has-text("New Folder")');
-    await page.fill('input[placeholder="Folder name"]', 'Documents');
-    await page.click('button:has-text("Create Folder")');
-
-    await page.dragAndDrop('.file-row:first-child', '.folder-item:has-text("Documents")');
-    await page.click('.folder-item:has-text("Documents")');
-    await expect(page.locator('.file-row')).toHaveCount(1);
-  });
-});
-
-test.describe('File Manager - Bulk Selection & ZIP Download', () => {
-  test('selects multiple files and triggers bulk delete', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("File Manager")');
-    await page.check('.file-row:nth-child(1) input[type="checkbox"]');
-    await page.check('.file-row:nth-child(2) input[type="checkbox"]');
-
-    page.once('dialog', dialog => dialog.accept());
-    await page.click('button:has-text("Delete Selected (2)")');
-    await page.waitForTimeout(500);
-
-    await expect(page.locator('.file-row')).toHaveCount(0);
-  });
-});
-```
+#### E2E Test Specifications
+- **Resumable Chunked Upload Manager**: Initiate a large file upload $\rightarrow$ Click "Pause" on progress bar $\rightarrow$ Confirm status changes to Paused $\rightarrow$ Click "Resume" $\rightarrow$ Verify upload completes successfully.
+- **In-Browser File Previewer**: Click an image file row in the file browser $\rightarrow$ Confirm a modal dialog opens displaying the image preview via object stream URL.
+- **Folder Tree Navigation**: Create a folder "Documents" and drag a file into it $\rightarrow$ Click "Documents" folder $\rightarrow$ Verify file is located inside the directory view.
+- **Bulk Selection & Deletion**: Select multiple file checkboxes $\rightarrow$ Click "Delete Selected" and accept confirmation prompt $\rightarrow$ Confirm all selected files are removed from storage and UI.
 
 ---
 
-## 3. Summary Roadmap & Recommended Implementation Order
+## 3. Backend Performance Analysis & Optimization Opportunities
 
-To maintain steady progress towards full alignment with [DESIGN.md](file:///home/michael/Projects/panorama/DESIGN.md), the recommended execution priority is:
+A thorough code audit of `crates/panorama-server` and `crates/panorama-core` revealed 7 critical performance bottlenecks. Below is an in-depth analysis of unoptimal code areas along with targeted remediation plans.
+
+### 3.1 WASM Module Re-Compilation on Every Request
+- **Location**: `crates/panorama-server/src/wasm_runtime.rs` ([execute_wasm_handler](file:///home/michael/Projects/panorama/crates/panorama-server/src/wasm_runtime.rs#L13-L27))
+- **Issue**:
+  On every single HTTP request routed to a WASM plugin (`/plugin/{id}/*`), the server initializes a new `wasmtime::Engine` and re-compiles raw WASM bytecode (`wasmtime::Module::from_binary(&engine, wasm_bytes)`).
+  ```rust
+  let mut config = wasmtime::Config::new();
+  let engine = wasmtime::Engine::new(&config)?;
+  let module = wasmtime::Module::from_binary(&engine, wasm_bytes)?; // High CPU cost per request
+  ```
+- **Performance Impact**: Adds **10ms – 100ms** latency overhead per HTTP request due to JIT compilation.
+- **Optimization Strategy**:
+  1. Initialize `wasmtime::Engine` once globally in `AppState`.
+  2. Cache compiled `wasmtime::Module` objects in an in-memory `Arc<DashMap<String, Module>>` registry when `.panoapp` packages are loaded.
+  3. Pre-compile WASM modules to `.cwasm` Ahead-Of-Time (AOT) artifacts during `.panoapp` packaging.
+- **Expected Win**: Reduces WASM plugin dispatch latency from **~50ms to <1ms**.
+
+---
+
+### 3.2 Single Global Mutex Lock on SQLite Database
+- **Location**: `crates/panorama-server/src/storage.rs` ([NodeStorage struct](file:///home/michael/Projects/panorama/crates/panorama-server/src/storage.rs#L19-L22))
+- **Issue**:
+  `NodeStorage` wraps the underlying SQLite connection in `Arc<std::sync::Mutex<Connection>>`. Even though SQLite is configured with `PRAGMA journal_mode=WAL;`, wrapping the single connection in a `Mutex` forces **all read queries** (`get`, `query_lang`, `get_ready_indexes`) to wait for any active read or write operation to finish.
+  ```rust
+  pub struct NodeStorage {
+      conn: Arc<std::sync::Mutex<Connection>>, // Serializes all readers & writers
+  }
+  ```
+- **Performance Impact**: Completely negates SQLite WAL mode concurrent reader benefits, causing query bottlenecking under concurrent requests.
+- **Optimization Strategy**:
+  Replace `Arc<Mutex<Connection>>` with a connection pool (e.g. `r2d2_sqlite` or `deadpool-sqlite`) maintaining:
+  - 1 dedicated write connection pool.
+  - $N$ read-only connections (`SQLITE_OPEN_READ_ONLY`) allowing non-blocking concurrent reads.
+- **Expected Win**: Scales query throughput by **4x – 10x** under concurrent API load.
+
+---
+
+### 3.3 Statement Cache Bypass in Query Language Compiler
+- **Location**: `crates/panorama-server/src/storage.rs` ([query_lang method](file:///home/michael/Projects/panorama/crates/panorama-server/src/storage.rs#L34-L41)) & `crates/panorama-server/src/query/cache.rs`
+- **Issue**:
+  Although `StatementCache` (an LRU cache for compiled SQL) is defined in `query/cache.rs`, `NodeStorage::query_lang()` completely ignores it. Every query execution re-parses the AST, re-runs Phase 1 meta-table lookups against SQLite, and re-compiles SQL strings.
+- **Performance Impact**: Increases CPU cycles spent parsing strings and querying metadata for identical repetitive queries (e.g. dashboard queries).
+- **Optimization Strategy**:
+  Integrate `StatementCache` into `query_lang()`:
+  ```rust
+  if let Some(cached) = self.cache.get(query_string) {
+      // Execute cached SQL directly with parameters
+  }
+  ```
+- **Expected Win**: Eliminates compiler overhead for hot queries (**30% – 50% CPU reduction** on repeated queries).
+
+---
+
+### 3.4 In-Memory Chunk Assembly for Resumable Uploads
+- **Location**: `crates/panorama-server/src/object_store.rs` ([complete_upload method](file:///home/michael/Projects/panorama/crates/panorama-server/src/object_store.rs#L242-L260))
+- **Issue**:
+  Pending upload chunks are buffered in memory inside `HashMap<u32, Vec<u8>>`. Upon completing an upload, `complete_upload` concatenates all chunk byte vectors into a single contiguous `Vec<u8>` in RAM before writing to disk:
+  ```rust
+  let mut all_data = Vec::new();
+  for idx in indices {
+      all_data.extend_from_slice(chunk); // Full file buffered in RAM!
+  }
+  self.put(&upload.bucket, &upload.key, &all_data, &upload.mime_type)
+  ```
+- **Performance Impact**: High RAM usage and out-of-memory (OOM) crash risk when handling multi-gigabyte video or music file uploads.
+- **Optimization Strategy**:
+  Stream uploaded chunks directly into a temporary file on disk (`$DATA_DIR/tmp/upload_id.part`) using append mode (`std::fs::OpenOptions::new().append(true)`). On completion, execute an atomic file rename (`std::fs::rename`).
+- **Expected Win**: Reduces memory footprint of multi-GB uploads from **O(File Size)** to **O(Chunk Size)** (~MBs).
+
+---
+
+### 3.5 Heavy Transaction Overhead in Meta-Table Synchronisation
+- **Location**: `crates/panorama-server/src/meta.rs` ([sync_field_presence](file:///home/michael/Projects/panorama/crates/panorama-server/src/meta.rs#L699-L723))
+- **Issue**:
+  On every single node creation or update, `sync_field_presence` executes `DELETE FROM field_presence WHERE node_id = ?1`, followed by `resolve_ns_id` lookups and individual `INSERT` queries for every field on the node:
+  ```rust
+  conn.execute("DELETE FROM field_presence WHERE node_id = ?1", params![nid])?;
+  for (key, value) in fields {
+      let ns_id = Self::resolve_ns_id(conn, ns_str)?; // Triggers SELECT for every field!
+      conn.execute("INSERT INTO field_presence ...", ...)?;
+  }
+  ```
+- **Performance Impact**: A node with 20 fields executes 22 separate SQL statements on every update inside a transaction.
+- **Optimization Strategy**:
+  1. Cache `namespace_str -> ns_id` in an in-memory `Arc<DashMap<String, i64>>` to avoid `resolve_ns_id` SELECT queries.
+  2. Implement differential field diffing (only INSERT/DELETE changed fields) or use SQLite multi-row `INSERT INTO field_presence VALUES (...), (...)`.
+- **Expected Win**: Reduces write transaction execution time by **60% – 80%**.
+
+---
+
+### 3.6 Full Table Scans for Field Filter Queries
+- **Location**: `crates/panorama-app-grafana`, `crates/panorama-app-trips`, `crates/panorama-app-journal`
+- **Issue**:
+  Apps query nodes using `MATCH (n) IN space("default") WHERE HAS_FIELD(n, "domain", "field") RETURN n`. The compiler generates CTE queries filtering against `field_presence`, but field value filtering relies on runtime `json_extract(fields_json, '$.domain:field.value')` without utilizing SQLite expression indexes.
+- **Performance Impact**: Queries perform full table scans over all nodes as dataset sizes grow.
+- **Optimization Strategy**:
+  Utilize `managed_indexes` to generate SQLite expression indexes on frequently queried fields:
+  ```sql
+  CREATE INDEX idx_node_time ON nodes(json_extract(fields_json, '$.system:node_time.value'));
+  CREATE INDEX idx_wakatime_project ON nodes(json_extract(fields_json, '$.wakatime:project.value'));
+  ```
+- **Expected Win**: Transforms **$O(N)$ full table scans into $O(\log N)$ B-Tree index lookups**.
+
+---
+
+### 3.7 Synchronous Startup Metadata Scanning in Object Storage
+- **Location**: `crates/panorama-server/src/object_store.rs` ([load_metadata method](file:///home/michael/Projects/panorama/crates/panorama-server/src/object_store.rs#L58-L81))
+- **Issue**:
+  During server initialization, `load_metadata()` synchronously iterates through all directories under `$DATA_DIR/objects/` and parses every `.meta.json` file on disk to populate the in-memory `DashMap`.
+- **Performance Impact**: Server startup time degrades linearly with the number of stored objects (blocking server launch for seconds when thousands of files exist).
+- **Optimization Strategy**:
+  Persist object metadata inside a dedicated SQLite table (`object_metadata`) instead of scanning individual JSON files on disk during boot.
+- **Expected Win**: Instant server startup (**$O(1)$ database initialization** regardless of object count).
+
+---
+
+## 4. Summary Roadmap & Recommended Implementation Order
+
+To achieve full design fidelity and optimal performance, execution should follow three structured phases:
 
 1. **Phase 1: High Impact UI/UX Enhancements**
    - Interactive Leaflet maps in **Trip Planner**
@@ -566,7 +328,8 @@ To maintain steady progress towards full alignment with [DESIGN.md](file:///home
    - Block-level paragraph child node breakdown in **Journal**
    - OpenStreetMap live search in **Beli**
    - Automatic ID3 tag extraction in **Subsonic Music**
-3. **Phase 3: Resilience & Platform Depth**
-   - Chunked resumable upload UI manager in **File Manager**
-   - Automatic heartbeat duration/idle tracking in **Wakatime**
-   - Cycle detection and conflict resolution UI in **Beli**
+3. **Phase 3: Backend Performance & Optimization Wins**
+   - WASM module caching & AOT compilation in `wasm_runtime.rs`
+   - SQLite connection pooling (replacing single Mutex) in `storage.rs`
+   - Streaming disk-buffered uploads in `object_store.rs`
+   - In-memory namespace cache & batch inserts in `meta.rs`

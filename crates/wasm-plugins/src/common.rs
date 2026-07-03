@@ -6,8 +6,10 @@ use std::io::Read;
 #[link(wasm_import_module = "env")]
 extern "C" {
     fn host_query(query_ptr: i32, query_len: i32, result_ptr: i32) -> i32;
-    fn host_create_node(fields_ptr: i32, fields_len: i32);
+    fn host_create_node(fields_ptr: i32, fields_len: i32, result_ptr: i32) -> i32;
     fn host_delete_node(id_ptr: i32, id_len: i32);
+    fn host_update_node(id_ptr: i32, id_len: i32, fields_ptr: i32, fields_len: i32);
+    fn host_get_node(id_ptr: i32, id_len: i32, result_ptr: i32) -> i32;
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -106,11 +108,15 @@ pub fn host_run_query(qs: &str) -> Vec<serde_json::Value> {
     }
 }
 
-/// Create a node on the host.
-pub fn host_create(fields: &HashMap<String, serde_json::Value>) {
+/// Create a node on the host. Returns the created node's UUID string.
+pub fn host_create(fields: &HashMap<String, serde_json::Value>) -> Option<String> {
     unsafe {
         let json = serde_json::to_string(fields).unwrap_or_default();
-        host_create_node(json.as_ptr() as i32, json.len() as i32);
+        let mut buf = vec![0u8; 128];
+        let result_len = host_create_node(json.as_ptr() as i32, json.len() as i32, buf.as_mut_ptr() as i32);
+        if result_len <= 0 { return None; }
+        let len = (result_len as usize).min(buf.len());
+        Some(String::from_utf8_lossy(&buf[..len]).to_string())
     }
 }
 
@@ -118,5 +124,32 @@ pub fn host_create(fields: &HashMap<String, serde_json::Value>) {
 pub fn host_delete(id: &str) {
     unsafe {
         host_delete_node(id.as_ptr() as i32, id.len() as i32);
+    }
+}
+
+/// Update a node's fields.
+pub fn host_update(id: &str, fields: &HashMap<String, serde_json::Value>) {
+    unsafe {
+        let id_bytes = id.as_bytes();
+        let json = serde_json::to_string(fields).unwrap_or_default();
+        host_update_node(
+            id_bytes.as_ptr() as i32, id_bytes.len() as i32,
+            json.as_ptr() as i32, json.len() as i32,
+        );
+    }
+}
+
+/// Get a node by ID. Returns JSON value.
+pub fn host_get(id: &str) -> Option<serde_json::Value> {
+    unsafe {
+        let id_bytes = id.as_bytes();
+        let mut buf = vec![0u8; 65536];
+        let result_len = host_get_node(
+            id_bytes.as_ptr() as i32, id_bytes.len() as i32,
+            buf.as_mut_ptr() as i32,
+        );
+        if result_len <= 0 { return None; }
+        let len = (result_len as usize).min(buf.len());
+        serde_json::from_slice(&buf[..len]).ok()
     }
 }

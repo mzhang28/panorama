@@ -95,26 +95,37 @@ pub async fn execute_wasm_handler(
 
     let s2 = storage.clone();
     linker.func_wrap("env", "host_create_node",
-        move |mut caller: wasmtime::Caller<'_, WasiCtx>, ptr: i32, len: i32| {
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, ptr: i32, len: i32, r_ptr: i32| -> i32 {
             let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
                 Some(m) => m,
-                None => return,
+                None => return 0,
             };
             let data = mem.data(&caller);
             let start = ptr as usize;
             let end = start.saturating_add(len as usize);
-            if end > data.len() {
-                return;
-            }
+            if end > data.len() { return 0; }
             let json = match std::str::from_utf8(&data[start..end]) {
                 Ok(s) => s,
-                Err(_) => return,
+                Err(_) => return 0,
             };
-            if let Ok(fields) = serde_json::from_str::<HashMap<String, panorama_core::types::FieldValue>>(json) {
+            let id = if let Ok(fields) = serde_json::from_str::<HashMap<String, panorama_core::types::FieldValue>>(json) {
                 let mut node = panorama_core::types::Node::new(Uuid::nil());
                 for (k, v) in fields { node.set_field(&k, v); }
-                let _ = s2.create(node);
-            }
+                let node_id = node.id;
+                match s2.create(node) {
+                    Ok(_) => node_id.to_string(),
+                    Err(_) => return 0,
+                }
+            } else {
+                return 0;
+            };
+            let id_bytes = id.as_bytes();
+            let data_mut = mem.data_mut(&mut caller);
+            let r_start = r_ptr as usize;
+            if r_start >= data_mut.len() { return 0; }
+            let write_len = id_bytes.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + write_len].copy_from_slice(&id_bytes[..write_len]);
+            write_len as i32
         }
     ).map_err(|e| PluginError::internal(format!("link host_create_node: {}", e)))?;
 
@@ -128,9 +139,7 @@ pub async fn execute_wasm_handler(
             let data = mem.data(&caller);
             let start = ptr as usize;
             let end = start.saturating_add(len as usize);
-            if end > data.len() {
-                return;
-            }
+            if end > data.len() { return; }
             let id_str = match std::str::from_utf8(&data[start..end]) {
                 Ok(s) => s,
                 Err(_) => return,
@@ -138,6 +147,65 @@ pub async fn execute_wasm_handler(
             if let Ok(id) = Uuid::parse_str(id_str) { let _ = s3.delete(&id); }
         }
     ).map_err(|e| PluginError::internal(format!("link host_delete_node: {}", e)))?;
+
+    let s4 = storage.clone();
+    linker.func_wrap("env", "host_update_node",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, id_ptr: i32, id_len: i32, f_ptr: i32, f_len: i32| {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m,
+                None => return,
+            };
+            let data = mem.data(&caller);
+            let id_start = id_ptr as usize;
+            let id_end = id_start.saturating_add(id_len as usize);
+            if id_end > data.len() { return; }
+            let id_str = match std::str::from_utf8(&data[id_start..id_end]) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let id = match Uuid::parse_str(id_str) { Ok(id) => id, Err(_) => return };
+            let f_start = f_ptr as usize;
+            let f_end = f_start.saturating_add(f_len as usize);
+            if f_end > data.len() { return; }
+            let json = match std::str::from_utf8(&data[f_start..f_end]) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            if let Ok(fields) = serde_json::from_str::<HashMap<String, panorama_core::types::FieldValue>>(json) {
+                let _ = s4.update(&id, fields);
+            }
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_update_node: {}", e)))?;
+
+    let s5 = storage.clone();
+    linker.func_wrap("env", "host_get_node",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, id_ptr: i32, id_len: i32, r_ptr: i32| -> i32 {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m,
+                None => return 0,
+            };
+            let data = mem.data(&caller);
+            let id_start = id_ptr as usize;
+            let id_end = id_start.saturating_add(id_len as usize);
+            if id_end > data.len() { return 0; }
+            let id_str = match std::str::from_utf8(&data[id_start..id_end]) {
+                Ok(s) => s,
+                Err(_) => return 0,
+            };
+            let id = match Uuid::parse_str(id_str) { Ok(id) => id, Err(_) => return 0 };
+            let node = match s5.get(&id) {
+                Some(n) => n,
+                None => return 0,
+            };
+            let json = serde_json::to_vec(&node).unwrap_or_default();
+            let data_mut = mem.data_mut(&mut caller);
+            let r_start = r_ptr as usize;
+            if r_start >= data_mut.len() { return 0; }
+            let write_len = json.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + write_len].copy_from_slice(&json[..write_len]);
+            write_len as i32
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_get_node: {}", e)))?;
 
     // ── Instantiate & run ───────────────────────────────────────────────
 
