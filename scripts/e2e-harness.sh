@@ -72,19 +72,6 @@ trap cleanup EXIT INT TERM
 # ── Build ────────────────────────────────────────────────────────────────────
 
 if $BUILD; then
-  echo "--- Building plugin UIs ---"
-  for dir in crates/panorama-app-*/ui/; do
-    if [ -f "$dir/package.json" ] && [ -f "$dir/vite.config.ts" ]; then
-      name=$(basename "$(dirname "$dir")")
-      echo "  Building UI: $name"
-      (cd "$dir" && npm ci --silent && npm run build) || {
-        echo "  ✗ UI build failed for $name" >&2
-        exit 1
-      }
-    fi
-  done
-
-  echo ""
   echo "--- Building frontend ---"
   (cd frontend && npm ci --silent && npm run build)
 
@@ -97,7 +84,7 @@ if $BUILD; then
   cargo build --release -p panorama-server
 
   echo ""
-  echo "--- Packaging .panoapp files ---"
+  echo "--- Building plugin UIs + packaging .panoapp files ---"
   bash scripts/build-panoapp.sh
 fi
 
