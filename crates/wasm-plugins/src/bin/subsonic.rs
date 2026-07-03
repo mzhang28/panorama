@@ -1,7 +1,7 @@
 mod common { include!("../common.rs"); }
 use common::*;
 use std::collections::HashMap;
-fn main() { let (input, out_path) = read_input(); let output = handle(&input); write_output(&output, &out_path); }
+fn main() { let input = read_input(); let output = handle(&input); write_output(&output); }
 fn handle(input: &WasmInput) -> WasmOutput {
     match (input.request.method.as_str(), input.endpoint.as_str()) {
         ("GET", "rest/ping") => json_ok(serde_json::json!({"subsonic-response": {"status":"ok","version":"1.16.1","type":"panorama","serverVersion":"0.1.0"}})),

@@ -1,7 +1,7 @@
 mod common { include!("../common.rs"); }
 use common::*;
 use std::collections::HashMap;
-fn main() { let (input, out_path) = read_input(); let output = handle(&input); write_output(&output, &out_path); }
+fn main() { let input = read_input(); let output = handle(&input); write_output(&output); }
 fn handle(input: &WasmInput) -> WasmOutput {
     match (input.request.method.as_str(), input.endpoint.as_str()) {
         ("POST", "restaurants") => { let body: serde_json::Value = input.request.body.as_deref().and_then(|b| serde_json::from_str(b).ok()).unwrap_or_default(); let mut fields = HashMap::new(); fields.insert("system:node_title".into(), field_value("String", body["name"].as_str().unwrap_or("Unknown"))); if let Some(v) = body["cuisine"].as_str() { fields.insert("beli:cuisine".into(), field_value("String", v)); } if let Some(v) = body["location"].as_str() { fields.insert("beli:location".into(), field_value("String", v)); } let mut out = json_ok(serde_json::json!({"created":true})); out.effects.push(create_effect(fields)); out }

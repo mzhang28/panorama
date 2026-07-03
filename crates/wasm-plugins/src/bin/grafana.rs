@@ -1,7 +1,7 @@
 mod common { include!("../common.rs"); }
 use common::*;
 use std::collections::HashMap;
-fn main() { let (input, out_path) = read_input(); let output = handle(&input); write_output(&output, &out_path); }
+fn main() { let input = read_input(); let output = handle(&input); write_output(&output); }
 fn fstr(n: &WasmNode, k: &str) -> Option<String> { n.fields.get(k)?.get("value")?.as_str().map(|s| s.to_string()) }
 fn ff64(n: &WasmNode, k: &str) -> Option<f64> { n.fields.get(k)?.get("value")?.as_f64() }
 fn handle(input: &WasmInput) -> WasmOutput {

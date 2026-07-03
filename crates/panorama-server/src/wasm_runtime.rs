@@ -106,51 +106,42 @@ pub fn execute_wasm_handler(
     let wasm_path = work_dir.join("plugin.wasm");
     std::fs::write(&wasm_path, wasm_bytes).map_err(|e| PluginError::internal(format!("wasm write: {}", e)))?;
 
-    // Write input.json
-    let input_path = work_dir.join("input.json");
-    std::fs::write(&input_path, &input_json).map_err(|e| PluginError::internal(format!("input write: {}", e)))?;
-
-    let output_path = work_dir.join("output.json");
-
-    // ── Run wasmtime CLI ──
-    let result = Command::new("wasmtime")
+    // ── Run wasmtime CLI with stdin pipe ──
+    let mut child = Command::new("wasmtime")
         .arg("run")
-        .arg("--dir=".to_string() + work_dir.to_str().unwrap_or("."))
         .arg(wasm_path.to_str().unwrap_or("plugin.wasm"))
-        .arg("--")
-        .arg("input.json")
-        .arg("output.json")
-        .current_dir(&work_dir)
-        .output();
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| PluginError::internal(format!("wasmtime spawn: {}", e)))?;
 
-    match result {
-        Ok(output) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                std::fs::remove_dir_all(&work_dir).ok();
-                return Err(PluginError::internal(format!(
-                    "WASM exited with {}: {}",
-                    output.status, stderr
-                )));
-            }
-        }
-        Err(e) => {
-            std::fs::remove_dir_all(&work_dir).ok();
-            return Err(PluginError::internal(format!("wasmtime not found: {}. Install with: cargo install wasmtime-cli", e)));
-        }
+    // Write input JSON to stdin
+    use std::io::Write;
+    if let Some(ref mut stdin) = child.stdin {
+        stdin.write_all(&input_json).ok();
+    }
+    // stdin is dropped here (closed) so WASM gets EOF
+
+    let output = child.wait_with_output()
+        .map_err(|e| PluginError::internal(format!("wasmtime wait: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        std::fs::remove_dir_all(&work_dir).ok();
+        return Err(PluginError::internal(format!("WASM error: {}", stderr)));
     }
 
-    // ── Read output ──
-    let output_bytes = std::fs::read(&output_path).map_err(|e| PluginError::internal(format!("output read: {}", e)))?;
-    let output_str = String::from_utf8_lossy(&output_bytes);
-    let output: WasmOutput = serde_json::from_str(&output_str).map_err(|e| {
-        PluginError::internal(format!("parse: {}. Raw: {}", e, &output_str[..output_str.len().min(300)]))
+    // ── Parse stdout as JSON ──
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let wasm_output: WasmOutput = serde_json::from_str(&output_str).map_err(|e| {
+        PluginError::internal(format!("WASM stdout parse: {}. Raw: {}", e, &output_str[..output_str.len().min(300)]))
     })?;
 
     std::fs::remove_dir_all(&work_dir).ok();
 
     // ── Execute effects ──
-    for effect in &output.effects {
+    for effect in &wasm_output.effects {
         match effect {
             WasmEffect::CreateNode { fields } => {
                 let mut node = Node::new(Uuid::nil());
@@ -176,5 +167,5 @@ pub fn execute_wasm_handler(
         }
     }
 
-    Ok(HttpResponse { status: output.status, headers: output.headers, body: Bytes::from(serde_json::to_string(&output.body).unwrap_or_default()) })
+    Ok(HttpResponse { status: wasm_output.status, headers: wasm_output.headers, body: Bytes::from(serde_json::to_string(&wasm_output.body).unwrap_or_default()) })
 }

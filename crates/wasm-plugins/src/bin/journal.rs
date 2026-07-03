@@ -1,7 +1,7 @@
 mod common { include!("../common.rs"); }
 use common::*;
 use std::collections::HashMap;
-fn main() { let (input, out_path) = read_input(); let output = handle(&input); write_output(&output, &out_path); }
+fn main() { let input = read_input(); let output = handle(&input); write_output(&output); }
 fn handle(input: &WasmInput) -> WasmOutput {
     match (input.request.method.as_str(), input.endpoint.as_str()) {
         ("POST", "entries") => {

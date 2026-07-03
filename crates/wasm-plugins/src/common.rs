@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Read;
 
 #[derive(Debug, Deserialize)]
 pub struct WasmInput { pub endpoint: String, pub request: WasmHttpRequest, #[serde(default)] pub nodes: Vec<WasmNode> }
@@ -14,23 +15,16 @@ pub fn not_found() -> WasmOutput { let mut h = HashMap::new(); h.insert("Content
 pub fn create_effect(fields: HashMap<String, serde_json::Value>) -> serde_json::Value { serde_json::json!({"type":"create_node","fields":fields}) }
 pub fn field_value(ty: &str, value: impl Into<serde_json::Value>) -> serde_json::Value { serde_json::json!({"type": ty, "value": value.into()}) }
 
-pub fn read_input() -> (WasmInput, String) {
-    let args: Vec<String> = std::env::args().collect();
-    let in_path = args.get(1).cloned().unwrap_or_else(|| "input.json".to_string());
-    let out_path = args.get(2).cloned().unwrap_or_else(|| "output.json".to_string());
-    // Try multiple paths since WASI mounts the work dir at /
-    let content = std::fs::read_to_string(&in_path)
-        .or_else(|_| std::fs::read_to_string(format!("/{}", in_path)))
-        .or_else(|_| std::fs::read_to_string("/input.json"))
-        .unwrap_or_else(|_| "{}".to_string());
-    let input: WasmInput = serde_json::from_str(&content).unwrap_or_else(|e| {
-        let err = format!("{{\"error\":\"parse: {}\",\"raw\":\"{}\"}}", e, &content[..content.len().min(200)]);
-        serde_json::from_str(&err).unwrap()
-    });
-    (input, out_path)
+pub fn read_input() -> WasmInput {
+    let mut buf = String::new();
+    std::io::stdin().read_to_string(&mut buf).ok();
+    serde_json::from_str(&buf).unwrap_or_else(|_| WasmInput {
+        endpoint: "error".to_string(),
+        request: WasmHttpRequest { method: "GET".to_string(), path: "/".to_string(), query_params: HashMap::new(), headers: HashMap::new(), body: Some(buf) },
+        nodes: vec![],
+    })
 }
 
-pub fn write_output(output: &WasmOutput, out_path: &str) {
-    let json = serde_json::to_string(output).unwrap_or_default();
-    std::fs::write(out_path, &json).or_else(|_| std::fs::write(format!("/{}", out_path), &json)).ok();
+pub fn write_output(output: &WasmOutput) {
+    println!("{}", serde_json::to_string(output).unwrap_or_default());
 }
