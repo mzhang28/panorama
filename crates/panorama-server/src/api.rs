@@ -431,10 +431,10 @@ fn execute_query(
 ) -> Result<serde_json::Value, (StatusCode, Json<ApiError>)> {
     let ast = panorama_core::query::parse_query(query_string)
         .map_err(|e| ApiError::bad_request(&format!("Parse error: {}", e)))?;
-    let compiled = crate::query::compiler::compile(&ast)
-        .map_err(|e| ApiError::bad_request(&format!("Compile error: {}", e)))?;
     let conn = state.storage.raw_conn()
         .map_err(|e| ApiError::internal(e))?;
+    let compiled = crate::query::compiler::compile(&ast, &conn)
+        .map_err(|e| ApiError::bad_request(&format!("Compile error: {}", e)))?;
     let mut stmt = conn.prepare(&compiled.sql)
         .map_err(|e| ApiError::bad_request(&format!("SQL prepare error: {}", e)))?;
 

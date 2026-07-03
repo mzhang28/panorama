@@ -1,5 +1,6 @@
 pub mod storage;
 pub mod schema_registry;
+pub mod meta;
 pub mod plugin_loader;
 pub mod object_store;
 pub mod api;
@@ -12,6 +13,7 @@ pub mod wasm_runtime;
 
 pub use storage::*;
 pub use schema_registry::*;
+pub use meta::*;
 pub use plugin_loader::*;
 pub use object_store::*;
 pub use api::*;

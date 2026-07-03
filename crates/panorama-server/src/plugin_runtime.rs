@@ -126,13 +126,13 @@ impl PluginContext for RuntimeContext {
         let ast = panorama_core::query::parse_query(query_string)
             .map_err(|e| PluginError::bad_request(&format!("Query parse error: {}", e)))?;
 
-        // Compile
-        let compiled = crate::query::compiler::compile(&ast)
+        // Compile (requires connection for Phase 1 meta lookup)
+        let conn = self.storage.raw_conn()
+            .map_err(|e| PluginError::internal(e))?;
+        let compiled = crate::query::compiler::compile(&ast, &conn)
             .map_err(|e| PluginError::bad_request(&format!("Query compile error: {}", e)))?;
 
         // Execute
-        let conn = self.storage.raw_conn()
-            .map_err(|e| PluginError::internal(e))?;
 
         let mut stmt = conn.prepare(&compiled.sql)
             .map_err(|e| PluginError::internal(format!("SQL prepare: {}", e)))?;
