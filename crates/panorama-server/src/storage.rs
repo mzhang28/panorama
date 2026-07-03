@@ -1,4 +1,6 @@
-//! SQLite-based node storage.
+//! SQLite-based node storage with connection pooling.
+//! Uses separate read/write pools for concurrent access under WAL mode.
+//!
 //! Nodes are stored in a SQLite database with JSON fields for flexible querying.
 //!
 //! Integrates with the meta-table management protocol (QUERY_DESIGN.md §6):
@@ -7,27 +9,65 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use chrono::Utc;
 use panorama_core::types::{FieldValue, Node};
-use rusqlite::{params, Connection};
+use r2d2;
+use rusqlite::{params, Connection, OpenFlags};
 use uuid::Uuid;
 
 use crate::meta::MetaStore;
 
+// ── Connection manager ──────────────────────────────────────────────────────
+
+/// Manages a pool of SQLite connections with a given set of `OpenFlags`.
+/// Manages a pool of SQLite connections with a given set of `OpenFlags`.
+/// This type is exposed as part of the `PooledConn` type alias but is not
+/// intended for direct use.
+pub struct SqliteConnManager {
+    path: PathBuf,
+    flags: OpenFlags,
+}
+
+impl r2d2::ManageConnection for SqliteConnManager {
+    type Connection = Connection;
+    type Error = rusqlite::Error;
+
+    fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        let conn = Connection::open_with_flags(&self.path, self.flags)?;
+        conn.execute_batch("PRAGMA busy_timeout=5000").ok();
+        Ok(conn)
+    }
+
+    fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
+        conn.execute_batch("SELECT 1")
+    }
+
+    fn has_broken(&self, _conn: &mut Self::Connection) -> bool {
+        false
+    }
+}
+
+// ── NodeStorage ─────────────────────────────────────────────────────────────
+
 #[derive(Clone)]
 pub struct NodeStorage {
-    conn: Arc<std::sync::Mutex<Connection>>,
+    /// Dedicated write pool with a single read-write connection.
+    write_pool: r2d2::Pool<SqliteConnManager>,
+    /// Read-only pool for concurrent readers under WAL mode.
+    read_pool: r2d2::Pool<SqliteConnManager>,
 }
+
+/// A pooled SQLite connection obtained from the read pool.
+pub type PooledConn = r2d2::PooledConnection<SqliteConnManager>;
 
 impl NodeStorage {
     // ── Connection access ─────────────────────────────────────────────────
 
-    /// Returns a reference to the underlying connection lock for direct
-    /// SQL access (query engine, migrations, etc.).
-    pub fn raw_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
-        self.conn.lock().map_err(|e| e.to_string())
+    /// Returns a pooled read-only connection for direct SQL access
+    /// (query engine, compiler meta-lookup, etc.).
+    pub fn raw_conn(&self) -> Result<PooledConn, String> {
+        self.read_pool.get().map_err(|e| e.to_string())
     }
 
     /// Execute a Panorama Query Language query and return JSON rows.
@@ -62,22 +102,22 @@ impl NodeStorage {
 
     // ── Meta store access (for compiler) ───────────────────────────────────
 
-    /// Run an operation against a locked connection for meta-table access.
+    /// Run an operation against a read-pool connection for meta-table access.
     /// The compiler uses this during Phase 1 meta lookup.
     pub fn with_conn<F, T>(&self, f: F) -> Result<T, String>
     where
         F: FnOnce(&Connection) -> Result<T, String>,
     {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.read_pool.get().map_err(|e| e.to_string())?;
         f(&conn)
     }
 
-    /// Run an operation with a mutable locked connection (for Stats updates etc).
+    /// Run an operation against the write-pool connection (for Stats updates etc).
     pub fn with_conn_mut<F, T>(&self, f: F) -> Result<T, String>
     where
         F: FnOnce(&Connection) -> Result<T, String>,
     {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.write_pool.get().map_err(|e| e.to_string())?;
         f(&conn)
     }
 }
@@ -86,9 +126,28 @@ impl NodeStorage {
     pub fn new(data_dir: PathBuf) -> Self {
         std::fs::create_dir_all(&data_dir).ok();
         let db_path = data_dir.join("panorama.db");
-        let conn = Connection::open(&db_path).expect("Failed to open SQLite database");
 
-        // Create the main nodes table
+        let write_mgr = SqliteConnManager {
+            path: db_path.clone(),
+            flags: OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+        };
+        let read_mgr = SqliteConnManager {
+            path: db_path,
+            flags: OpenFlags::SQLITE_OPEN_READ_ONLY,
+        };
+
+        let write_pool = r2d2::Pool::builder()
+            .max_size(1)
+            .build(write_mgr)
+            .expect("Failed to create write pool");
+        let read_pool = r2d2::Pool::builder()
+            .max_size(8)
+            .build(read_mgr)
+            .expect("Failed to create read pool");
+
+        // Initialize schema using the write connection
+        let conn = write_pool.get().expect("Failed to get write connection");
+
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS nodes (
                 id TEXT PRIMARY KEY,
@@ -104,13 +163,14 @@ impl NodeStorage {
             CREATE INDEX IF NOT EXISTS idx_nodes_created ON nodes(created_at);"
         ).expect("Failed to create nodes table");
 
-        // Create the six meta tables (idempotent)
         MetaStore::initialize(&conn).expect("Failed to initialize meta tables");
 
         // Enable WAL mode for better concurrent access
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;").ok();
 
-        Self { conn: Arc::new(std::sync::Mutex::new(conn)) }
+        // Drop conn — it is returned to the write pool
+
+        Self { write_pool, read_pool }
     }
 
     fn row_to_node(row: &rusqlite::Row) -> rusqlite::Result<Node> {
@@ -146,7 +206,7 @@ impl NodeStorage {
     /// transaction so field_presence and node_schema_conformance stay
     /// consistent with the node row.
     pub fn create(&self, node: Node) -> Result<Node, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.write_pool.get().map_err(|e| e.to_string())?;
         let fields_json = serde_json::to_string(&node.fields).map_err(|e| e.to_string())?;
         let schemas_json = serde_json::to_string(&node.preferred_schemas).map_err(|e| e.to_string())?;
         let app_managed_json = node.app_managed.as_ref()
@@ -190,7 +250,7 @@ impl NodeStorage {
     }
 
     pub fn get(&self, id: &Uuid) -> Option<Node> {
-        let conn = self.conn.lock().ok()?;
+        let conn = self.read_pool.get().ok()?;
         conn.query_row(
             "SELECT id, space_id, fields_json, preferred_schemas_json, app_managed_json, created_at, updated_at FROM nodes WHERE id = ?1",
             params![id.to_string()],
@@ -202,7 +262,7 @@ impl NodeStorage {
     /// re-syncs field_presence and node_schema_conformance in a single
     /// transaction.
     pub fn update(&self, id: &Uuid, fields: HashMap<String, FieldValue>) -> Result<Node, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.write_pool.get().map_err(|e| e.to_string())?;
 
         conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
 
@@ -250,7 +310,7 @@ impl NodeStorage {
     /// Delete a node.  Also cleans up meta-table records (field_presence,
     /// node_schema_conformance) in the same transaction.
     pub fn delete(&self, id: &Uuid) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.write_pool.get().map_err(|e| e.to_string())?;
 
         conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
 
@@ -291,7 +351,7 @@ impl NodeStorage {
         id: &Uuid,
         schemas: Vec<panorama_core::types::SchemaRef>,
     ) -> Result<Node, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.write_pool.get().map_err(|e| e.to_string())?;
 
         conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
 

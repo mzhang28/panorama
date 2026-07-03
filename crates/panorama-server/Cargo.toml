@@ -28,6 +28,7 @@ sha2 = "0.10"
 base64 = "0.22"
 zip = "2"
 rusqlite = { version = "0.40", features = ["bundled"] }
+r2d2 = "0.8"
 rust-embed = "8"
 wasmtime = "29"
 wasmtime-wasi = "29"
