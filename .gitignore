@@ -34,3 +34,5 @@ data/
 *.db-shm
 *.db-wal
 frontend/test-results/
+
+*.tsbuildinfo

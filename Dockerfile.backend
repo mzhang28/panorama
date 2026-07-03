@@ -1,4 +1,25 @@
 # Panorama Backend
+#
+# Multi-stage build:
+#   1. ui-builder  — Node.js, builds plugin UIs (Module Federation remotes)
+#   2. builder     — Rust, compiles WASM plugins + server, packages .panoapp
+#   3. runtime     — slim Debian, production image
+
+# ── Stage 1: Build plugin UIs ────────────────────────────────────────────────
+FROM node:22-slim AS ui-builder
+
+WORKDIR /build
+COPY crates/ ./crates/
+
+# Build each plugin's UI if it has a package.json + vite.config.ts
+RUN for dir in crates/panorama-app-*/ui/; do \
+      if [ -f "$dir/package.json" ] && [ -f "$dir/vite.config.ts" ]; then \
+        echo "=== Building UI in $dir ==="; \
+        (cd "$dir" && npm ci && npm run build); \
+      fi \
+    done
+
+# ── Stage 2: Build WASM plugins + server ─────────────────────────────────────
 FROM rust:1-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
@@ -6,7 +27,7 @@ RUN rustup target add wasm32-wasip1
 
 WORKDIR /build
 
-# Copy everything needed for the build
+# Copy Rust sources
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 
@@ -16,16 +37,23 @@ RUN cargo build --release -p wasm-plugins --target wasm32-wasip1
 # Build server
 RUN cargo build --release -p panorama-server
 
-# Package .panoapp files
+# Copy pre-built plugin UIs from ui-builder
+COPY --from=ui-builder /build/crates/ ./crates/
 COPY scripts/package-panoapp.py /tmp/package-panoapp.py
+
+# Package .panoapp files (manifest + WASM + UI)
 RUN mkdir -p /panoapp && \
     for crate in journal wakatime grafana trips beli subsonic files; do \
-        m="crates/panorama-app-${crate}/manifest.json"; \
-        w="target/wasm32-wasip1/release/${crate}.wasm"; \
-        [ -f "$m" ] && python3 /tmp/package-panoapp.py "$m" "$w" /panoapp; \
+      m="crates/panorama-app-${crate}/manifest.json"; \
+      w="target/wasm32-wasip1/release/${crate}.wasm"; \
+      ui="crates/panorama-app-${crate}/ui/dist"; \
+      ui_arg=""; \
+      [ -f "$m" ] && [ -f "$w" ] || continue; \
+      [ -d "$ui" ] && ui_arg="--ui-dir $ui"; \
+      python3 /tmp/package-panoapp.py "$m" "$w" /panoapp $ui_arg; \
     done
 
-# ── Runtime ──
+# ── Stage 3: Runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils && rm -rf /var/lib/apt/lists/*

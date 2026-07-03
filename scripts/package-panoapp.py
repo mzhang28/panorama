@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
-"""Package a single .panoapp from manifest + WASM."""
-import zipfile, json, os, sys
+"""Package a single .panoapp from manifest + WASM + optional UI build output."""
+import zipfile, json, os, sys, argparse
 
-m_path = sys.argv[1]
-wasm_path = sys.argv[2]
-out_dir = sys.argv[3]
+parser = argparse.ArgumentParser(description='Package a .panoapp file')
+parser.add_argument('manifest', help='Path to manifest.json')
+parser.add_argument('wasm', nargs='?', default=None, help='Path to WASM module')
+parser.add_argument('out_dir', help='Output directory')
+parser.add_argument('--ui-dir', default=None, help='Directory containing built UI files')
 
-with open(m_path) as f:
+args = parser.parse_args()
+
+with open(args.manifest) as f:
     manifest = json.load(f)
 
-panoapp = os.path.join(out_dir, manifest['id'] + '.panoapp')
-with zipfile.ZipFile(panoapp, 'w', zipfile.ZIP_DEFLATED) as zf:
+out_path = os.path.join(args.out_dir, manifest['id'] + '.panoapp')
+with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
     zf.writestr('manifest.json', json.dumps(manifest))
-    if os.path.exists(wasm_path):
-        zf.write(wasm_path, 'plugin.wasm')
+    if args.wasm and os.path.exists(args.wasm):
+        zf.write(args.wasm, 'plugin.wasm')
+    # Include UI files under ui/ prefix
+    if args.ui_dir and os.path.isdir(args.ui_dir):
+        for root, _dirs, files in os.walk(args.ui_dir):
+            for f in files:
+                full = os.path.join(root, f)
+                rel = os.path.relpath(full, args.ui_dir)
+                zf.write(full, f'ui/{rel}')
 
-print(f'  {manifest["id"]}.panoapp ({os.path.getsize(panoapp)} bytes)')
+print(f'  {manifest["id"]}.panoapp ({os.path.getsize(out_path)} bytes)')

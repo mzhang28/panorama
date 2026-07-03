@@ -65,6 +65,8 @@ pub fn build_router(state: AppState) -> Router {
         // Plugin metadata
         .route("/api/plugins", get(list_plugins))
         .route("/api/plugins/{id}", get(get_plugin))
+        // Plugin UI asset serving (must come before catch-all dispatch)
+        .route("/plugin/{plugin_id}/ui/{*path}", get(plugin_ui_handler))
         // Plugin HTTP endpoint dispatch
         .route("/plugin/{plugin_id}/{*path}", get(plugin_handler).post(plugin_handler).put(plugin_handler).delete(plugin_handler).patch(plugin_handler))
         .with_state(state)
@@ -316,5 +318,22 @@ async fn plugin_handler(
             let status = StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             Err((status, Json(ApiError { error: e.message, code: e.code })))
         }
+    }
+}
+
+// -- Plugin UI asset handler --
+
+async fn plugin_ui_handler(
+    State(state): State<Arc<AppState>>,
+    Path((plugin_id, path)): Path<(String, String)>,
+) -> Result<Response, (StatusCode, Json<ApiError>)> {
+    match state.plugin_loader.get_ui_file(&plugin_id, &path).await {
+        Some((data, mime)) => Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime)
+            .header(header::CACHE_CONTROL, "public, max-age=3600")
+            .body(axum::body::Body::from(data))
+            .unwrap()),
+        None => Err(ApiError::not_found("UI asset not found")),
     }
 }

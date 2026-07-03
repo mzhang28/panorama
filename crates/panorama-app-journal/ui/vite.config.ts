@@ -6,8 +6,11 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
-      name: 'panorama_host',
-      // No static remotes — all loaded dynamically at runtime
+      name: 'com_panorama_journal',
+      filename: 'remoteEntry.js',
+      exposes: {
+        './App': './src/App.tsx',
+      },
       shared: {
         react: { singleton: true, requiredVersion: '^19.0.0' },
         'react-dom': { singleton: true, requiredVersion: '^19.0.0' },
@@ -15,11 +18,12 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    target: 'es2022',
+    outDir: 'dist',
+  },
   server: {
-    port: 5173,
-    proxy: {
-      '/api': 'http://127.0.0.1:3000',
-      '/plugin': 'http://127.0.0.1:3000',
-    },
+    port: 5174,
+    cors: true,
   },
 })

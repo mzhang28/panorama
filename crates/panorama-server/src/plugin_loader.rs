@@ -39,6 +39,7 @@ pub struct PluginInfo {
 struct WasmPlugin {
     info: LoadedPluginInfo,
     wasm_bytes: Vec<u8>,
+    ui_files: HashMap<String, Vec<u8>>,
 }
 
 pub struct PluginLoader {
@@ -134,6 +135,7 @@ impl PluginLoader {
             self.wasm_plugins.write().await.insert(plugin_id.clone(), WasmPlugin {
                 info: info.clone(),
                 wasm_bytes: wasm_bytes.clone(),
+                ui_files: package.ui_files.clone(),
             });
         }
 
@@ -164,9 +166,17 @@ impl PluginLoader {
         self.infos.read().await.values().cloned().collect()
     }
 
-    /// Get UI files for a WASM-loaded plugin
-    pub async fn get_ui_file(&self, plugin_id: &str, path: &str) -> Option<Vec<u8>> {
-        None // UI files are served from the .panoapp; stored separately
+    /// Get a UI file from a loaded plugin.
+    /// Returns the file bytes and MIME type if found.
+    pub async fn get_ui_file(&self, plugin_id: &str, path: &str) -> Option<(Vec<u8>, String)> {
+        let wasm = self.wasm_plugins.read().await;
+        if let Some(wp) = wasm.get(plugin_id) {
+            if let Some(data) = wp.ui_files.get(path) {
+                let mime = mime_for_path(path);
+                return Some((data.clone(), mime.to_string()));
+            }
+        }
+        None
     }
 
     /// Dispatch an HTTP request to a plugin.
@@ -225,5 +235,25 @@ impl PluginLoader {
                 plugin_id
             ))),
         }
+    }
+}
+
+/// Map a file path to its MIME type based on extension.
+fn mime_for_path(path: &str) -> &'static str {
+    let ext = path.rsplit('.').next().unwrap_or("");
+    match ext {
+        "js" => "application/javascript",
+        "mjs" => "application/javascript",
+        "css" => "text/css",
+        "html" => "text/html",
+        "json" => "application/json",
+        "map" => "application/json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        _ => "application/octet-stream",
     }
 }
