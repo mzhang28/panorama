@@ -34,7 +34,7 @@ interface BeliAppProps {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function BeliApp({ pluginId }: BeliAppProps) {
-  const PLUGIN_ID = pluginId || 'com.panorama.beli'
+  const PLUGIN_ID = pluginId || 'io.mzhang.panorama.beli'
   const [restaurants, setRestaurants] = useState<Node[]>([])
   const [rankings, setRankings] = useState<any>(null)
   const [loading, setLoading] = useState(true)

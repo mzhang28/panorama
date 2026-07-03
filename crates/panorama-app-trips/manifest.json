@@ -1,5 +1,5 @@
 {
-  "manifest_version": 1, "id": "com.panorama.trips", "name": "Trip Planner", "version": "0.1.0",
+  "manifest_version": 1, "id": "io.mzhang.panorama.trips", "name": "Trip Planner", "version": "0.1.0",
   "description": "Trip planner with events, calendar view, and map view",
   "author": "Panorama",
   "schemas": [

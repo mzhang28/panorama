@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "id": "com.panorama.grafana",
+  "id": "io.mzhang.panorama.grafana",
   "name": "Dashboards",
   "version": "0.1.0",
   "description": "Grafana-like dashboards for time-series data visualization with leaderboard queries",

@@ -36,7 +36,7 @@ interface JournalAppProps {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function JournalApp({ pluginId }: JournalAppProps) {
-  const PLUGIN_ID = pluginId || 'com.panorama.journal'
+  const PLUGIN_ID = pluginId || 'io.mzhang.panorama.journal'
   const queryClient = useQueryClient()
 
   const [title, setTitle] = useState('')

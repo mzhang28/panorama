@@ -28,7 +28,7 @@ interface SubsonicAppProps {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function SubsonicApp({ pluginId }: SubsonicAppProps) {
-  const PLUGIN_ID = pluginId || 'com.panorama.subsonic'
+  const PLUGIN_ID = pluginId || 'io.mzhang.panorama.subsonic'
   const [artists, setArtists] = useState<any[]>([])
   const [albums, setAlbums] = useState<any[]>([])
   const [loading, setLoading] = useState(true)

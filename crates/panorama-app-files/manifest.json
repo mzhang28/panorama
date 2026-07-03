@@ -1,5 +1,5 @@
 {
-  "manifest_version": 1, "id": "com.panorama.files", "name": "File Manager", "version": "0.1.0",
+  "manifest_version": 1, "id": "io.mzhang.panorama.files", "name": "File Manager", "version": "0.1.0",
   "description": "File uploads with resumable transfers and object storage management",
   "author": "Panorama",
   "schemas": [{

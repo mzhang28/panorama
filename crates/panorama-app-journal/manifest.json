@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "id": "com.panorama.journal",
+  "id": "io.mzhang.panorama.journal",
   "name": "Journal",
   "version": "0.1.0",
   "description": "Daily journal with markdown entries and block-level references",

@@ -150,7 +150,7 @@ export default function App() {
             }}
           />
         )}
-        {view === 'app' && selectedPlugin === 'com.panorama.journal' && (
+        {view === 'app' && selectedPlugin === 'io.mzhang.panorama.journal' && (
           <div>
             <button
               onClick={() => {
@@ -165,7 +165,7 @@ export default function App() {
           </div>
         )}
         {view === 'app' &&
-          selectedPlugin !== 'com.panorama.journal' &&
+          selectedPlugin !== 'io.mzhang.panorama.journal' &&
           PluginComponent &&
           selectedPlugin && (
             <div>

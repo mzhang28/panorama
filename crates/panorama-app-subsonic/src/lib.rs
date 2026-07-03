@@ -160,11 +160,11 @@ impl SubsonicPlugin {
 #[async_trait]
 impl Plugin for SubsonicPlugin {
     fn id(&self) -> &str {
-        "com.panorama.subsonic"
+        "io.mzhang.panorama.subsonic"
     }
 
     fn name(&self) -> &str {
-        "Subsonic Music"
+        "Music Library"
     }
 
     fn version(&self) -> &str {

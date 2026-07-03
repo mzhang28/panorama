@@ -90,11 +90,11 @@ impl WakatimePlugin {
 #[async_trait]
 impl Plugin for WakatimePlugin {
     fn id(&self) -> &str {
-        "com.panorama.wakatime"
+        "io.mzhang.panorama.wakatime"
     }
 
     fn name(&self) -> &str {
-        "Wakatime"
+        "Coding Activity"
     }
 
     fn version(&self) -> &str {

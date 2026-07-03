@@ -29,7 +29,7 @@ interface GrafanaAppProps {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function GrafanaApp({ pluginId }: GrafanaAppProps) {
-  const PLUGIN_ID = pluginId || 'com.panorama.grafana'
+  const PLUGIN_ID = pluginId || 'io.mzhang.panorama.grafana'
   const [dashboards, setDashboards] = useState<any[]>([])
   const [leaderboard, setLeaderboard] = useState<any[]>([])
   const [groupBy, setGroupBy] = useState('wakatime:project')

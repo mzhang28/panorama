@@ -200,11 +200,11 @@ impl BeliPlugin {
 #[async_trait]
 impl Plugin for BeliPlugin {
     fn id(&self) -> &str {
-        "com.panorama.beli"
+        "io.mzhang.panorama.beli"
     }
 
     fn name(&self) -> &str {
-        "Beli"
+        "Restaurant Rankings"
     }
 
     fn version(&self) -> &str {

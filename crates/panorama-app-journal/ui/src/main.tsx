@@ -11,7 +11,7 @@ const queryClient = new QueryClient()
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App pluginId="com.panorama.journal" />
+      <App pluginId="io.mzhang.panorama.journal" />
     </QueryClientProvider>
   </React.StrictMode>,
 )

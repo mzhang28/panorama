@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
-  "id": "com.panorama.wakatime",
-  "name": "Wakatime",
+  "id": "io.mzhang.panorama.wakatime",
+  "name": "Coding Activity",
   "version": "0.1.0",
   "description": "Receives Wakatime-compatible heartbeats for coding activity tracking",
   "author": "Panorama",

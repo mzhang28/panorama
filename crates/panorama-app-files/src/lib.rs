@@ -81,7 +81,7 @@ impl FilesPlugin {
 #[async_trait]
 impl Plugin for FilesPlugin {
     fn id(&self) -> &str {
-        "com.panorama.files"
+        "io.mzhang.panorama.files"
     }
 
     fn name(&self) -> &str {

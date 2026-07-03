@@ -224,7 +224,7 @@ async fn delete_paragraphs(ctx: &dyn PluginContext, refs: &[Uuid]) -> Result<(),
 #[async_trait]
 impl Plugin for JournalPlugin {
     fn id(&self) -> &str {
-        "com.panorama.journal"
+        "io.mzhang.panorama.journal"
     }
 
     fn name(&self) -> &str {

@@ -1,5 +1,5 @@
 {
-  "manifest_version": 1, "id": "com.panorama.beli", "name": "Beli", "version": "0.1.0",
+  "manifest_version": 1, "id": "io.mzhang.panorama.beli", "name": "Restaurant Rankings", "version": "0.1.0",
   "description": "Restaurant ratings with partial ordering — rank by pairwise comparisons, not star ratings",
   "author": "Panorama",
   "schemas": [

@@ -36,7 +36,7 @@ async fn test_journal_create_and_list_entries() {
     let plugin = Arc::new(panorama_app_journal::JournalPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
 
-    let ctx = loader.create_context("com.panorama.journal", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.journal", plugin.required_capabilities());
 
     // Create a journal entry via HTTP
     let req = HttpRequest {
@@ -73,7 +73,7 @@ async fn test_journal_entry_has_fields() {
     let plugin = Arc::new(panorama_app_journal::JournalPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
 
-    let ctx = loader.create_context("com.panorama.journal", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.journal", plugin.required_capabilities());
 
     let req = HttpRequest {
         method: "POST".into(),
@@ -102,7 +102,7 @@ async fn test_wakatime_heartbeat_single() {
     let plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
     loader.load(plugin.clone()).await.unwrap();
 
-    let ctx = loader.create_context("com.panorama.wakatime", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.wakatime", plugin.required_capabilities());
 
     let req = HttpRequest {
         method: "POST".into(),
@@ -128,7 +128,7 @@ async fn test_wakatime_heartbeats_bulk() {
     let plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
     loader.load(plugin.clone()).await.unwrap();
 
-    let ctx = loader.create_context("com.panorama.wakatime", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.wakatime", plugin.required_capabilities());
 
     let req = HttpRequest {
         method: "POST".into(),
@@ -156,7 +156,7 @@ async fn test_grafana_query_count() {
     // First load wakatime and create some heartbeats
     let wk_plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
     loader.load(wk_plugin.clone()).await.unwrap();
-    let wk_ctx = loader.create_context("com.panorama.wakatime", wk_plugin.required_capabilities());
+    let wk_ctx = loader.create_context("io.mzhang.panorama.wakatime", wk_plugin.required_capabilities());
 
     // Create heartbeats with different projects
     for (project, file) in &[
@@ -175,7 +175,7 @@ async fn test_grafana_query_count() {
     // Now query with grafana plugin
     let gf_plugin = Arc::new(panorama_app_grafana::GrafanaPlugin::new());
     loader.load(gf_plugin.clone()).await.unwrap();
-    let gf_ctx = loader.create_context("com.panorama.grafana", gf_plugin.required_capabilities());
+    let gf_ctx = loader.create_context("io.mzhang.panorama.grafana", gf_plugin.required_capabilities());
 
     // Test count aggregation with group_by
     let req = HttpRequest {
@@ -201,7 +201,7 @@ async fn test_grafana_leaderboard() {
     // Create some time-series data via wakatime plugin
     let wk_plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
     loader.load(wk_plugin.clone()).await.unwrap();
-    let wk_ctx = loader.create_context("com.panorama.wakatime", wk_plugin.required_capabilities());
+    let wk_ctx = loader.create_context("io.mzhang.panorama.wakatime", wk_plugin.required_capabilities());
 
     for (project, hours) in &[
         ("project-a", 10.0),
@@ -219,7 +219,7 @@ async fn test_grafana_leaderboard() {
     // Query leaderboard
     let gf_plugin = Arc::new(panorama_app_grafana::GrafanaPlugin::new());
     loader.load(gf_plugin.clone()).await.unwrap();
-    let gf_ctx = loader.create_context("com.panorama.grafana", gf_plugin.required_capabilities());
+    let gf_ctx = loader.create_context("io.mzhang.panorama.grafana", gf_plugin.required_capabilities());
 
     let req = HttpRequest {
         method: "POST".into(),
@@ -245,7 +245,7 @@ async fn test_grafana_save_and_list_dashboards() {
     let (loader, _tmp) = setup_test_env();
     let plugin = Arc::new(panorama_app_grafana::GrafanaPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("com.panorama.grafana", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.grafana", plugin.required_capabilities());
 
     // Create a dashboard
     let req = HttpRequest {
@@ -282,7 +282,7 @@ async fn test_trips_create_and_list() {
     let (loader, _tmp) = setup_test_env();
     let plugin = Arc::new(panorama_app_trips::TripsPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("com.panorama.trips", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.trips", plugin.required_capabilities());
 
     // Create a trip
     let req = HttpRequest {
@@ -340,7 +340,7 @@ async fn test_trips_map_view() {
     let (loader, _tmp) = setup_test_env();
     let plugin = Arc::new(panorama_app_trips::TripsPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("com.panorama.trips", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.trips", plugin.required_capabilities());
 
     // Create events with geo data
     for (title, lat, lon, loc) in &[
@@ -386,7 +386,7 @@ async fn test_beli_add_restaurant_and_compare() {
     let (loader, _tmp) = setup_test_env();
     let plugin = Arc::new(panorama_app_beli::BeliPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("com.panorama.beli", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.beli", plugin.required_capabilities());
 
     // Add restaurants
     let mut ids = Vec::new();
@@ -447,7 +447,7 @@ async fn test_subsonic_ping() {
     let (loader, _tmp) = setup_test_env();
     let plugin = Arc::new(panorama_app_subsonic::SubsonicPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("com.panorama.subsonic", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.subsonic", plugin.required_capabilities());
 
     let req = HttpRequest {
         method: "GET".into(),
@@ -467,7 +467,7 @@ async fn test_subsonic_upload_and_stream() {
     let (loader, _tmp) = setup_test_env();
     let plugin = Arc::new(panorama_app_subsonic::SubsonicPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("com.panorama.subsonic", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.subsonic", plugin.required_capabilities());
 
     // Upload a music file
     let audio_data = vec![0u8; 1024]; // Fake audio data
@@ -507,7 +507,7 @@ async fn test_files_upload_and_download() {
     let (loader, _tmp) = setup_test_env();
     let plugin = Arc::new(panorama_app_files::FilesPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("com.panorama.files", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.files", plugin.required_capabilities());
 
     // Upload a file
     let file_content = b"Hello, Panorama! This is a test file.";
@@ -588,7 +588,7 @@ async fn test_all_plugins_register_schemas() {
             .iter()
             .filter(|s| s.name.starts_with(name))
             .count();
-        //.list_by_app(&format!("com.panorama.{}", name));
+        //.list_by_app(&format!("io.mzhang.panorama.{}", name));
         assert!(!plugin.schemas().is_empty(), "Plugin {} has no schemas", name);
     }
 }

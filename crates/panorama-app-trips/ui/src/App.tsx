@@ -34,7 +34,7 @@ interface TripsAppProps {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function TripsApp({ pluginId }: TripsAppProps) {
-  const PLUGIN_ID = pluginId || 'com.panorama.trips'
+  const PLUGIN_ID = pluginId || 'io.mzhang.panorama.trips'
   const [trips, setTrips] = useState<Node[]>([])
   const [events, setEvents] = useState<Node[]>([])
   const [mapEvents, setMapEvents] = useState<any[]>([])

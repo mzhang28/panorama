@@ -147,7 +147,7 @@ impl TripsPlugin {
 #[async_trait]
 impl Plugin for TripsPlugin {
     fn id(&self) -> &str {
-        "com.panorama.trips"
+        "io.mzhang.panorama.trips"
     }
 
     fn name(&self) -> &str {

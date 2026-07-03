@@ -19,7 +19,7 @@ interface Paragraph {
   fields: Record<string, { type: string; value: any }>
 }
 
-const PLUGIN_ID = 'com.panorama.journal'
+const PLUGIN_ID = 'io.mzhang.panorama.journal'
 
 function fieldStr(entry: JournalEntry, key: string): string | undefined {
   const node = (entry as any)?.n || entry

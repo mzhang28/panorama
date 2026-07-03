@@ -34,7 +34,7 @@ interface FilesAppProps {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function FilesApp({ pluginId }: FilesAppProps) {
-  const PLUGIN_ID = pluginId || 'com.panorama.files'
+  const PLUGIN_ID = pluginId || 'io.mzhang.panorama.files'
   const [files, setFiles] = useState<Node[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)

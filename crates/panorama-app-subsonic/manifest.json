@@ -1,5 +1,5 @@
 {
-  "manifest_version": 1, "id": "com.panorama.subsonic", "name": "Subsonic Music", "version": "0.1.0",
+  "manifest_version": 1, "id": "io.mzhang.panorama.subsonic", "name": "Music Library", "version": "0.1.0",
   "description": "Subsonic-compatible music streaming with object storage for audio files",
   "author": "Panorama",
   "schemas": [

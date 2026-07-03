@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
-      name: 'com_panorama_wakatime',
+      name: 'io_mzhang_panorama_wakatime',
       filename: 'remoteEntry.js',
       exposes: {
         './App': './src/App.tsx',

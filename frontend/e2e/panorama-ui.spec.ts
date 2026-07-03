@@ -393,7 +393,7 @@ test.describe('Wakatime Plugin UI', () => {
 
   test('opens coding activity and shows heartbeat form', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Wakatime")');
+    await page.click('button:has-text("Coding Activity")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('Coding Activity', { timeout: 5000 });
     await expect(page.locator('textarea')).toBeVisible({ timeout: 3000 });
@@ -402,7 +402,7 @@ test.describe('Wakatime Plugin UI', () => {
 
   test('can send a heartbeat', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Wakatime")');
+    await page.click('button:has-text("Coding Activity")');
     await page.waitForTimeout(1000);
 
     await page.click('button:has-text("Send Heartbeat")');
@@ -414,7 +414,7 @@ test.describe('Wakatime Plugin UI', () => {
 
   test('heartbeat form is pre-populated with JSON', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Wakatime")');
+    await page.click('button:has-text("Coding Activity")');
     await page.waitForTimeout(1000);
 
     const textarea = page.locator('textarea');
@@ -489,7 +489,7 @@ test.describe('Beli Plugin UI', () => {
 
   test('opens restaurant rankings and shows explanation', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Beli")');
+    await page.click('button:has-text("Restaurant Rankings")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('Restaurant Rankings', { timeout: 5000 });
     await expect(page.locator('text=partial order')).toBeVisible({ timeout: 3000 });
@@ -499,7 +499,7 @@ test.describe('Beli Plugin UI', () => {
 
   test('can add a restaurant', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Beli")');
+    await page.click('button:has-text("Restaurant Rankings")');
     await page.waitForTimeout(1000);
 
     await page.locator('input[placeholder="Restaurant name"]').fill('E2E Sushi Place');
@@ -511,7 +511,7 @@ test.describe('Beli Plugin UI', () => {
 
   test('comparison form shows restaurant options after adding', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Beli")');
+    await page.click('button:has-text("Restaurant Rankings")');
     await page.waitForTimeout(1000);
 
     // Add two restaurants
@@ -536,7 +536,7 @@ test.describe('Beli Plugin UI', () => {
 
   test('can record a comparison between two restaurants', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Beli")');
+    await page.click('button:has-text("Restaurant Rankings")');
     await page.waitForTimeout(1000);
 
     // Add restaurants
@@ -662,7 +662,7 @@ test.describe('Subsonic Music Plugin UI', () => {
 
   test('opens music library and shows upload section', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Subsonic Music")');
+    await page.click('button:has-text("Music Library")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('Music Library', { timeout: 5000 });
     await expect(page.locator('text=Upload Music')).toBeVisible({ timeout: 3000 });
@@ -670,7 +670,7 @@ test.describe('Subsonic Music Plugin UI', () => {
 
   test('shows artists and albums sections', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Subsonic Music")');
+    await page.click('button:has-text("Music Library")');
     await page.waitForTimeout(1000);
 
     await expect(page.locator('h4:has-text("Artists")')).toBeVisible({ timeout: 5000 });

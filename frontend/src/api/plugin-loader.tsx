@@ -19,13 +19,13 @@ const registeredRemotes = new Set<string>()
 // In production (vite build + embedded frontend) these are ignored because
 // import.meta.env.DEV is false — plugins always load from the backend.
 const DEV_PLUGIN_URLS: Record<string, string> = {
-  'com.panorama.journal': 'http://localhost:5174',
-  'com.panorama.wakatime': 'http://localhost:5175',
-  'com.panorama.grafana': 'http://localhost:5176',
-  'com.panorama.trips': 'http://localhost:5177',
-  'com.panorama.beli': 'http://localhost:5178',
-  'com.panorama.subsonic': 'http://localhost:5179',
-  'com.panorama.files': 'http://localhost:5180',
+  'io.mzhang.panorama.journal': 'http://localhost:5174',
+  'io.mzhang.panorama.wakatime': 'http://localhost:5175',
+  'io.mzhang.panorama.grafana': 'http://localhost:5176',
+  'io.mzhang.panorama.trips': 'http://localhost:5177',
+  'io.mzhang.panorama.beli': 'http://localhost:5178',
+  'io.mzhang.panorama.subsonic': 'http://localhost:5179',
+  'io.mzhang.panorama.files': 'http://localhost:5180',
 }
 
 function getRemoteEntryUrl(pluginId: string): string {

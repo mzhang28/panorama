@@ -35,7 +35,7 @@ interface WakatimeAppProps {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function WakatimeApp({ pluginId }: WakatimeAppProps) {
-  const PLUGIN_ID = pluginId || 'com.panorama.wakatime'
+  const PLUGIN_ID = pluginId || 'io.mzhang.panorama.wakatime'
   const [stats, setStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -47,7 +47,7 @@ export default function WakatimeApp({ pluginId }: WakatimeAppProps) {
     setLoading(true)
     try {
       const res = await callPluginEndpoint(
-        'com.panorama.grafana',
+        'io.mzhang.panorama.grafana',
         'query',
         'POST',
         { group_by: 'wakatime:project', aggregation: 'leaderboard' },

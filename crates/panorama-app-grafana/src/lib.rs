@@ -197,7 +197,7 @@ impl GrafanaPlugin {
 #[async_trait]
 impl Plugin for GrafanaPlugin {
     fn id(&self) -> &str {
-        "com.panorama.grafana"
+        "io.mzhang.panorama.grafana"
     }
 
     fn name(&self) -> &str {

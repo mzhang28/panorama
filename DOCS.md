@@ -116,7 +116,7 @@ Visit `http://localhost:5173` to access the Panorama UI.
 Panorama apps are distributed as `.panoapp` files — single ZIP archives containing
 a manifest, WASM module, and UI assets.
 
-1. Download or build a `.panoapp` file (e.g., `com.panorama.journal.panoapp`)
+1. Download or build a `.panoapp` file (e.g., `io.mzhang.panorama.journal.panoapp`)
 2. Place it in the plugins directory: `data/plugins/`
 3. Restart the server — the app is automatically loaded
 
@@ -145,7 +145,7 @@ section lists all loaded plugins.
 Nodes can be created through:
 - The web UI (Nodes → New Node)
 - The REST API (`POST /api/nodes`)
-- Plugin endpoints (e.g., `POST /plugin/com.panorama.journal/entries`)
+- Plugin endpoints (e.g., `POST /plugin/io.mzhang.panorama.journal/entries`)
 
 Fields are set as namespaced key-value pairs. Untyped fields default to String.
 Use the schema system for type enforcement.
@@ -450,43 +450,43 @@ The WASM module is compiled to `wasm32-wasip1` and communicates via WASI:
 
 Panorama ships with seven example apps demonstrating the plugin API:
 
-### 1. Journal (`com.panorama.journal`)
+### 1. Journal (`io.mzhang.panorama.journal`)
 Daily markdown journal with block-level references.
 - **Endpoints**: `POST /entries`, `GET /entries`, `GET /entries/{id}`
 - **Schema**: `journal/JournalEntry`
 - **Key feature**: Entries stored as nodes with markdown content
 
-### 2. Wakatime (`com.panorama.wakatime`)
+### 2. Wakatime (`io.mzhang.panorama.wakatime`)
 Receives heartbeats from Wakatime-compatible clients.
 - **Endpoints**: `POST /heartbeat`, `POST /heartbeats`
 - **Schema**: `wakatime/Heartbeat`
 - **Key feature**: Time-series data via system:node_time field
 
-### 3. Dashboards (`com.panorama.grafana`)
+### 3. Dashboards (`io.mzhang.panorama.grafana`)
 Grafana-like dashboards for time-series visualization.
 - **Endpoints**: `POST /query`, `POST /dashboards`, `GET /dashboards`
 - **Schema**: `grafana/Dashboard`
 - **Key feature**: Leaderboard queries with group-by and aggregation
 
-### 4. Trip Planner (`com.panorama.trips`)
+### 4. Trip Planner (`io.mzhang.panorama.trips`)
 Plan trips with events, calendar view, and map view.
 - **Endpoints**: `POST /trips`, `GET /trips`, `POST /events`, `GET /events`, `GET /events/map`
 - **Schemas**: `trips/Trip`, `trips/Event`
 - **Key feature**: Geolocation fields for map visualization
 
-### 5. Beli (`com.panorama.beli`)
+### 5. Beli (`io.mzhang.panorama.beli`)
 Restaurant ratings with PARTIAL ORDERING (pairwise comparisons).
 - **Endpoints**: `POST /restaurants`, `GET /restaurants`, `POST /compare`, `GET /rankings`
 - **Schemas**: `beli/Restaurant`, `beli/Comparison`
 - **Key feature**: Topological sort ranking (not 5-star ratings)
 
-### 6. Subsonic Music (`com.panorama.subsonic`)
+### 6. Subsonic Music (`io.mzhang.panorama.subsonic`)
 Subsonic-compatible music streaming.
 - **Endpoints**: `GET /rest/ping`, `GET /rest/getArtists`, `GET /rest/stream`, `POST /upload`
 - **Schemas**: `subsonic/Artist`, `subsonic/Album`, `subsonic/Track`
 - **Key feature**: Object storage for audio files, Subsonic API compatibility
 
-### 7. File Manager (`com.panorama.files`)
+### 7. File Manager (`io.mzhang.panorama.files`)
 File uploads with resumable transfer support.
 - **Endpoints**: `POST /upload`, `GET /files`, `GET /files/{id}`, `DELETE /files/{id}`
 - **Schema**: `files/File`

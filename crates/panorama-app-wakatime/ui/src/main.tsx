@@ -9,7 +9,7 @@ const queryClient = new QueryClient()
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App pluginId="com.panorama.wakatime" />
+      <App pluginId="io.mzhang.panorama.wakatime" />
     </QueryClientProvider>
   </React.StrictMode>,
 )

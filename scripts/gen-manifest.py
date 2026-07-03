@@ -3,9 +3,9 @@
 import json, sys
 
 MANIFESTS = {
-    "com.panorama.journal": {
+    "io.mzhang.panorama.journal": {
         "manifest_version": 1,
-        "id": "com.panorama.journal",
+        "id": "io.mzhang.panorama.journal",
         "name": "Journal",
         "version": "0.1.0",
         "description": "Daily journal with markdown entries and block-level references",
@@ -42,10 +42,10 @@ MANIFESTS = {
         "background_tasks": [], "env_vars": {},
         "author": None, "homepage": None, "icon": None, "min_platform_version": None,
     },
-    "com.panorama.wakatime": {
+    "io.mzhang.panorama.wakatime": {
         "manifest_version": 1,
-        "id": "com.panorama.wakatime",
-        "name": "Wakatime",
+        "id": "io.mzhang.panorama.wakatime",
+        "name": "Coding Activity",
         "version": "0.1.0",
         "description": "Receives Wakatime-compatible heartbeats and stores them as time-series nodes",
         "schemas": [{
@@ -69,8 +69,8 @@ MANIFESTS = {
         "capabilities": {"version": 1, "reason": None, "network_hosts": [], "field_read": ["wakatime:*"], "field_write": ["wakatime:*", "system:node_time"], "write_own_nodes": True, "app_managed_nodes": False, "file_read": False, "file_write": False, "execute": False, "dns_requests": False, "object_storage_read": False, "object_storage_write": False},
         "wasm_module": "plugin.wasm", "background_tasks": [], "env_vars": {}, "author": None, "homepage": None, "icon": None, "min_platform_version": None,
     },
-    "com.panorama.grafana": {
-        "manifest_version": 1, "id": "com.panorama.grafana", "name": "Dashboards", "version": "0.1.0",
+    "io.mzhang.panorama.grafana": {
+        "manifest_version": 1, "id": "io.mzhang.panorama.grafana", "name": "Dashboards", "version": "0.1.0",
         "description": "Grafana-like dashboards for time-series data visualization",
         "schemas": [{
             "name": "Dashboard", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
@@ -88,8 +88,8 @@ MANIFESTS = {
         "capabilities": {"version": 1, "reason": None, "network_hosts": [], "field_read": ["*"], "field_write": ["grafana:*", "system:node_title"], "write_own_nodes": True, "app_managed_nodes": False, "file_read": False, "file_write": False, "execute": False, "dns_requests": False, "object_storage_read": False, "object_storage_write": False},
         "wasm_module": "plugin.wasm", "background_tasks": [], "env_vars": {}, "author": None, "homepage": None, "icon": None, "min_platform_version": None,
     },
-    "com.panorama.trips": {
-        "manifest_version": 1, "id": "com.panorama.trips", "name": "Trip Planner", "version": "0.1.0",
+    "io.mzhang.panorama.trips": {
+        "manifest_version": 1, "id": "io.mzhang.panorama.trips", "name": "Trip Planner", "version": "0.1.0",
         "description": "Trip planner with events, calendar and map views",
         "schemas": [
             {
@@ -129,8 +129,8 @@ MANIFESTS = {
         "capabilities": {"version": 1, "reason": None, "network_hosts": [], "field_read": ["trips:*", "system:node_title", "system:node_start_time", "system:node_end_time"], "field_write": ["trips:*", "system:node_title", "system:node_start_time", "system:node_end_time"], "write_own_nodes": True, "app_managed_nodes": False, "file_read": False, "file_write": False, "execute": False, "dns_requests": False, "object_storage_read": False, "object_storage_write": False},
         "wasm_module": "plugin.wasm", "background_tasks": [], "env_vars": {}, "author": None, "homepage": None, "icon": None, "min_platform_version": None,
     },
-    "com.panorama.beli": {
-        "manifest_version": 1, "id": "com.panorama.beli", "name": "Beli", "version": "0.1.0",
+    "io.mzhang.panorama.beli": {
+        "manifest_version": 1, "id": "io.mzhang.panorama.beli", "name": "Restaurant Rankings", "version": "0.1.0",
         "description": "Restaurant ratings with partial ordering (pairwise comparisons)",
         "schemas": [
             {
@@ -161,8 +161,8 @@ MANIFESTS = {
         "capabilities": {"version": 1, "reason": None, "network_hosts": [], "field_read": ["beli:*", "system:node_title"], "field_write": ["beli:*", "system:node_title"], "write_own_nodes": True, "app_managed_nodes": False, "file_read": False, "file_write": False, "execute": False, "dns_requests": False, "object_storage_read": False, "object_storage_write": False},
         "wasm_module": "plugin.wasm", "background_tasks": [], "env_vars": {}, "author": None, "homepage": None, "icon": None, "min_platform_version": None,
     },
-    "com.panorama.subsonic": {
-        "manifest_version": 1, "id": "com.panorama.subsonic", "name": "Subsonic Music", "version": "0.1.0",
+    "io.mzhang.panorama.subsonic": {
+        "manifest_version": 1, "id": "io.mzhang.panorama.subsonic", "name": "Music Library", "version": "0.1.0",
         "description": "Subsonic-compatible music streaming interface",
         "schemas": [
             {"name": "Artist", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred", "fields": [{"name": "node_title", "namespace": "system", "required": True, "field_type": None, "default": None, "description": "Artist name", "computed": None}]},
@@ -192,8 +192,8 @@ MANIFESTS = {
         "capabilities": {"version": 1, "reason": None, "network_hosts": [], "field_read": ["subsonic:*", "system:node_title"], "field_write": ["subsonic:*", "system:node_title"], "write_own_nodes": True, "app_managed_nodes": False, "file_read": False, "file_write": False, "execute": False, "dns_requests": False, "object_storage_read": True, "object_storage_write": True},
         "wasm_module": "plugin.wasm", "background_tasks": [], "env_vars": {}, "author": None, "homepage": None, "icon": None, "min_platform_version": None,
     },
-    "com.panorama.files": {
-        "manifest_version": 1, "id": "com.panorama.files", "name": "File Manager", "version": "0.1.0",
+    "io.mzhang.panorama.files": {
+        "manifest_version": 1, "id": "io.mzhang.panorama.files", "name": "File Manager", "version": "0.1.0",
         "description": "File uploads with resumable transfers and object storage management",
         "schemas": [{
             "name": "File", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
@@ -222,6 +222,6 @@ MANIFESTS = {
 }
 
 if __name__ == "__main__":
-    app_id = sys.argv[1] if len(sys.argv) > 1 else "com.panorama.journal"
-    manifest = MANIFESTS.get(app_id, MANIFESTS["com.panorama.journal"])
+    app_id = sys.argv[1] if len(sys.argv) > 1 else "io.mzhang.panorama.journal"
+    manifest = MANIFESTS.get(app_id, MANIFESTS["io.mzhang.panorama.journal"])
     json.dump(manifest, sys.stdout, indent=2)

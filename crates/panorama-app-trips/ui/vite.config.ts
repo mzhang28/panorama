@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
-      name: 'com_panorama_trips',
+      name: 'io_mzhang_panorama_trips',
       filename: 'remoteEntry.js',
       exposes: {
         './App': './src/App.tsx',
