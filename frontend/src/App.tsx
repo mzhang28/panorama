@@ -1,39 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
-import { listPlugins, listSchemas, type PluginInfo } from './api/client'
+import { listPlugins, listSchemas } from './api/client'
 import { NodeViewer } from './components/NodeViewer'
 import { PluginPanel } from './components/PluginPanel'
 import { SchemaViewer } from './components/SchemaViewer'
-import { useState, lazy, Suspense, useEffect, useRef, useMemo } from 'react'
+import { useState, Suspense, useEffect } from 'react'
 import {
   registerPluginRemote,
   loadPluginComponent,
 } from './api/plugin-loader'
 
 type View = 'nodes' | 'schemas' | 'plugins' | 'app'
-
-// ── Legacy hardcoded plugin UI map ──────────────────────────────────────────
-// Entries here are removed as plugins are migrated to Module Federation.
-// Once all are migrated, this map and the fallback logic can be deleted.
-const legacyComponents: Record<
-  string,
-  React.LazyExoticComponent<React.ComponentType<{}>>
-> = {
-  'com.panorama.journal': lazy(() => import('./plugins/journal')),
-  'com.panorama.wakatime': lazy(() => import('./plugins/wakatime')),
-  'com.panorama.grafana': lazy(() => import('./plugins/grafana')),
-  'com.panorama.trips': lazy(() => import('./plugins/trips')),
-  'com.panorama.beli': lazy(() => import('./plugins/beli')),
-  'com.panorama.subsonic': lazy(() => import('./plugins/subsonic')),
-  'com.panorama.files': lazy(() => import('./plugins/files')),
-}
-
-// ── Federated plugins ───────────────────────────────────────────────────────
-// Add plugin IDs here as they are migrated to Module Federation.
-// The host will try federation first; if a plugin is NOT in this set,
-// it falls back to the legacy hardcoded import above.
-const FEDERATED_PLUGINS: Set<string> = new Set([
-  // 'com.panorama.journal',  // enable when backend serves UI assets
-])
 
 export default function App() {
   const [view, setView] = useState<View>('nodes')
@@ -49,40 +25,19 @@ export default function App() {
     queryFn: listSchemas,
   })
 
-  const selectedPluginInfo = plugins.find((p) => p.id === selectedPlugin)
-
-  // ── Resolve plugin component ──────────────────────────────────────────────
-  const useFederation =
-    selectedPlugin != null && FEDERATED_PLUGINS.has(selectedPlugin)
-
-  const [FederatedComponent, setFederatedComponent] =
-    useState<React.LazyExoticComponent<
-      React.ComponentType<{ pluginId: string }>
-    > | null>(null)
+  // ── Dynamically load the selected plugin via Module Federation ─────────────
+  const [PluginComponent, setPluginComponent] = useState<React.LazyExoticComponent<
+    React.ComponentType<{ pluginId: string }>
+  > | null>(null)
 
   useEffect(() => {
-    if (useFederation && selectedPlugin) {
+    if (selectedPlugin) {
       registerPluginRemote(selectedPlugin)
-      setFederatedComponent(() => loadPluginComponent(selectedPlugin))
+      setPluginComponent(() => loadPluginComponent(selectedPlugin))
     } else {
-      setFederatedComponent(null)
+      setPluginComponent(null)
     }
-  }, [selectedPlugin, useFederation])
-
-  const PluginComponent = useMemo((): React.ComponentType<{
-    pluginId: string
-  }> | null => {
-    if (!selectedPlugin) return null
-    if (useFederation && FederatedComponent) return FederatedComponent
-    // Fall back to legacy hardcoded import — wrap to accept pluginId prop
-    const Legacy = legacyComponents[selectedPlugin]
-    if (!Legacy) return null
-    return ((props: { pluginId: string }) => (
-      <Suspense fallback={<p>Loading app...</p>}>
-        <Legacy />
-      </Suspense>
-    )) as unknown as React.ComponentType<{ pluginId: string }>
-  }, [selectedPlugin, useFederation, FederatedComponent])
+  }, [selectedPlugin])
 
   return (
     <div className="app-container">
@@ -187,7 +142,7 @@ export default function App() {
             }}
           />
         )}
-        {view === 'app' && PluginComponent && (
+        {view === 'app' && PluginComponent && selectedPlugin && (
           <div>
             <button
               onClick={() => {
@@ -199,7 +154,7 @@ export default function App() {
               ← Back to Plugins
             </button>
             <Suspense fallback={<p>Loading app...</p>}>
-              <PluginComponent pluginId={selectedPlugin!} />
+              <PluginComponent pluginId={selectedPlugin} />
             </Suspense>
           </div>
         )}

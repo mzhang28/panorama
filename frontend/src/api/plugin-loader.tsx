@@ -16,9 +16,14 @@ init({
 const registeredRemotes = new Set<string>()
 
 // Dev mode: map plugin IDs to their local Vite dev server URLs
-// When developing a plugin UI, add its dev server here
 const DEV_PLUGIN_URLS: Record<string, string> = {
-  // 'com.panorama.journal': 'http://localhost:5174',
+  'com.panorama.journal': 'http://localhost:5174',
+  'com.panorama.wakatime': 'http://localhost:5175',
+  'com.panorama.grafana': 'http://localhost:5176',
+  'com.panorama.trips': 'http://localhost:5177',
+  'com.panorama.beli': 'http://localhost:5178',
+  'com.panorama.subsonic': 'http://localhost:5179',
+  'com.panorama.files': 'http://localhost:5180',
 }
 
 function getRemoteEntryUrl(pluginId: string): string {
