@@ -1,0 +1,12 @@
+target/
+data/
+dist/
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.git/
+.gitignore
+**/*.db
+**/*.db-shm
+**/*.db-wal
+*.log

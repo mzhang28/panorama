@@ -52,3 +52,24 @@ clean:
     cargo clean
     rm -rf dist data
     @echo "Cleaned."
+
+# ── Docker ───────────────────────────────────────────────────
+
+# Build Docker images
+docker-build:
+    docker compose build
+
+# Start the full stack (background)
+docker-up:
+    docker compose up -d
+
+# Stop the stack
+docker-down:
+    docker compose down
+
+# View logs
+docker-logs:
+    docker compose logs -f
+
+# Rebuild and restart
+docker-restart: docker-down docker-build docker-up

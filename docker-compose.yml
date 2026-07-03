@@ -1,0 +1,44 @@
+# Panorama — full stack
+# Build: docker compose build
+# Run:   docker compose up -d
+# Logs:  docker compose logs -f
+# Stop:  docker compose down
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: panorama-backend:latest
+    container_name: panorama-backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - panorama-data:/var/lib/panorama/data
+    environment:
+      - PANORAMA_DATA_DIR=/var/lib/panorama/data
+      - PANORAMA_LISTEN=0.0.0.0:3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/plugins"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
+    image: panorama-frontend:latest
+    container_name: panorama-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  panorama-data:
+    driver: local

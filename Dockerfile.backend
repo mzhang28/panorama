@@ -1,0 +1,92 @@
+# Panorama Backend — multi-stage build
+# Stage 1: Build Rust server + WASM plugins + .panoapp packages
+FROM rust:1-slim-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN rustup target add wasm32-wasip1
+
+WORKDIR /build
+
+# Copy dependency manifests first for caching
+COPY Cargo.toml Cargo.lock ./
+COPY crates/panorama-core/Cargo.toml crates/panorama-core/
+COPY crates/panorama-server/Cargo.toml crates/panorama-server/
+COPY crates/panorama-app-journal/Cargo.toml crates/panorama-app-journal/
+COPY crates/panorama-app-wakatime/Cargo.toml crates/panorama-app-wakatime/
+COPY crates/panorama-app-grafana/Cargo.toml crates/panorama-app-grafana/
+COPY crates/panorama-app-trips/Cargo.toml crates/panorama-app-trips/
+COPY crates/panorama-app-beli/Cargo.toml crates/panorama-app-beli/
+COPY crates/panorama-app-subsonic/Cargo.toml crates/panorama-app-subsonic/
+COPY crates/panorama-app-files/Cargo.toml crates/panorama-app-files/
+COPY crates/wasm-plugins/Cargo.toml crates/wasm-plugins/
+
+# Create dummy sources to cache dependency compilation
+RUN mkdir -p crates/panorama-core/src crates/panorama-server/src && \
+    echo "pub mod types; pub mod plugin; pub mod capabilities; pub mod schema; pub mod field; pub mod object_store; pub mod wasm_common;" > crates/panorama-core/src/lib.rs && \
+    echo 'fn main() {}' > crates/panorama-server/src/main.rs && \
+    for crate in journal wakatime grafana trips beli subsonic files; do \
+        mkdir -p "crates/panorama-app-${crate}/src" && echo '' > "crates/panorama-app-${crate}/src/lib.rs"; \
+    done && \
+    mkdir -p crates/wasm-plugins/src/bin && \
+    for bin in journal wakatime grafana trips beli subsonic files; do \
+        echo 'fn main() {}' > "crates/wasm-plugins/src/bin/${bin}.rs"; \
+    done && \
+    echo '' > crates/wasm-plugins/src/common.rs
+
+# Warm the dependency cache
+RUN cargo build --release -p panorama-server 2>&1 | tail -5 || true
+RUN cargo build --release -p wasm-plugins --target wasm32-wasip1 2>&1 | tail -5 || true
+
+# Copy actual source code
+COPY crates/ crates/
+
+# Build WASM plugins and server
+RUN cargo build --release -p wasm-plugins --target wasm32-wasip1
+RUN cargo build --release -p panorama-server
+
+# Package .panoapp files
+RUN mkdir -p /panoapp && \
+    for crate in journal wakatime grafana trips beli subsonic files; do \
+        m="crates/panorama-app-${crate}/manifest.json"; \
+        if [ -f "$m" ]; then \
+            python3 -c "
+import zipfile, json, os
+with open('${m}') as f: manifest = json.load(f)
+panoapp = '/panoapp/' + manifest['id'] + '.panoapp'
+with zipfile.ZipFile(panoapp, 'w', zipfile.ZIP_DEFLATED) as zf:
+    zf.writestr('manifest.json', json.dumps(manifest))
+    wasm = 'target/wasm32-wasip1/release/${crate}.wasm'
+    if os.path.exists(wasm): zf.write(wasm, 'plugin.wasm')
+print(f'Built {manifest[\"id\"]}.panoapp')
+"; \
+        fi; \
+    done && \
+    ls -la /panoapp/
+
+# ── Runtime stage ──
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install wasmtime CLI
+RUN curl -sSL https://github.com/bytecodealliance/wasmtime/releases/download/v29.0.1/wasmtime-v29.0.1-x86_64-linux.tar.xz \
+    | tar -xJ --strip-components=1 -C /usr/local/bin wasmtime-v29.0.1-x86_64-linux/wasmtime \
+    && chmod +x /usr/local/bin/wasmtime
+
+COPY --from=builder /build/target/release/panorama-server /usr/local/bin/panorama-server
+COPY --from=builder /panoapp /var/lib/panorama/plugins
+
+RUN mkdir -p /var/lib/panorama/data
+ENV PANORAMA_DATA_DIR=/var/lib/panorama/data
+ENV PANORAMA_LISTEN=0.0.0.0:3000
+EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=10s \
+    CMD curl -f http://localhost:3000/api/plugins || exit 1
+
+CMD ["panorama-server"]
