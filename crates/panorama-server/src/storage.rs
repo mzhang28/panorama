@@ -15,6 +15,14 @@ pub struct NodeStorage {
 }
 
 impl NodeStorage {
+    /// Returns a reference to the underlying connection lock for direct
+    /// SQL access (query engine, migrations, etc.).
+    pub fn raw_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
+        self.conn.lock().map_err(|e| e.to_string())
+    }
+}
+
+impl NodeStorage {
     pub fn new(data_dir: PathBuf) -> Self {
         std::fs::create_dir_all(&data_dir).ok();
         let db_path = data_dir.join("panorama.db");

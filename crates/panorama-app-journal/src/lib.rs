@@ -186,14 +186,17 @@ impl Plugin for JournalPlugin {
                 HttpResponse::json(&entry)
             }
             ("GET", "entries") => {
-                let mut nodes = ctx
-                    .query_nodes(NodeQuery {
-                        sort_by: Some("-system:node_time".to_string()),
-                        ..NodeQuery::new()
-                    })
+                // Use the Panorama Query Language — filters & sorts in SQL
+                let rows = ctx
+                    .query(
+                        "MATCH (n) IN space(\"default\") \
+                         WHERE HAS_FIELD(n, \"journal\", \"content\") \
+                         RETURN n \
+                         ORDER BY n.system.node_time DESC \
+                         LIMIT 100",
+                    )
                     .await?;
-                nodes.retain(|n| n.get_field("journal:content").is_some());
-                HttpResponse::json(&nodes)
+                HttpResponse::json(&rows)
             }
             ("GET", _) if endpoint.starts_with("entries/") => {
                 let id_str = &endpoint["entries/".len()..];

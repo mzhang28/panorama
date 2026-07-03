@@ -117,6 +117,56 @@ impl PluginContext for RuntimeContext {
             .map_err(|e| PluginError::internal(e))
     }
 
+    async fn query(&self, query_string: &str) -> Result<Vec<serde_json::Value>, PluginError> {
+        // Parse
+        let ast = panorama_core::query::parse_query(query_string)
+            .map_err(|e| PluginError::bad_request(&format!("Query parse error: {}", e)))?;
+
+        // Compile
+        let compiled = crate::query::compiler::compile(&ast)
+            .map_err(|e| PluginError::bad_request(&format!("Query compile error: {}", e)))?;
+
+        // Execute
+        let conn = self.storage.raw_conn()
+            .map_err(|e| PluginError::internal(e))?;
+
+        let mut stmt = conn.prepare(&compiled.sql)
+            .map_err(|e| PluginError::internal(format!("SQL prepare: {}", e)))?;
+
+        let column_names: Vec<String> = stmt
+            .column_names()
+            .iter()
+            .map(|c| c.to_string())
+            .collect();
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> = compiled
+            .params
+            .iter()
+            .map(|p| p as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let mut results: Vec<serde_json::Value> = Vec::new();
+        let rows = stmt
+            .query_map(params_refs.as_slice(), |row| {
+                let mut obj = serde_json::Map::new();
+                for (i, col) in column_names.iter().enumerate() {
+                    let val: Result<String, _> = row.get(i);
+                    let json_val = match val {
+                        Ok(s) => serde_json::from_str(&s).unwrap_or(serde_json::Value::String(s)),
+                        Err(_) => serde_json::Value::Null,
+                    };
+                    obj.insert(col.clone(), json_val);
+                }
+                Ok(serde_json::Value::Object(obj))
+            })
+            .map_err(|e| PluginError::internal(format!("Query exec: {}", e)))?;
+
+        for row in rows.flatten() {
+            results.push(row);
+        }
+        Ok(results)
+    }
+
     async fn query_nodes(&self, query: NodeQuery) -> Result<Vec<Node>, PluginError> {
         // Check read permission if filtering by specific fields
         for key in query.field_filters.keys() {

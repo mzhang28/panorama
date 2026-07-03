@@ -53,6 +53,8 @@ pub fn build_router(state: AppState) -> Router {
         // Node CRUD
         .route("/api/nodes", post(create_node).get(query_nodes))
         .route("/api/nodes/{id}", get(get_node).put(update_node).delete(delete_node))
+        // Query language
+        .route("/api/query", post(query_handler))
         // Schema API
         .route("/api/schemas", get(list_schemas))
         .route("/api/schemas/{id}", get(get_schema))
@@ -392,4 +394,74 @@ async fn frontend_spa_fallback(
         return Ok(resp);
     }
     Err(ApiError::not_found("Not found"))
+}
+
+// -- Query language handler --
+
+#[derive(Debug, Deserialize)]
+struct QueryRequest {
+    pub query: String,
+}
+
+async fn query_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<QueryRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    // Parse
+    let ast = panorama_core::query::parse_query(&req.query)
+        .map_err(|e| ApiError::bad_request(&format!("Parse error: {}", e)))?;
+
+    // Compile to parameterized SQL
+    let compiled = crate::query::compiler::compile(&ast)
+        .map_err(|e| ApiError::bad_request(&format!("Compile error: {}", e)))?;
+
+    tracing::debug!(
+        query_id = %uuid::Uuid::new_v4(),
+        sql = %compiled.sql,
+        "executing query"
+    );
+
+    // Execute against SQLite via NodeStorage's connection
+    let conn = state.storage.raw_conn()
+        .map_err(|e| ApiError::internal(e))?;
+
+    let mut stmt = conn.prepare(&compiled.sql)
+        .map_err(|e| ApiError::bad_request(&format!("SQL prepare error: {}", e)))?;
+
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = compiled
+        .params
+        .iter()
+        .map(|p| p as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let column_names: Vec<String> = stmt
+        .column_names()
+        .iter()
+        .map(|c| c.to_string())
+        .collect();
+
+    let mut results: Vec<serde_json::Value> = Vec::new();
+    let rows = stmt
+        .query_map(params_refs.as_slice(), |row| {
+            let mut obj = serde_json::Map::new();
+            for (i, col) in column_names.iter().enumerate() {
+                let val: Result<String, _> = row.get(i);
+                let json_val = match val {
+                    Ok(s) => serde_json::from_str(&s).unwrap_or(serde_json::Value::String(s)),
+                    Err(_) => serde_json::Value::Null,
+                };
+                obj.insert(col.clone(), json_val);
+            }
+            Ok(serde_json::Value::Object(obj))
+        })
+        .map_err(|e| ApiError::internal(format!("Query execution error: {}", e)))?;
+
+    for row in rows.flatten() {
+        results.push(row);
+    }
+
+    Ok(Json(serde_json::json!({
+        "rows": results,
+        "count": results.len(),
+    })))
 }

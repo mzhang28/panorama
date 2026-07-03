@@ -102,8 +102,16 @@ pub trait PluginContext: Send + Sync {
     /// Delete a node
     async fn delete_node(&self, id: Uuid) -> Result<(), PluginError>;
 
-    /// Query nodes by field values
+    /// Query nodes by field values (legacy filter-bag API).
     async fn query_nodes(&self, query: NodeQuery) -> Result<Vec<Node>, PluginError>;
+
+    /// Execute a Panorama Query Language query.
+    /// Returns rows as JSON objects with columns named by their expression aliases.
+    async fn query(&self, _query_string: &str) -> Result<Vec<serde_json::Value>, PluginError> {
+        Err(PluginError::internal(
+            "query() not implemented for this context".into(),
+        ))
+    }
 
     // -- Schema operations --
 

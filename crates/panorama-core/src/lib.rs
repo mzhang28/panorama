@@ -4,6 +4,7 @@ pub mod capabilities;
 pub mod schema;
 pub mod field;
 pub mod object_store;
+pub mod query;
 
 pub use types::*;
 pub use plugin::*;
