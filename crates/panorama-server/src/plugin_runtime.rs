@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use async_trait::async_trait;
 use panorama_core::plugin::{
-    LogLevel, NodeQuery, ObjectData, PluginContext, PluginError,
+    LogLevel, ObjectData, PluginContext, PluginError,
 };
 use panorama_core::types::{FieldValue, Node, ObjectRef};
 use panorama_core::schema::Schema;
@@ -40,6 +40,10 @@ impl RuntimeContext {
             object_storage,
             granted_caps,
         }
+    }
+
+    pub fn schema_registry(&self) -> &SchemaRegistry {
+        &self.schema_registry
     }
 
     fn check_field_read(&self, field_key: &str) -> Result<(), PluginError> {
@@ -163,37 +167,6 @@ impl PluginContext for RuntimeContext {
 
         for row in rows.flatten() {
             results.push(row);
-        }
-        Ok(results)
-    }
-
-    async fn query_nodes(&self, query: NodeQuery) -> Result<Vec<Node>, PluginError> {
-        // Check read permission if filtering by specific fields
-        for key in query.field_filters.keys() {
-            self.check_field_read(key)?;
-        }
-        let mut results = self.storage.query(
-            &query.field_filters,
-            query.space_id,
-            query.limit,
-        );
-        // Apply sort
-        if let Some(sort_by) = &query.sort_by {
-            let descending = sort_by.starts_with('-');
-            let field_key = if descending { &sort_by[1..] } else { sort_by.as_str() };
-            results.sort_by(|a, b| {
-                let va = a.get_field(field_key).map(|v| format!("{:?}", v));
-                let vb = b.get_field(field_key).map(|v| format!("{:?}", v));
-                if descending {
-                    vb.cmp(&va)
-                } else {
-                    va.cmp(&vb)
-                }
-            });
-        }
-        // Apply offset
-        if let Some(offset) = query.offset {
-            results = results.into_iter().skip(offset).collect();
         }
         Ok(results)
     }

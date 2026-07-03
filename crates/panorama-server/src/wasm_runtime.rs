@@ -1,171 +1,180 @@
-//! WASM runtime for .panoapp plugin execution.
-//! Uses the `wasmtime` CLI as a subprocess with file-based I/O via WASI.
-//!
-//! Protocol:
-//!   1. Server creates a temp directory with input.json
-//!   2. Runs: wasmtime run --dir=<workdir> plugin.wasm -- input.json output.json
-//!   3. WASM module reads input.json, writes output.json
-//!   4. Server reads output.json, executes effects, returns HTTP response
+//! WASM runtime — wasmtime + WASI preview1 + host functions.
 
 use std::collections::HashMap;
-use std::io::Write;
-use std::process::Command;
 
 use bytes::Bytes;
 use panorama_core::plugin::{HttpRequest, HttpResponse, PluginError};
-use panorama_core::types::{FieldValue, Node};
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::storage::NodeStorage;
-use crate::object_store::ObjectStorage;
 
-#[derive(Debug, Serialize)]
-struct WasmInput {
-    endpoint: String,
-    request: WasmHttpRequest,
-    nodes: Vec<WasmNodeData>,
-}
+type WasiCtx = wasmtime_wasi::preview1::WasiP1Ctx;
 
-#[derive(Debug, Serialize)]
-struct WasmHttpRequest {
-    method: String,
-    path: String,
-    #[serde(default)]
-    query_params: HashMap<String, String>,
-    #[serde(default)]
-    headers: HashMap<String, String>,
-    body: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct WasmNodeData {
-    id: String,
-    fields: HashMap<String, serde_json::Value>,
-    created_at: String,
-    updated_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct WasmOutput {
-    status: u16,
-    #[serde(default)]
-    headers: HashMap<String, String>,
-    #[serde(default)]
-    body: serde_json::Value,
-    #[serde(default)]
-    effects: Vec<WasmEffect>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum WasmEffect {
-    #[serde(rename = "create_node")]
-    CreateNode { fields: HashMap<String, FieldValue> },
-    #[serde(rename = "update_node")]
-    UpdateNode { id: String, fields: HashMap<String, FieldValue> },
-    #[serde(rename = "delete_node")]
-    DeleteNode { id: String },
-    #[serde(rename = "put_object")]
-    PutObject { bucket: String, key: String, data_base64: String, mime_type: String },
-}
-
-pub fn execute_wasm_handler(
+pub async fn execute_wasm_handler(
     wasm_bytes: &[u8],
     endpoint: &str,
     request: &HttpRequest,
     storage: &NodeStorage,
-    object_storage: &ObjectStorage,
+    _object_storage: &crate::object_store::ObjectStorage,
 ) -> Result<HttpResponse, PluginError> {
-    // ── Build input ──
-    let nodes: Vec<_> = storage.query(&HashMap::new(), None, None);
-    let wasm_nodes: Vec<WasmNodeData> = nodes.iter().map(|n| {
-        let fields: HashMap<_, _> = n.fields.iter()
-            .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or_default()))
-            .collect();
-        WasmNodeData { id: n.id.to_string(), fields, created_at: n.created_at.to_rfc3339(), updated_at: n.updated_at.to_rfc3339() }
-    }).collect();
+    let mut config = wasmtime::Config::new();
+    config.async_support(true);
+    let engine = wasmtime::Engine::new(&config)
+        .map_err(|e| PluginError::internal(format!("wasm engine: {}", e)))?;
 
-    let input = WasmInput {
-        endpoint: endpoint.to_string(),
-        request: WasmHttpRequest {
-            method: request.method.clone(), path: request.path.clone(),
-            query_params: request.query_params.clone(), headers: request.headers.clone(),
-            body: request.body.as_ref().map(|b| String::from_utf8_lossy(b).to_string()),
+    let module = wasmtime::Module::from_binary(&engine, wasm_bytes)
+        .map_err(|e| PluginError::internal(format!("wasm compile: {}", e)))?;
+
+    // Build WASI context with stdin from request JSON
+    let input_json = serde_json::to_vec(&serde_json::json!({
+        "endpoint": endpoint,
+        "request": {
+            "method": &request.method, "path": &request.path,
+            "query_params": &request.query_params, "headers": &request.headers,
+            "body": request.body.as_ref().map(|b| String::from_utf8_lossy(b).to_string()),
         },
-        nodes: wasm_nodes,
-    };
+    })).map_err(|e| PluginError::internal(format!("json: {}", e)))?;
 
-    let input_json = serde_json::to_vec(&input).map_err(|e| PluginError::internal(format!("input: {}", e)))?;
+    let stdout_pipe = wasmtime_wasi::pipe::MemoryOutputPipe::new(65536);
+    let stdin_pipe = wasmtime_wasi::pipe::MemoryInputPipe::new(Bytes::from(input_json));
 
-    // ── Set up temp dir ──
-    let work_dir = std::env::temp_dir().join(format!("pano-wasm-{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&work_dir).map_err(|e| PluginError::internal(format!("dir: {}", e)))?;
+    let mut builder = wasmtime_wasi::WasiCtxBuilder::new();
+    builder.stdin(stdin_pipe);
+    builder.stdout(stdout_pipe.clone());
+    let wasi_ctx = builder.build_p1();
 
-    // Write the WASM module to a temp file
-    let wasm_path = work_dir.join("plugin.wasm");
-    std::fs::write(&wasm_path, wasm_bytes).map_err(|e| PluginError::internal(format!("wasm write: {}", e)))?;
+    let mut store = wasmtime::Store::new(&engine, wasi_ctx);
+    let mut linker = wasmtime::Linker::new(&engine);
 
-    // ── Run wasmtime CLI with stdin pipe ──
-    let mut child = Command::new("wasmtime")
-        .arg("run")
-        .arg(wasm_path.to_str().unwrap_or("plugin.wasm"))
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| PluginError::internal(format!("wasmtime spawn: {}", e)))?;
+    wasmtime_wasi::preview1::wasi_snapshot_preview1::add_to_linker(
+        &mut linker,
+        |cx: &mut WasiCtx| cx,
+    ).map_err(|e| PluginError::internal(format!("wasi: {}", e)))?;
 
-    // Write input JSON to stdin
-    use std::io::Write;
-    if let Some(ref mut stdin) = child.stdin {
-        stdin.write_all(&input_json).ok();
-    }
-    // stdin is dropped here (closed) so WASM gets EOF
+    // ── Host functions ──────────────────────────────────────────────────
 
-    let output = child.wait_with_output()
-        .map_err(|e| PluginError::internal(format!("wasmtime wait: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        std::fs::remove_dir_all(&work_dir).ok();
-        return Err(PluginError::internal(format!("WASM error: {}", stderr)));
-    }
-
-    // ── Parse stdout as JSON ──
-    let output_str = String::from_utf8_lossy(&output.stdout);
-    let wasm_output: WasmOutput = serde_json::from_str(&output_str).map_err(|e| {
-        PluginError::internal(format!("WASM stdout parse: {}. Raw: {}", e, &output_str[..output_str.len().min(300)]))
-    })?;
-
-    std::fs::remove_dir_all(&work_dir).ok();
-
-    // ── Execute effects ──
-    for effect in &wasm_output.effects {
-        match effect {
-            WasmEffect::CreateNode { fields } => {
-                let mut node = Node::new(Uuid::nil());
-                for (k, v) in fields { node.set_field(k, v.clone()); }
-                storage.create(node).map_err(|e| PluginError::internal(e))?;
+    let s = storage.clone();
+    linker.func_wrap("env", "host_query",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, q_ptr: i32, q_len: i32, r_ptr: i32| -> i32 {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m,
+                None => return 0,
+            };
+            let data = mem.data(&caller);
+            let q_start = q_ptr as usize;
+            let q_end = q_start.saturating_add(q_len as usize);
+            if q_end > data.len() {
+                return 0;
             }
-            WasmEffect::UpdateNode { id, fields } => {
-                if let Ok(uid) = Uuid::parse_str(id) {
-                    storage.update(&uid, fields.clone()).map_err(|e| PluginError::internal(e))?;
-                }
+            let qs = match std::str::from_utf8(&data[q_start..q_end]) {
+                Ok(s) => s,
+                Err(_) => return 0,
+            };
+
+            let rows = match s.query_lang(qs) {
+                Ok(r) => r,
+                Err(_) => return 0,
+            };
+
+            let json = serde_json::to_vec(&rows).unwrap_or_default();
+
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m,
+                None => return 0,
+            };
+            let data_mut = mem.data_mut(&mut caller);
+            let r_start = r_ptr as usize;
+            if r_start >= data_mut.len() {
+                return 0;
             }
-            WasmEffect::DeleteNode { id } => {
-                if let Ok(uid) = Uuid::parse_str(id) {
-                    storage.delete(&uid).map_err(|e| PluginError::internal(e))?;
-                }
+            let write_len = json.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + write_len].copy_from_slice(&json[..write_len]);
+            write_len as i32
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_query: {}", e)))?;
+
+    let s2 = storage.clone();
+    linker.func_wrap("env", "host_create_node",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, ptr: i32, len: i32| {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m,
+                None => return,
+            };
+            let data = mem.data(&caller);
+            let start = ptr as usize;
+            let end = start.saturating_add(len as usize);
+            if end > data.len() {
+                return;
             }
-            WasmEffect::PutObject { bucket, key, data_base64, mime_type } => {
-                use base64::Engine;
-                let data = base64::engine::general_purpose::STANDARD
-                    .decode(data_base64).map_err(|e| PluginError::internal(e.to_string()))?;
-                object_storage.put(bucket, key, &data, mime_type).map_err(|e| PluginError::internal(e))?;
+            let json = match std::str::from_utf8(&data[start..end]) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            if let Ok(fields) = serde_json::from_str::<HashMap<String, panorama_core::types::FieldValue>>(json) {
+                let mut node = panorama_core::types::Node::new(Uuid::nil());
+                for (k, v) in fields { node.set_field(&k, v); }
+                let _ = s2.create(node);
+            }
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_create_node: {}", e)))?;
+
+    let s3 = storage.clone();
+    linker.func_wrap("env", "host_delete_node",
+        move |mut caller: wasmtime::Caller<'_, WasiCtx>, ptr: i32, len: i32| {
+            let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+                Some(m) => m,
+                None => return,
+            };
+            let data = mem.data(&caller);
+            let start = ptr as usize;
+            let end = start.saturating_add(len as usize);
+            if end > data.len() {
+                return;
+            }
+            let id_str = match std::str::from_utf8(&data[start..end]) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            if let Ok(id) = Uuid::parse_str(id_str) { let _ = s3.delete(&id); }
+        }
+    ).map_err(|e| PluginError::internal(format!("link host_delete_node: {}", e)))?;
+
+    // ── Instantiate & run ───────────────────────────────────────────────
+
+    let instance = linker.instantiate_async(&mut store, &module).await
+        .map_err(|e| PluginError::internal(format!("instantiate: {}", e)))?;
+
+    let start = instance.get_typed_func::<(), ()>(&mut store, "_start")
+        .map_err(|_| PluginError::internal("no _start export".into()))?;
+    start.call_async(&mut store, ()).await
+        .map_err(|e| PluginError::internal(format!("trap: {}", e)))?;
+
+    // ── Read stdout (status + body JSON) ────────────────────────────────
+
+    let output_bytes = stdout_pipe.contents();
+    let output_str = String::from_utf8_lossy(&output_bytes);
+    let out: serde_json::Value = serde_json::from_str(output_str.trim())
+        .map_err(|e| PluginError::internal(format!("stdout: {} (raw: {})", e, &output_str[..output_str.len().min(200)])))?;
+
+    let mut headers = HashMap::new();
+    headers.insert("Content-Type".into(), "application/json".into());
+    if let Some(h_obj) = out.get("headers").and_then(|h| h.as_object()) {
+        for (k, v) in h_obj {
+            if let Some(v_str) = v.as_str() {
+                headers.insert(k.clone(), v_str.to_string());
             }
         }
     }
 
-    Ok(HttpResponse { status: wasm_output.status, headers: wasm_output.headers, body: Bytes::from(serde_json::to_string(&wasm_output.body).unwrap_or_default()) })
+    let body_bytes = match out.get("body") {
+        Some(serde_json::Value::String(s)) => Bytes::from(s.clone().into_bytes()),
+        Some(val) => Bytes::from(serde_json::to_vec(val).unwrap_or_default()),
+        None => Bytes::new(),
+    };
+
+    Ok(HttpResponse {
+        status: out["status"].as_u64().unwrap_or(200) as u16,
+        headers,
+        body: body_bytes,
+    })
 }

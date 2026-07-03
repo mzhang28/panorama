@@ -71,9 +71,10 @@ test.describe('Node CRUD through UI', () => {
     await page.click('button:has-text("Create")');
     await page.waitForTimeout(500);
 
-    // Set up dialog handler BEFORE clicking delete
+    // Target the specific node card created for deletion
+    const card = page.locator('.card').filter({ hasText: uniqueTitle });
     page.once('dialog', dialog => dialog.accept());
-    await page.locator('button:has-text("Delete")').first().click();
+    await card.locator('button:has-text("Delete")').click();
     await page.waitForTimeout(500);
 
     // Node should be gone
@@ -461,7 +462,7 @@ test.describe('Subsonic Music Plugin UI', () => {
     await page.click('button:has-text("Subsonic Music")');
     await page.waitForTimeout(1000);
 
-    await expect(page.locator('text=Artists')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('h4:has-text("Artists")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('h4:has-text("Albums")')).toBeVisible({ timeout: 5000 });
   });
 });

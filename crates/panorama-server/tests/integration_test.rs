@@ -529,7 +529,7 @@ async fn test_files_upload_and_download() {
     // Download the file
     let req = HttpRequest {
         method: "GET".into(),
-        path: &format!("files/{}", file_id),
+        path: format!("files/{}", file_id),
         query_params: Default::default(),
         headers: Default::default(),
         body: None,
@@ -554,7 +554,7 @@ async fn test_files_upload_and_download() {
     // Delete the file
     let req = HttpRequest {
         method: "DELETE".into(),
-        path: &format!("files/{}", file_id),
+        path: format!("files/{}", file_id),
         query_params: Default::default(),
         headers: Default::default(),
         body: None,
@@ -581,9 +581,9 @@ async fn test_all_plugins_register_schemas() {
 
     for (plugin, name) in &plugins {
         loader.load(plugin.clone()).await.unwrap();
-        let schemas = loader
+        let _schemas = loader
             .create_context(plugin.id(), plugin.required_capabilities())
-            .schema_registry
+            .schema_registry()
             .list_all()
             .iter()
             .filter(|s| s.name.starts_with(name))

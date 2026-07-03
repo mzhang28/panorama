@@ -71,13 +71,11 @@ impl GrafanaPlugin {
         ctx: &dyn PluginContext,
         query: &DashboardQuery,
     ) -> Result<serde_json::Value, PluginError> {
-        // Fetch all nodes with time fields
-        let mut all_nodes = ctx
-            .query_nodes(NodeQuery {
-                sort_by: Some("system:node_time".to_string()),
-                ..NodeQuery::new()
-            })
+        // Fetch all nodes with time fields, sorted
+        let rows = ctx
+            .query("MATCH (n) IN space(\"default\") RETURN n ORDER BY n.system.node_time ASC")
             .await?;
+        let mut all_nodes: Vec<Node> = rows.iter().filter_map(panorama_core::query::row_to_node).collect();
 
         // Filter by time range
         if let Some(from) = &query.from {
@@ -290,17 +288,13 @@ impl Plugin for GrafanaPlugin {
                 HttpResponse::json(&saved)
             }
             ("GET", "dashboards") => {
-                let nodes = ctx
-                    .query_nodes(NodeQuery {
-                        sort_by: Some("-system:updated_at".to_string()),
-                        ..NodeQuery::new()
-                    })
-                    .await?;
-                let dashboards: Vec<_> = nodes
-                    .into_iter()
-                    .filter(|n| n.get_field("grafana:config").is_some())
-                    .collect();
-                HttpResponse::json(&dashboards)
+                let rows = ctx.query(
+                    "MATCH (n) IN space(\"default\") \
+                     WHERE HAS_FIELD(n, \"grafana\", \"config\") \
+                     RETURN n \
+                     ORDER BY n.system.updated_at DESC"
+                ).await?;
+                HttpResponse::json(&rows)
             }
             _ => Err(PluginError::not_found(&format!(
                 "Unknown endpoint: {}",

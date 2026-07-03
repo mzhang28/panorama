@@ -20,6 +20,36 @@ impl NodeStorage {
     pub fn raw_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
         self.conn.lock().map_err(|e| e.to_string())
     }
+
+    /// Execute a Panorama Query Language query and return JSON rows.
+    pub fn query_lang(&self, query_string: &str) -> Result<Vec<serde_json::Value>, String> {
+        use panorama_core::query::parse_query;
+        use crate::query::compiler::compile;
+
+        let ast = parse_query(query_string).map_err(|e| format!("parse: {}", e))?;
+        let compiled = compile(&ast).map_err(|e| format!("compile: {}", e))?;
+        let conn = self.raw_conn()?;
+        let mut stmt = conn.prepare(&compiled.sql).map_err(|e| format!("prepare: {}", e))?;
+        let column_names: Vec<String> = stmt.column_names().iter().map(|c| c.to_string()).collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> = compiled.params.iter()
+            .map(|p| p as &dyn rusqlite::types::ToSql).collect();
+
+        let mut results = Vec::new();
+        let rows = stmt.query_map(params_refs.as_slice(), |row| {
+            let mut obj = serde_json::Map::new();
+            for (i, col) in column_names.iter().enumerate() {
+                let val: Result<String, _> = row.get(i);
+                obj.insert(col.clone(), match val {
+                    Ok(s) => serde_json::from_str(&s).unwrap_or(serde_json::Value::String(s)),
+                    Err(_) => serde_json::Value::Null,
+                });
+            }
+            Ok(serde_json::Value::Object(obj))
+        }).map_err(|e| format!("exec: {}", e))?;
+
+        for row in rows.flatten() { results.push(row); }
+        Ok(results)
+    }
 }
 
 impl NodeStorage {
@@ -147,69 +177,4 @@ impl NodeStorage {
         Ok(())
     }
 
-    pub fn query(
-        &self,
-        field_filters: &HashMap<String, FieldValue>,
-        space_id: Option<Uuid>,
-        limit: Option<usize>,
-    ) -> Vec<Node> {
-        let conn = match self.conn.lock() {
-            Ok(c) => c,
-            Err(_) => return vec![],
-        };
-
-        let mut sql = String::from(
-            "SELECT id, space_id, fields_json, preferred_schemas_json, app_managed_json, created_at, updated_at FROM nodes WHERE 1=1"
-        );
-        let mut conditions: Vec<String> = Vec::new();
-
-        // Space filter
-        if let Some(sid) = space_id {
-            conditions.push(format!("space_id = '{}'", sid));
-        }
-
-        // Field filters using JSON extraction
-        for (key, value) in field_filters {
-            let val_str = match value {
-                FieldValue::String(s) => s.clone(),
-                FieldValue::Integer(i) => i.to_string(),
-                FieldValue::Float(f) => f.to_string(),
-                FieldValue::Boolean(b) => b.to_string(),
-                FieldValue::DateTime(s) => s.clone(),
-                FieldValue::NodeRef(id) => id.to_string(),
-                _ => continue,
-            };
-            conditions.push(format!(
-                "json_extract(fields_json, '$.{}') = '{}'",
-                key, val_str.replace('\'', "''")
-            ));
-        }
-
-        if !conditions.is_empty() {
-            sql.push_str(" AND ");
-            sql.push_str(&conditions.join(" AND "));
-        }
-
-        sql.push_str(" ORDER BY updated_at DESC");
-
-        if let Some(lim) = limit {
-            sql.push_str(&format!(" LIMIT {}", lim));
-        }
-
-        let mut stmt = match conn.prepare(&sql) {
-            Ok(s) => s,
-            Err(_) => return vec![],
-        };
-
-        let nodes: Vec<Node> = stmt.query_map([], Self::row_to_node)
-            .ok()
-            .map(|rows| rows.filter_map(|r| r.ok()).collect())
-            .unwrap_or_default();
-
-        nodes
-    }
-
-    pub fn all_in_space(&self, space_id: Uuid) -> Vec<Node> {
-        self.query(&HashMap::new(), Some(space_id), None)
-    }
 }

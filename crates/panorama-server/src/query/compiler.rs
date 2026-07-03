@@ -56,38 +56,35 @@ pub fn compile(query: &Query) -> Result<CompiledQuery, String> {
     for mc in &query.matches {
         match &mc.source {
             MatchSource::Space(space_name) => {
-                // CTE: space filter
                 let cte_name = format!("_match_{}", mc.variable);
-                ctes.push(format!(
-                    "{} AS (SELECT * FROM nodes WHERE space_id = ?{})",
-                    cte_name, param_idx
-                ));
-                params.push(ParamValue::Text(space_name.clone()));
-                param_idx += 1;
-                ctx.var_cte.insert(mc.variable.clone(), cte_name);
+                ctx.var_cte.insert(mc.variable.clone(), cte_name.clone());
 
-                // WHERE predicates on this match
+                let space_id_str = if space_name == "default" {
+                    uuid::Uuid::nil().to_string()
+                } else {
+                    space_name.clone()
+                };
+
+                let mut where_sqls = vec![format!("space_id = ?{}", param_idx)];
+                params.push(ParamValue::Text(space_id_str));
+                param_idx += 1;
+
                 if let Some(wc) = &mc.where_clause {
                     for pred in &wc.predicates {
                         let (pred_sql, pred_params) = compile_predicate(
                             pred, &mc.variable, &ctx, param_idx,
                         )?;
-                        // Push the predicate down into the CTE
-                        let cte_name = format!("_match_{}", mc.variable);
-                        let new_cte = format!(
-                            "{} AS (SELECT * FROM {cte} WHERE {pred_sql})",
-                            cte_name,
-                            cte = cte_name,
-                            pred_sql = pred_sql
-                        );
-                        // Replace the previous CTE entry
-                        if let Some(existing) = ctes.iter_mut().rev().find(|c| c.starts_with(&format!("{} AS", cte_name))) {
-                            *existing = new_cte;
-                        }
+                        where_sqls.push(pred_sql);
                         param_idx += pred_params.len();
                         params.extend(pred_params);
                     }
                 }
+
+                ctes.push(format!(
+                    "{} AS (SELECT * FROM nodes WHERE {})",
+                    cte_name,
+                    where_sqls.join(" AND ")
+                ));
             }
             MatchSource::RefTraverse { edge_type, target_var, target_source, .. } => {
                 // For reference traversal, we need to join nodes via the ref field.
@@ -98,7 +95,13 @@ pub fn compile(query: &Query) -> Result<CompiledQuery, String> {
 
                 // Resolve target space
                 let target_space = match target_source.as_ref() {
-                    MatchSource::Space(name) => name.clone(),
+                    MatchSource::Space(name) => {
+                        if name == "default" {
+                            uuid::Uuid::nil().to_string()
+                        } else {
+                            name.clone()
+                        }
+                    }
                     _ => return Err("nested RefTraverse not yet supported".into()),
                 };
 
@@ -128,6 +131,8 @@ pub fn compile(query: &Query) -> Result<CompiledQuery, String> {
 
     // Build SELECT from RETURN clause
     let mut select_cols: Vec<String> = Vec::new();
+    // Build SELECT from RETURN clause
+    let mut select_cols: Vec<String> = Vec::new();
     for col in &query.return_clause.columns {
         match &col.expression {
             ReturnExpr::Node(_) => {
@@ -135,14 +140,13 @@ pub fn compile(query: &Query) -> Result<CompiledQuery, String> {
             }
             ReturnExpr::Field(fp) => {
                 let col_alias = col.alias.clone().unwrap_or_else(|| fp.field.clone());
-                let ns_key = match &fp.namespace {
-                    Some(ns) => format!("{}.{}", ns, fp.field),
+                let key = match &fp.namespace {
+                    Some(ns) => format!("{}:{}", ns, fp.field),
                     None => fp.field.clone(),
                 };
-                let json_path = ns_key.replace('.', "\\.");
                 select_cols.push(format!(
-                    "json_extract({cte}.fields_json, '$.{path}') AS {alias}",
-                    cte = final_cte, path = json_path, alias = col_alias
+                    "json_extract({cte}.fields_json, '$.\"{key}\".value') AS {alias}",
+                    cte = final_cte, key = key, alias = col_alias
                 ));
             }
         }
@@ -160,15 +164,14 @@ pub fn compile(query: &Query) -> Result<CompiledQuery, String> {
 
     // ORDER BY
     if let Some(ob) = &query.order_by {
-        let ns_key = match &ob.field.namespace {
-            Some(ns) => format!("{}.{}", ns, ob.field.field),
+        let key = match &ob.field.namespace {
+            Some(ns) => format!("{}:{}", ns, ob.field.field),
             None => ob.field.field.clone(),
         };
-        let json_path = ns_key.replace('.', "\\.");
         sql.push_str(&format!(
-            " ORDER BY json_extract({cte}.fields_json, '$.{path}') {dir}",
+            " ORDER BY json_extract({cte}.fields_json, '$.\"{key}\".value') {dir}",
             cte = final_cte,
-            path = json_path,
+            key = key,
             dir = match ob.direction {
                 OrderDir::Asc => "ASC",
                 OrderDir::Desc => "DESC",
@@ -214,7 +217,6 @@ fn compile_predicate(
     ctx: &CompileCtx,
     start_param: usize,
 ) -> Result<(String, Vec<ParamValue>), String> {
-    let cte = ctx.var_cte.get(var).cloned().unwrap_or_else(|| var.into());
     let mut pi = start_param;
 
     match pred {
@@ -222,50 +224,46 @@ fn compile_predicate(
             // Check if the node has this schema in its preferred_schemas_json
             Ok((
                 format!(
-                    "json_extract({cte}.preferred_schemas_json, '$[*].schema_node_id') LIKE ?{p}",
-                    cte = cte, p = pi
+                    "json_extract(preferred_schemas_json, '$[*].schema_node_id') LIKE ?{p}",
+                    p = pi
                 ),
                 vec![ParamValue::Text(format!("%{}%", schema_id))],
             ))
         }
         Predicate::FieldCompare { field_path, op, value, .. } => {
-            let ns_key = field_path_to_json_key(field_path);
+            let key = field_path_to_key(field_path);
             let val_param = value_to_param(value);
             Ok((
                 format!(
-                    "json_extract({cte}.fields_json, '$.{key}') {op} ?{p}",
-                    cte = cte, key = ns_key, op = cmp_sql(op), p = pi
+                    "json_extract(fields_json, '$.\"{key}\".value') {op} ?{p}",
+                    key = key, op = cmp_sql(op), p = pi
                 ),
                 vec![val_param],
             ))
         }
         Predicate::HasField { namespace, field_name, .. } => {
-            let ns_key = if namespace == "*" {
-                format!("%.{}", field_name)
-            } else {
-                format!("{}.{}", namespace, field_name)
-            };
+            let key = format!("{}:{}", namespace, field_name);
             Ok((
                 format!(
-                    "json_type({cte}.fields_json, '$.{key}') IS NOT NULL",
-                    cte = cte, key = ns_key.replace('.', "\\.")
+                    "json_type(fields_json, '$.\"{key}\"') IS NOT NULL",
+                    key = key
                 ),
                 vec![],
             ))
         }
         Predicate::IsNull { field_path, not } => {
-            let ns_key = field_path_to_json_key(field_path);
+            let key = field_path_to_key(field_path);
             let op = if *not { "IS NOT NULL" } else { "IS NULL" };
             Ok((
                 format!(
-                    "json_type({cte}.fields_json, '$.{key}') {op}",
-                    cte = cte, key = ns_key, op = op
+                    "json_type(fields_json, '$.\"{key}\"') {op}",
+                    key = key, op = op
                 ),
                 vec![],
             ))
         }
         Predicate::In { field_path, values, .. } => {
-            let ns_key = field_path_to_json_key(field_path);
+            let key = field_path_to_key(field_path);
             let mut placeholders = Vec::new();
             let mut vals = Vec::new();
             for v in values {
@@ -275,18 +273,18 @@ fn compile_predicate(
             }
             Ok((
                 format!(
-                    "json_extract({cte}.fields_json, '$.{key}') IN ({phs})",
-                    cte = cte, key = ns_key, phs = placeholders.join(", ")
+                    "json_extract(fields_json, '$.\"{key}\".value') IN ({phs})",
+                    key = key, phs = placeholders.join(", ")
                 ),
                 vals,
             ))
         }
         Predicate::Like { field_path, pattern, .. } => {
-            let ns_key = field_path_to_json_key(field_path);
+            let key = field_path_to_key(field_path);
             Ok((
                 format!(
-                    "json_extract({cte}.fields_json, '$.{key}') LIKE ?{p}",
-                    cte = cte, key = ns_key, p = pi
+                    "json_extract(fields_json, '$.\"{key}\".value') LIKE ?{p}",
+                    key = key, p = pi
                 ),
                 vec![ParamValue::Text(pattern.clone())],
             ))
@@ -314,12 +312,11 @@ fn compile_predicate(
     }
 }
 
-fn field_path_to_json_key(fp: &FieldPath) -> String {
-    let key = match &fp.namespace {
-        Some(ns) => format!("{}.{}", ns, fp.field),
+fn field_path_to_key(fp: &FieldPath) -> String {
+    match &fp.namespace {
+        Some(ns) => format!("{}:{}", ns, fp.field),
         None => fp.field.clone(),
-    };
-    key.replace('.', "\\.")
+    }
 }
 
 fn cmp_sql(op: &CmpOp) -> &'static str {

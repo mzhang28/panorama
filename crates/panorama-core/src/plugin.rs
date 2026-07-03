@@ -102,9 +102,6 @@ pub trait PluginContext: Send + Sync {
     /// Delete a node
     async fn delete_node(&self, id: Uuid) -> Result<(), PluginError>;
 
-    /// Query nodes by field values (legacy filter-bag API).
-    async fn query_nodes(&self, query: NodeQuery) -> Result<Vec<Node>, PluginError>;
-
     /// Execute a Panorama Query Language query.
     /// Returns rows as JSON objects with columns named by their expression aliases.
     async fn query(&self, _query_string: &str) -> Result<Vec<serde_json::Value>, PluginError> {
@@ -265,62 +262,6 @@ pub enum UiMountPoint {
     Dashboard,
     /// Custom mount point name
     Custom(String),
-}
-
-/// Query to find nodes matching certain criteria
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NodeQuery {
-    /// Filter by field values (namespace:field_name -> value)
-    pub field_filters: HashMap<String, FieldValue>,
-    /// Filter by preferred schema
-    pub schema_filter: Option<Uuid>,
-    /// Filter by space
-    pub space_id: Option<Uuid>,
-    /// Maximum results to return
-    pub limit: Option<usize>,
-    /// Offset for pagination
-    pub offset: Option<usize>,
-    /// Sort by field (namespace:field_name, descending if prefixed with -)
-    pub sort_by: Option<String>,
-}
-
-impl NodeQuery {
-    pub fn new() -> Self {
-        Self {
-            field_filters: HashMap::new(),
-            schema_filter: None,
-            space_id: None,
-            limit: None,
-            offset: None,
-            sort_by: None,
-        }
-    }
-
-    pub fn with_field(mut self, key: impl Into<String>, value: FieldValue) -> Self {
-        self.field_filters.insert(key.into(), value);
-        self
-    }
-
-    pub fn with_schema(mut self, schema_id: Uuid) -> Self {
-        self.schema_filter = Some(schema_id);
-        self
-    }
-
-    pub fn in_space(mut self, space_id: Uuid) -> Self {
-        self.space_id = Some(space_id);
-        self
-    }
-
-    pub fn limit(mut self, limit: usize) -> Self {
-        self.limit = Some(limit);
-        self
-    }
-}
-
-impl Default for NodeQuery {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 /// Data returned from object storage

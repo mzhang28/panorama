@@ -11,12 +11,13 @@ fn handle(input: &WasmInput) -> WasmOutput {
             fields.insert("system:node_time".into(), field_value("DateTime", "2025-01-01T00:00:00Z"));
             fields.insert("journal:content".into(), field_value("String", body["content"].as_str().unwrap_or("")));
             if let Some(m) = body["mood"].as_str() { fields.insert("journal:mood".into(), field_value("String", m)); }
-            let mut out = json_ok(serde_json::json!({"created":true})); out.effects.push(create_effect(fields)); out
+            host_create(&fields);
+            json_ok(serde_json::json!({"created":true}))
         }
         ("GET", "entries") => {
-            let mut entries: Vec<&WasmNode> = input.nodes.iter().filter(|n| n.fields.contains_key("journal:content")).collect();
-            entries.sort_by(|a,b| { let ta = a.fields.get("system:node_time").and_then(|v| v["value"].as_str()).unwrap_or(""); let tb = b.fields.get("system:node_time").and_then(|v| v["value"].as_str()).unwrap_or(""); tb.cmp(ta) });
-            json_ok(serde_json::json!(entries))
+            let rows = host_run_query("MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"journal\", \"content\") RETURN n ORDER BY n.system.node_time DESC LIMIT 100");
+            let nodes: Vec<WasmNode> = rows.iter().filter_map(row_to_wasm_node).collect();
+            json_ok(serde_json::json!(nodes))
         }
         _ => not_found()
     }

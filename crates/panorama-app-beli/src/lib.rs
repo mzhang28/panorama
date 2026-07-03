@@ -114,17 +114,18 @@ impl BeliPlugin {
         &self,
         ctx: &dyn PluginContext,
     ) -> Result<serde_json::Value, PluginError> {
-        let nodes = ctx.query_nodes(NodeQuery::new()).await?;
+        // Query restaurants: nodes with cuisine or location fields
+        let restaurant_rows = ctx
+            .query("MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"beli\", \"cuisine\") RETURN n")
+            .await?;
 
-        // Collect restaurants and comparisons
-        let restaurants: Vec<_> = nodes
-            .iter()
-            .filter(|n| n.get_field("beli:cuisine").is_some() || n.get_field("beli:location").is_some())
-            .collect();
-        let comparisons: Vec<_> = nodes
-            .iter()
-            .filter(|n| n.get_field("beli:better_id").is_some())
-            .collect();
+        // Query comparisons: nodes with better_id field
+        let comparison_rows = ctx
+            .query("MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"beli\", \"better_id\") RETURN n")
+            .await?;
+
+        let restaurants: Vec<Node> = restaurant_rows.iter().filter_map(panorama_core::query::row_to_node).collect();
+        let comparisons: Vec<Node> = comparison_rows.iter().filter_map(panorama_core::query::row_to_node).collect();
 
         // Build directed graph: better -> worse
         let mut in_degree: HashMap<String, usize> = HashMap::new();
@@ -133,8 +134,9 @@ impl BeliPlugin {
 
         for r in &restaurants {
             let id = r.id.to_string();
+            let title = r.title().unwrap_or("Unknown").to_string();
             in_degree.entry(id.clone()).or_insert(0);
-            names.insert(id, r.title().unwrap_or("Unknown").to_string());
+            names.insert(id, title);
         }
 
         for c in &comparisons {
@@ -189,8 +191,8 @@ impl BeliPlugin {
 
         Ok(serde_json::json!({
             "tiers": tiers,
-            "total_restaurants": restaurants.len(),
-            "total_comparisons": comparisons.len(),
+            "total_restaurants": restaurant_rows.len(),
+            "total_comparisons": comparison_rows.len(),
         }))
     }
 }
@@ -298,12 +300,10 @@ impl Plugin for BeliPlugin {
                 HttpResponse::json(&restaurant)
             }
             ("GET", "restaurants") => {
-                let nodes = ctx.query_nodes(NodeQuery::new()).await?;
-                let restaurants: Vec<_> = nodes
-                    .into_iter()
-                    .filter(|n| n.get_field("beli:cuisine").is_some() || n.get_field("beli:location").is_some())
-                    .collect();
-                HttpResponse::json(&restaurants)
+                let rows = ctx.query(
+                    "MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"beli\", \"cuisine\") RETURN n"
+                ).await?;
+                HttpResponse::json(&rows)
             }
             ("POST", "compare") => {
                 let body: serde_json::Value = serde_json::from_slice(

@@ -77,7 +77,25 @@ export async function queryNodes(params: Record<string, string> = {}): Promise<N
   const query = new URLSearchParams(params).toString();
   const res = await fetch(`${BASE}/api/nodes?${query}`);
   if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const data = await res.json();
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.rows)) {
+    return data.rows.map((row: any) => {
+      let fields = row.fields_json;
+      if (typeof fields === 'string') {
+        try { fields = JSON.parse(fields); } catch { fields = {}; }
+      }
+      return {
+        id: row.id,
+        fields: fields || {},
+        space_id: row.space_id || '00000000-0000-0000-0000-000000000000',
+        preferred_schemas: row.preferred_schemas_json ? (typeof row.preferred_schemas_json === 'string' ? JSON.parse(row.preferred_schemas_json) : row.preferred_schemas_json) : [],
+        created_at: row.created_at || new Date().toISOString(),
+        updated_at: row.updated_at || new Date().toISOString(),
+      };
+    });
+  }
+  return [];
 }
 
 // Schema API

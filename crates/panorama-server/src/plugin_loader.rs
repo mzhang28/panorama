@@ -195,23 +195,13 @@ impl PluginLoader {
 
         if let Some(wp) = wasm_plugin {
             // Execute via WASM runtime
-            return tokio::task::spawn_blocking({
-                let wasm_bytes = wp.wasm_bytes.clone();
-                let endpoint = endpoint.to_string();
-                let storage = self.storage.clone();
-                let object_storage = self.object_storage.clone();
-                move || {
-                    wasm_runtime::execute_wasm_handler(
-                        &wasm_bytes,
-                        &endpoint,
-                        &request,
-                        &storage,
-                        &object_storage,
-                    )
-                }
-            })
-            .await
-            .map_err(|e| PluginError::internal(format!("WASM task join: {}", e)))?
+            return wasm_runtime::execute_wasm_handler(
+                &wp.wasm_bytes,
+                endpoint,
+                &request,
+                &self.storage,
+                &self.object_storage,
+            ).await;
         }
 
         // Otherwise, try native plugin

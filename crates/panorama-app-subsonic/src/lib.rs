@@ -254,7 +254,8 @@ impl Plugin for SubsonicPlugin {
                 }))
             }
             ("GET", "rest/getArtists") => {
-                let nodes = ctx.query_nodes(NodeQuery::new()).await?;
+                let rows = ctx.query("MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"system\", \"node_title\") RETURN n").await?;
+                let nodes: Vec<Node> = rows.iter().filter_map(panorama_core::query::row_to_node).collect();
                 let artists: Vec<_> = nodes
                     .iter()
                     .filter(|n| {
@@ -278,7 +279,8 @@ impl Plugin for SubsonicPlugin {
                 }))
             }
             ("GET", "rest/getAlbumList2") => {
-                let nodes = ctx.query_nodes(NodeQuery::new()).await?;
+                let rows = ctx.query("MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"subsonic\", \"artist_id\") RETURN n").await?;
+                let nodes: Vec<Node> = rows.iter().filter_map(panorama_core::query::row_to_node).collect();
                 let albums: Vec<_> = nodes
                     .iter()
                     .filter(|n| {

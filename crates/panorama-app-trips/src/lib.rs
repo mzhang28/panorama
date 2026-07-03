@@ -267,12 +267,10 @@ impl Plugin for TripsPlugin {
                 HttpResponse::json(&trip)
             }
             ("GET", "trips") => {
-                let nodes = ctx.query_nodes(NodeQuery::new()).await?;
-                let trips: Vec<_> = nodes
-                    .into_iter()
-                    .filter(|n| n.get_field("trips:start_date").is_some())
-                    .collect();
-                HttpResponse::json(&trips)
+                let rows = ctx.query(
+                    "MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"trips\", \"start_date\") RETURN n"
+                ).await?;
+                HttpResponse::json(&rows)
             }
             ("POST", "events") => {
                 let body: serde_json::Value = serde_json::from_slice(
@@ -321,8 +319,8 @@ impl Plugin for TripsPlugin {
             }
             ("GET", "events") => {
                 let trip_filter = request.query_params.get("trip_id");
-                let mut nodes = ctx.query_nodes(NodeQuery::new()).await?;
-                nodes.retain(|n| n.get_field("trips:trip_id").is_some());
+                let rows = ctx.query("MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"trips\", \"trip_id\") RETURN n").await?;
+                let mut nodes: Vec<Node> = rows.iter().filter_map(panorama_core::query::row_to_node).collect();
                 if let Some(tid) = trip_filter {
                     nodes.retain(|n| {
                         n.get_field("trips:trip_id")
@@ -351,7 +349,8 @@ impl Plugin for TripsPlugin {
                 HttpResponse::json(&nodes)
             }
             ("GET", "events/map") => {
-                let nodes = ctx.query_nodes(NodeQuery::new()).await?;
+                let rows = ctx.query("MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"trips\", \"latitude\") RETURN n").await?;
+                let nodes: Vec<Node> = rows.iter().filter_map(panorama_core::query::row_to_node).collect();
                 let map_events: Vec<_> = nodes
                     .into_iter()
                     .filter(|n| {

@@ -210,11 +210,8 @@ impl Plugin for FilesPlugin {
             }
             ("GET", "files") => {
                 let folder = request.query_params.get("folder").cloned();
-                let nodes = ctx.query_nodes(NodeQuery::new()).await?;
-                let mut files: Vec<_> = nodes
-                    .into_iter()
-                    .filter(|n| n.get_field("files:object_ref").is_some())
-                    .collect();
+                let rows = ctx.query("MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"files\", \"object_ref\") RETURN n ORDER BY n.system.updated_at DESC").await?;
+                let mut files: Vec<Node> = rows.iter().filter_map(panorama_core::query::row_to_node).collect();
                 if let Some(f) = folder {
                     files.retain(|n| {
                         n.get_field("files:folder")
@@ -225,7 +222,6 @@ impl Plugin for FilesPlugin {
                             .unwrap_or(false)
                     });
                 }
-                files.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
                 HttpResponse::json(&files)
             }
             ("GET", _) if endpoint.starts_with("files/") => {

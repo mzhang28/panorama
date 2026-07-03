@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use bytes::Bytes;
-use panorama_core::plugin::{HttpRequest, NodeQuery};
+use panorama_core::plugin::HttpRequest;
 use panorama_core::types::{FieldValue, Node};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -177,27 +177,49 @@ async fn delete_node(
 async fn query_nodes(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<Node>>, (StatusCode, Json<ApiError>)> {
-    let mut query = NodeQuery::new();
-    if let Some(sid) = params.get("space_id").and_then(|v| Uuid::parse_str(v).ok()) {
-        query.space_id = Some(sid);
-    }
-    if let Some(l) = params.get("limit").and_then(|v| v.parse().ok()) {
-        query.limit = Some(l);
-    }
-    if let Some(o) = params.get("offset").and_then(|v| v.parse().ok()) {
-        query.offset = Some(o);
-    }
-    if let Some(s) = params.get("sort_by") {
-        query.sort_by = Some(s.clone());
-    }
-    for (key, value) in &params {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    // Build a Panorama Query Language query from URL params
+    let mut qs = String::from("MATCH (n) IN space(\"default\")");
+
+    // Field filters
+    let mut preds: Vec<String> = Vec::new();
+    for (key, _value) in &params {
         if let Some(field_key) = key.strip_prefix("filter.") {
-            query.field_filters.insert(field_key.to_string(), FieldValue::String(value.clone()));
+            if let Some((ns, f)) = field_key.split_once(':') {
+                preds.push(format!("HAS_FIELD(n, \"{}\", \"{}\")", ns, f));
+            } else {
+                preds.push(format!("HAS_FIELD(n, \"*\", \"{}\")", field_key));
+            }
         }
     }
-    let results = state.storage.query(&query.field_filters, query.space_id, query.limit);
-    Ok(Json(results))
+    if !preds.is_empty() {
+        qs.push_str(" WHERE ");
+        qs.push_str(&preds.join(" AND "));
+    }
+
+    qs.push_str(" RETURN n");
+
+    // Sort
+    if let Some(sort) = params.get("sort_by") {
+        let descending = sort.starts_with('-');
+        let field = if descending { &sort[1..] } else { sort.as_str() };
+        let dir = if descending { "DESC" } else { "ASC" };
+        if let Some((ns, f)) = field.split_once(':') {
+            qs.push_str(&format!(" ORDER BY n.{}.{} {}", ns, f, dir));
+        } else {
+            qs.push_str(&format!(" ORDER BY n.{} {}", field, dir));
+        }
+    }
+
+    // Limit / offset
+    if let Some(l) = params.get("limit") {
+        qs.push_str(&format!(" LIMIT {}", l));
+    }
+    if let Some(o) = params.get("offset") {
+        qs.push_str(&format!(" SKIP {}", o));
+    }
+
+    execute_query(&state, &qs).map(Json)
 }
 
 // -- Schema handlers --
@@ -403,28 +425,16 @@ struct QueryRequest {
     pub query: String,
 }
 
-async fn query_handler(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<QueryRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    // Parse
-    let ast = panorama_core::query::parse_query(&req.query)
+fn execute_query(
+    state: &AppState,
+    query_string: &str,
+) -> Result<serde_json::Value, (StatusCode, Json<ApiError>)> {
+    let ast = panorama_core::query::parse_query(query_string)
         .map_err(|e| ApiError::bad_request(&format!("Parse error: {}", e)))?;
-
-    // Compile to parameterized SQL
     let compiled = crate::query::compiler::compile(&ast)
         .map_err(|e| ApiError::bad_request(&format!("Compile error: {}", e)))?;
-
-    tracing::debug!(
-        query_id = %uuid::Uuid::new_v4(),
-        sql = %compiled.sql,
-        "executing query"
-    );
-
-    // Execute against SQLite via NodeStorage's connection
     let conn = state.storage.raw_conn()
         .map_err(|e| ApiError::internal(e))?;
-
     let mut stmt = conn.prepare(&compiled.sql)
         .map_err(|e| ApiError::bad_request(&format!("SQL prepare error: {}", e)))?;
 
@@ -460,8 +470,15 @@ async fn query_handler(
         results.push(row);
     }
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "rows": results,
         "count": results.len(),
-    })))
+    }))
+}
+
+async fn query_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<QueryRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    execute_query(&state, &req.query).map(Json)
 }
