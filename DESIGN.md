@@ -14,6 +14,10 @@ Here are the basic high-level design requirements:
   - Schemas are their own nodes
     - Types are ALSO their own nodes, with the Type system schema!
     - the concept of Schemas and Types are built in to the system :P
+  - We will have a couple of system schemas so that apps can agree on stuff
+    - like a "node time" (calendars can treat this as node start time for example), but we will also have 'node start time' and 'node end time' that are separate but can fall back to node time if don't exist
+    - "node title" and "node description"? maybe allowing for nodes to have a human-readable label at least
+    - created at / updated at, obviously
   - Schemas can either be preferred or required.
     - Preferred schemas allow their nodes to fall out of schema, however, it will raise a warning about why
       - Preferred schemas are set using a designated system-level field on the node
@@ -45,6 +49,10 @@ Here are the basic high-level design requirements:
     - fitness/workout tracker
     - trip planner
     - all sorts of other self-hosted apps
+  - Apps by default have several pieces:
+    - they can have a background running task, which follows the shape of communicating with external 3rd party services and updates the nodes
+    - they can serve HTTP endpoints, whose handlers can update nodes
+    - they can have a local component along with a plugin UI
   - Apps can define schemas
   - Apps must declare and be granted capabilities 
     - Apps must bump major version in order to chagne permission grants
@@ -92,6 +100,9 @@ Here are the basic high-level design requirements:
   - Fields aren't meant to store big blobs that don't change a lot
   - Apps should really store big blobs in object storage and refer to them via a reference
   - garbage collection won't be implemented for now. we'll just have a way to sort by biggest file size and allow u to query to see what's needed
+  - the API should be similar to S3 so we can expose S3 functionality
+    - allow for things like resumable uploads, range queries, etc
+  - for each device, they can treat objects as download-on-demand
 - End-to-end encryption will be nice eventually but not planned for v0.x
 - Other workflows that should be able to be supported, and may need careful planning:
   - Exporting/importing
@@ -101,3 +112,27 @@ Other notes / questions:
 - Performance is nice but not CRITICAL.
   This design is in flux, so we will tweak it based on empirical usage in panorama v0.x before going on to a stable release
 - Can we make even SQL indexes as a third party app?
+
+Specific workflows to target for v0.0:
+
+- journal
+  - a UI should contain a "daily journal" thing, where entries are stacked vertically so most recent is on top, but each days' journal is saved as a separate note
+    - notes should be markdown, but i think it woudl be nice to also have a kind of block-level breakdown of nodes, so a large note can be a node that contains links to paragraphs which are also nodes, but the paragraph nodes may just be there to like allow references to it, while the main note node contains the actual data
+- wakatime functionality
+  - exposes an endpoint that a real wakatime client can submit events to, translates them into nodes with a specified schema so we can time-series-index it
+- graph view like grafana
+  - allows for setting up arbitrary dashboards for viewing time-series data like the wakatime
+    - this would use system time field
+  - should allow for arbitrary promql expressions
+  - at the very minimum should be able to query things like:
+    - how many hours spent on each project in the last week
+    - leaderboard of top projects viewed in the past {24h, 7d, etc} the usual grafana query selector
+- trip planner
+  - allow for events during each trip
+  - allow for viewing events in a calendar view but also as a map view (use some open source shit for this)
+- beli alternative
+  - rate restaurants, although on a PARTIAL ORDER!! not a total order :P
+  - idk if u can pull some public info off OSM or something
+- maybe honestly a subsonic-compatible music interface? so we can stream music
+- allow for uploading files
+  - resumable uploads
