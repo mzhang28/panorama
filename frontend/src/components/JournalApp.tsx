@@ -145,20 +145,31 @@ export function JournalApp() {
 
   const createBlock = useMutation({
     mutationFn: (body: any) => api('blocks', 'POST', body),
-    onSuccess: () => {
+    onSuccess: (data: any, vars: any) => {
+      const block = normalizeBlock(data)
+      // Immediately populate caches so the UI is instant
+      if (block.id) {
+        queryClient.setQueryData(['journal-page', block.id], block)
+      }
       queryClient.invalidateQueries({ queryKey: ['journal-pages'] })
       queryClient.invalidateQueries({ queryKey: ['journal-children'] })
-      queryClient.invalidateQueries({ queryKey: ['journal-page'] })
       setShowNewBlock(false)
+      // Navigate to newly created root page (not child blocks)
+      if (!vars.parent_id && block.id) {
+        setSelectedPageId(block.id)
+      }
     },
   })
 
   const updateBlock = useMutation({
     mutationFn: ({ id, ...body }: any) => api(`blocks/${id}`, 'PUT', body),
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      const block = normalizeBlock(data)
+      if (block.id) {
+        queryClient.setQueryData(['journal-page', block.id], block)
+      }
       queryClient.invalidateQueries({ queryKey: ['journal-pages'] })
       queryClient.invalidateQueries({ queryKey: ['journal-children'] })
-      queryClient.invalidateQueries({ queryKey: ['journal-page'] })
       setEditingBlockId(null)
     },
   })
@@ -236,7 +247,20 @@ export function JournalApp() {
 
       {/* Main content */}
       <main className="journal-main">
-        {activePage ? (
+        {showNewBlock ? (
+          <NewBlockForm
+            parentId={null}
+            pageId={null}
+            createBlock={(body) => createBlock.mutateAsync(body)}
+            isPending={createBlock.isPending}
+            onCreated={(data) => {
+              queryClient.invalidateQueries({ queryKey: ['journal-pages'] })
+              setShowNewBlock(false)
+              const newId = data?.n?.id || data?.id
+              if (newId) setSelectedPageId(newId)
+            }}
+          />
+        ) : activePage ? (
           <>
             {/* Page header */}
             <div className="journal-page-header">
@@ -327,8 +351,11 @@ export function JournalApp() {
             <NewBlockForm
               parentId={activePageId}
               pageId={activePageId}
+              createBlock={(body) => createBlock.mutateAsync(body)}
+              isPending={createBlock.isPending}
               onCreated={() => {
                 queryClient.invalidateQueries({ queryKey: ['journal-children'] })
+                queryClient.invalidateQueries({ queryKey: ['journal-page'] })
               }}
             />
 
@@ -353,14 +380,6 @@ export function JournalApp() {
               </div>
             )}
           </>
-        ) : showNewBlock ? (
-          <NewBlockForm
-            parentId={null}
-            pageId={null}
-            onCreated={() => {
-              queryClient.invalidateQueries({ queryKey: ['journal-pages'] })
-            }}
-          />
         ) : (
           <div className="journal-empty">
             <p className="text-muted">Select a page or create a new one.</p>
@@ -506,10 +525,14 @@ function NewBlockForm({
   parentId,
   pageId,
   onCreated,
+  createBlock,
+  isPending,
 }: {
   parentId: string | null
   pageId: string | null
-  onCreated: () => void
+  onCreated: (data: any) => void
+  createBlock: (body: any) => Promise<any>
+  isPending: boolean
 }) {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
@@ -519,6 +542,7 @@ function NewBlockForm({
   const isPage = parentId === null
 
   const handleSubmit = async () => {
+    if (!content.trim() && !title.trim()) return
     const body: any = { content }
     if (title) body.title = title
     if (parentId) body.parent_id = parentId
@@ -526,13 +550,13 @@ function NewBlockForm({
     if (journalDay) body.journal_day = journalDay
 
     try {
-      await api('blocks', 'POST', body)
+      const data = await createBlock(body)
       setTitle('')
       setContent('')
       setTags('')
-      onCreated()
+      onCreated(data)
     } catch (e: any) {
-      alert(e.message)
+      // Error handling via mutation
     }
   }
 
