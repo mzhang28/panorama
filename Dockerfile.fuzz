@@ -1,15 +1,16 @@
 # Dockerfile.fuzz — AFL++ fuzzing environment for Panorama parsers (PromQL & PQL)
 FROM aflplusplus/aflplusplus:latest
 
-# Install Rust toolchain
+# Copy Rust toolchain from official rust image
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+COPY --from=rust:1.96 /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.96 /usr/local/rustup /usr/local/rustup
 
 # Install cargo-afl wrapper
-RUN cargo install afl
+RUN cargo install cargo-afl
 
 WORKDIR /workspace
 

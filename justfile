@@ -92,10 +92,10 @@ fuzz-build:
     docker build -t panorama-fuzz -f Dockerfile.fuzz .
 
 # Run AFL++ fuzzing on PromQL parser & translator
-fuzz-promql: fuzz-build
+fuzz-promql:
     docker run -it --rm -v $(pwd)/fuzz/findings:/workspace/fuzz/findings panorama-fuzz promql
 
 # Run AFL++ fuzzing on PanoramaQL (PQL) parser
-fuzz-pql: fuzz-build
+fuzz-pql:
     docker run -it --rm -v $(pwd)/fuzz/findings:/workspace/fuzz/findings panorama-fuzz pql
 

@@ -6,6 +6,10 @@ Last updated: 2026-07-04
 
 Panorama has a functional v0.1 core — the data model, storage engine with pluggable backend abstraction (`StorageBackend`), query language parser/compiler, plugin trait, WASM plugin loader, client-side SPA routing (`TanStack Router`), single-server Bun workspace dev environment, and HTTP API are functional end-to-end.
 
+All automated test suites are passing with zero exit code:
+- **Playwright E2E Integration Suite**: 39/39 tests pass (`just test-e2e`), validating browser-level UI interaction across all 7 app plugins and core views.
+- **Rust Workspace Unit & Integration Suite**: 83/83 tests pass (`cargo test --workspace`), verifying query compilation, schema validation, PromQL translator, storage backend invariants, object storage, and plugin handlers.
+
 Major platform, architecture, and app milestones recently achieved:
 - **Single Dev Server with Bun Workspace Architecture**: Consolidated dev pipeline by converting all 7 plugin UIs (`crates/panorama-app-*/ui`) into Bun workspace packages. Nuked 8 separate Vite dev servers in favor of Vite HMR through a single dev server on `:5173`. Added dual dev/prod plugin loader pipeline (`plugins/dev.tsx` static workspace imports for dev/E2E vs `plugins/prod.tsx` Module Federation dynamic remotes for production).
 - **Schema FieldType Validation across All Apps (`FieldTypeConstraint`)**: Explicitly annotated every `SchemaField` across all 7 app plugins (`journal`, `wakatime`, `grafana`, `files`, `beli`, `trips`, `subsonic`) with strict `FieldTypeConstraint` types (`String`, `Integer`, `Float`, `Boolean`, `DateTime`, `Json`, `NodeRef`, `Array`, `ObjectRef`), activating full write-path type constraint checking via `SchemaRegistry::validate_required`.
@@ -20,7 +24,6 @@ Major platform, architecture, and app milestones recently achieved:
 - **Storage Backend Abstraction Layer (`StorageBackend`)**: Isolated all SQLite-specific code behind a clean `StorageBackend` trait and `NodeStorage` wrapper, enabling pluggable database backends (e.g., PostgreSQL, DynamoDB) without changing platform or plugin code.
 - **Containerization Infrastructure (Bun-based Docker Workflows)**: Replaced Node.js base images with `oven/bun:1` across `Dockerfile.frontend` and `Dockerfile.backend` (ui-builder stage) and configured root workspace context support for fast, reproducible containerized builds.
 - **Client-Side SPA Routing**: Replaced state-based view switching in `App.tsx` with TanStack Router (`@tanstack/react-router` v1.170) supporting URL-based navigation across all main panels and app views.
-- **Comprehensive E2E Playwright Suite (39 Tests)**: All 39 end-to-end integration test scenarios (`just test-e2e`) pass automatically against a live server instance, verifying browser-level UI interaction across all core views and app plugins.
 
 ---
 
@@ -37,19 +40,19 @@ Major platform, architecture, and app milestones recently achieved:
 | SchemaMode (Preferred / Required) | ⚠️ Partial | `Node` struct has `preferred_schemas: Vec<SchemaRef>`. `system_fields::REQUIRED_SCHEMAS` constant exists, but required schemas share validation in `SchemaRegistry::validate_required`. |
 | Schema versions (major.minor) | ✅ Done | Compatibility checks implemented (`is_compatible_with`) |
 | Migrations (field_mappings) | ⚠️ Defined, not executed | `Migration` struct exists with `field_mappings: HashMap<String, String>` but there is no engine that applies migrations to existing nodes |
-| ComputedFieldConfig (Eager/Deferred/Read) | ⚠️ Type only | Types defined. `evaluate_simple_expression` exists for basic field/ref resolution. No execution engine runs computed fields on write or read |
+| ComputedFieldConfig (Eager/Deferred/Read) | ⚠️ Type only | Types defined in `field.rs`. `evaluate_simple_expression` exists for basic field/ref resolution. Execution engine depends on Reactor subsystem (§1.6) |
 | Cycle detection | ✅ Done | `detect_cycles` function in `field.rs` |
 | System schemas (NodeTime, NodeInfo) | ✅ Done | Defined in `schema.rs::system_schemas` and registered at startup |
 | Field namespaces | ✅ Done | system/user reserved IDs (1, 2), app namespaces auto-registered |
 | CRDT types (counter, or-set, rga-text) | ❌ Missing | `FieldValue` has no CRDT variants. QUERY_DESIGN.md §3.7 references these in its operator table but they don't exist |
 | CRDT merge semantics | ❌ Missing | No merge logic for concurrent writes |
 
-### 1.2 Query Language
+### 1.2 Query Language (`design/QUERY_DESIGN.md`)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | MATCH (n) IN space(...) | ✅ Done | |
-| CONFORMS TO schema(...) with version ranges | ✅ Done | Compiles to semi-join on `node_schema_conformance` |
+| CONFORMS TO schema(...) with version ranges | ✅ Done | Compiles to semi-join on `node_schema_conformance` with `version_major >= ?` and `version_major <= ?` |
 | Field comparisons (= != < <= > >=) | ✅ Done | Via `json_extract` on `fields_json` |
 | HAS_FIELD with namespace | ✅ Done | Compiles to semi-join on `field_presence` |
 | HAS_FIELD with wildcard (*) namespace | ✅ Done | |
@@ -65,12 +68,12 @@ Major platform, architecture, and app milestones recently achieved:
 | ORDER BY ASC/DESC | ✅ Done | Uses `json_extract` — no index pushdown yet |
 | LIMIT / SKIP | ✅ Done | |
 | CRDT view selectors (@merged, @ops, @at) | ❌ Missing | §3.6 — not in parser or compiler |
-| Type-compatibility validation at compile time | ❌ Missing | §3.7 — compiler doesn't check type mismatches at compile time |
+| Operator / Type validity matrix (§3.7) | ❌ Missing | Compiler doesn't validate operator suitability per field type (e.g. string vs boolean) at compile time |
 | Aggregation (COUNT, SUM, GROUP BY) | ❌ Missing | Explicit non-goal for v0; handled by plugin post-processing (e.g. Grafana PromQL engine) |
 | Subqueries | ❌ Missing | Explicit non-goal for v0 |
 | Full-text search | ❌ Missing | Explicit non-goal for v0 |
 
-### 1.3 Storage Engine
+### 1.3 Storage Engine (`design/QUERY_DESIGN.md` & `design/DESIGN.md`)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -78,13 +81,14 @@ Major platform, architecture, and app milestones recently achieved:
 | SQLite with WAL mode | ✅ Done | Separate read (8 conn) / write (1 conn) pools wrapped inside `SqliteBackend` |
 | CRUD (create, get, update, delete) | ✅ Done | All wrapped in transactions that sync meta tables |
 | Batch create | ✅ Done | Single database transaction |
-| meta tables (6/6) | ✅ Done | namespaces, schema_tables, managed_indexes, field_presence, node_schema_conformance, field_stats — all implemented per §6.1 |
+| Meta tables (6/6) | ✅ Done | namespaces, schema_tables, managed_indexes, field_presence, node_schema_conformance, field_stats — all implemented per §6.1 |
 | Write invariants (§6.2) | ✅ Done | field_presence and node_schema_conformance synced in same transaction as node writes |
-| Prepared statement cache (§7.3) | ❌ Missing | Every query re-prepares the SQL |
+| Prepared statement cache (§7.3) | ⚠️ Code ready | `StatementCache` struct implemented in `crates/panorama-server/src/query/cache.rs` (LRU cache, 256 entries); pending full wire-up to physical query execution flow |
 | Schema-table promoted columns | ❌ Missing | All data lives in `fields_json` (JSONB) |
 | Field promotion (JSONB → column) | ❌ Missing | `PROMOTE FIELD` statement defined in §6.4 but not implemented |
+| Index control surface (`CREATE INDEX`, `DROP INDEX`) | ❌ Missing | Admin/dev index control statements (§6.4) not implemented |
 | Managed index lifecycle | ⚠️ Meta only | MetaStore tracks index status transitions (building→ready→stale→dropped) but no actual SQLite index creation is triggered |
-| Index suggestion from field_stats | ❌ Missing | `field_stats` collects counters but nothing reads them to suggest indexes |
+| Index suggestion from field_stats | ❌ Missing | `field_stats` collects counters (`record_field_read`, `record_field_scan`, etc.) but suggestion engine (`system.index_suggestions`) is missing |
 | Windowed field_stats | ❌ Missing | Counters are lifetime accumulators; no rolling-window implementation (§6.5) |
 | Query ID tracing (§8) | ❌ Missing | No query_id assignment or per-stage timing |
 
@@ -116,7 +120,26 @@ Major platform, architecture, and app milestones recently achieved:
 | Background tasks | ⚠️ Trait defined | `background_tasks()` returns definitions; no scheduler that actually runs them |
 | UI Component Integration | ✅ Done | All 7 app frontends (Journal, Grafana, WakaTime, Files, Beli, Trips, Subsonic) built and integrated into main SPA shell |
 
-### 1.6 Permissions & Auth
+### 1.6 Reactor & Hook Subsystem (`design/HOOK_DESIGN.md`)
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Reactor Schema & Node Representation (§1) | ❌ Missing | `reactors` system schema (mode, trigger, filter, action_kind, action_target, action_ref, priority, capabilities, status, retry_policy) not yet declared |
+| Eager Reactors (Pre-Commit §2) | ❌ Missing | Interception path before transaction commit not implemented |
+| Hook Points (§2.1) | ❌ Missing | `before_node_create`, `before_field_write`, `before_node_delete`, `before_schema_install`, `before_schema_migrate` hooks not wired |
+| Eager Action Kinds (`validate`, `transform`, `compute_field`) | ❌ Missing | Rejection/transformation of pending writes not built |
+| Hard Constraint: No Network Cap for Eager (§2.3) | ❌ Missing | Enforcement during reactor registration pending |
+| Schema-Owner Scoping & Gatekeepers (§2.4) | ❌ Missing | Policy gating for eager reactors pending |
+| Priority & Short-Circuiting (§2.5) | ❌ Missing | Priority chaining & validation abort pending |
+| Failure Auto-Quarantine (`error_quarantined` §2.6) | ❌ Missing | Quarantine transition after N consecutive failures pending |
+| Deferred Reactors (Post-Commit §3) | ❌ Missing | Post-commit op stream subscriber pipeline missing |
+| Triggers (`FieldWatch`, `LifecycleWatch` §3.1) | ❌ Missing | Op stream watches for node/schema/app events missing |
+| Deferred Action Kinds (`compute_field`, `side_effect`, `internal_write`) | ❌ Missing | Async reactor execution pipeline missing |
+| Delivery Guarantees & Dead-Lettering (§3.4) | ❌ Missing | At-least-once cursor tracking, backoff retry, and dead-letter queue missing |
+| Shared Cycle Detection (§4.1) | ✅ Done | Static cycle detection algorithm (`detect_cycles` in `field.rs`) implemented for field dependency graphs; needs wiring to reactor registration |
+| Reactor Execution Authority (§4.2) | ❌ Missing | Authorizing user permission checks for execution context missing |
+
+### 1.7 Permissions & Auth (`design/DESIGN.md`)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -127,7 +150,7 @@ Major platform, architecture, and app milestones recently achieved:
 | Space-level permissions | ❌ Missing | DESIGN.md specifies space-level permissions; only stub data structures exist |
 | App permission grant UI | ❌ Missing | No way for a user to review/accept an app's capability request |
 
-### 1.7 Frontend
+### 1.8 Frontend
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -139,9 +162,9 @@ Major platform, architecture, and app milestones recently achieved:
 | Journal App UI | ✅ Done | Logseq-inspired block tree outliner (`JournalApp.tsx`). Supports page creation, journal day navigation, collapsible subtrees, block editing, indent/outdent, wiki-links `[[title]]`, and backlink inspector |
 | Grafana App UI | ✅ Done | Full React SPA dashboard builder (`panorama-app-grafana/ui/src/App.tsx`). Supports panel CRUD, PromQL editor, grid layout controls, and 6 inline SVG chart types |
 | WakaTime App UI | ✅ Done | Coding activity dashboard (`panorama-app-wakatime/ui/src/App.tsx`). Heartbeat submission test form, project/language/file leaderboards, and SVG activity time-series chart |
-| Files App UI | ✅ Done | Storage file manager (`panorama-app-files/ui/src/App.tsx`). Drop zone upload form, folder filters, storage stats, file listing, download links |
+| Files App UI | ✅ Done | Storage file manager (`panorama-app-files/ui/src/App.tsx`). Drag-and-drop / select upload form, folder filters, storage stats, file listing, download links |
 | Beli App UI | ✅ Done | Restaurant rating app (`panorama-app-beli/ui/src/App.tsx`). Restaurant creator, pairwise comparison form (`A > B`), Kahn's algorithm topological ranking tiers display |
-| Trips App UI | ✅ Done | Trip itinerary planner (`panorama-app-trips/ui/src/App.tsx`). Trip creation form, event timeline with lat/lng coordinates, map locations view |
+| Trips App UI | ✅ Done | Trip itinerary planner (`panorama-app-trips/ui/src/App.tsx`). Trip creation form, event timeline form with lat/lng coordinates, map location pins list view |
 | Subsonic App UI | ✅ Done | Music library player (`panorama-app-subsonic/ui/src/App.tsx`). Audio track uploader, HTML5 playback bar, artist/album system node browser |
 | Docker Container Builds (Bun) | ✅ Done | `Dockerfile.frontend` and `Dockerfile.backend` build frontend via `oven/bun:1` |
 | Production build embedding | ✅ Done | Via rust-embed into `panorama-server` |
@@ -170,7 +193,7 @@ Major platform, architecture, and app milestones recently achieved:
 | Tagging / categories | ⚠️ Schema ready | `tags` field in `journal:block` schema |
 | Export (PDF, Markdown zip) | ❌ Missing | |
 
-**Integration tests:** Exercised via unit/integration tests and 7 Playwright E2E UI test scenarios (page creation, outliner block tree navigation, block inline editing, page deletion, child block insertion, today's journal view).
+**Integration & E2E tests:** Verified via unit tests (`test_backlinks_query`, `test_block_search`, `test_recursive_block_deletion`, etc.) and 7 Playwright E2E UI test scenarios (`app-journal.spec.ts`).
 
 ### 2.2 Wakatime App
 
@@ -188,7 +211,7 @@ Major platform, architecture, and app milestones recently achieved:
 | API Key Authorization | ✅ Done | Validates `Authorization: Bearer <key>` and `X-Api-Key` headers |
 | Coding Activity Dashboard UI | ✅ Done | Dedicated React UI (`panorama-app-wakatime/ui/src/App.tsx`). Heartbeat submission form, project/language/file leaderboards, SVG activity time-series chart |
 
-**Integration tests:** Exercised via unit/integration tests and 3 Playwright E2E UI test scenarios (heartbeat submission, leaderboards, stats panels).
+**Integration & E2E tests:** Verified via unit tests (`test_durations_calculation`, `test_summaries_calculation`, `test_api_key_auth`, etc.) and 3 Playwright E2E UI test scenarios (`app-wakatime.spec.ts`).
 
 ### 2.3 Grafana App
 
@@ -217,7 +240,7 @@ Major platform, architecture, and app milestones recently achieved:
 | Alerting | ❌ Missing | |
 | Drag-and-drop layout | ❌ Missing | Grid positions are editable as numbers, no drag handles |
 
-**Integration tests:** Exercised via unit/integration tests and 5 Playwright E2E UI test scenarios (dashboard loading, time range presets, panel grid rendering, edit mode, builder modal).
+**Integration & E2E tests:** Verified via 16 Rust unit tests (`test_promql_execution`, `test_dashboard_crud`, etc.) and 5 Playwright E2E UI test scenarios (`app-grafana.spec.ts`).
 
 ### 2.4 Files App
 
@@ -237,7 +260,7 @@ Major platform, architecture, and app milestones recently achieved:
 | Search by filename | ❌ Missing | |
 | Sharing links | ❌ Missing | |
 
-**Integration tests:** Exercised via unit/integration tests and 2 Playwright E2E UI test scenarios (file upload zone, file count & list area).
+**Integration & E2E tests:** Verified via unit tests (`test_list_files`) and 2 Playwright E2E UI test scenarios (`app-files.spec.ts`).
 
 ### 2.5 Beli (Restaurant Ratings) App
 
@@ -254,7 +277,7 @@ Major platform, architecture, and app milestones recently achieved:
 | Restaurant photos | ❌ Missing | |
 | Map view of restaurants | ❌ Missing | |
 
-**Integration tests:** Exercised via unit/integration tests and 4 Playwright E2E UI test scenarios (explanation panel, add restaurant, comparison selector, record pairwise comparison).
+**Integration & E2E tests:** Verified via 4 unit tests (`test_pairwise_comparison`, `test_topological_ranking`, etc.) and 4 Playwright E2E UI test scenarios (`app-beli.spec.ts`).
 
 ### 2.6 Trips App
 
@@ -269,7 +292,7 @@ Major platform, architecture, and app milestones recently achieved:
 | Map data endpoint | ✅ Done | GET /events/map returns lat/lng for all events with geo |
 | Trip Itinerary React UI | ✅ Done | Dedicated React component (`panorama-app-trips/ui/src/App.tsx`). Create trip form, event timeline form with lat/lng coordinates, map location pins list view |
 
-**Integration tests:** Exercised via unit/integration tests and 4 Playwright E2E UI test scenarios (trip creation, map locations section, add-event form, geo coordinates assignment).
+**Integration & E2E tests:** Verified via 4 unit tests (`test_trip_creation`, `test_map_data_endpoint`, etc.) and 4 Playwright E2E UI test scenarios (`app-trips.spec.ts`).
 
 ### 2.7 Subsonic App
 
@@ -285,13 +308,18 @@ Major platform, architecture, and app milestones recently achieved:
 | Music Library React UI | ✅ Done | Dedicated React component (`panorama-app-subsonic/ui/src/App.tsx`). Audio track uploader, HTML5 playback bar, artist and album node listings |
 | Full Subsonic client protocol coverage | ❌ Missing | `getMusicFolders`, `getIndexes`, `getAlbum`, `getCoverArt`, `search2`, etc. pending |
 
-**Integration tests:** Exercised via unit/integration tests and 2 Playwright E2E UI test scenarios (music upload section, artist/album library views).
+**Integration & E2E tests:** Verified via 3 unit tests (`test_subsonic_ping`, `test_audio_stream`, etc.) and 2 Playwright E2E UI test scenarios (`app-subsonic.spec.ts`).
 
 ---
 
-## 3. Cross-Cutting Gaps
+## 3. Cross-Cutting Gaps & Verification Results
 
-### 3.1 App UI Status
+### 3.1 Test Verification Results
+
+- **`just test-e2e`**: **39/39 passing (0 exit status)**. Launches single test server, executes Playwright chromium scenarios across all 7 app plugins and platform views, and cleans up cleanly.
+- **`cargo test --workspace`**: **83/83 passing (0 exit status)**. All unit and integration tests across `panorama-core`, `panorama-server`, and all 7 plugin crates pass cleanly.
+
+### 3.2 App UI Status
 
 - **All 7 Plugins Have Functional React Frontends**:
   - Journal (`panorama-app-journal/ui`)
@@ -307,11 +335,11 @@ Major platform, architecture, and app milestones recently achieved:
   - `prod.tsx`: Dynamic Module Federation `loadRemote()` runtime fetching for production `.panoapp` dynamic app archives.
   - `globals.d.ts`: TypeScript workspace declarations mapping module imports across the repository.
 
-### 3.2 Storage Abstraction
+### 3.3 Storage Abstraction
 
 - SQLite database operations are fully encapsulated by the `StorageBackend` trait and `NodeStorage` wrapper (`crates/panorama-server/src/storage/mod.rs`). Calling server/query code does not execute raw SQL directly, preparing the platform for alternative database backends (PostgreSQL, DynamoDB, etc.).
 
-### 3.3 CRUD Capability Matrix
+### 3.4 CRUD Capability Matrix
 
 | App | Create | Read | Update | Delete |
 |-----|--------|------|--------|--------|
@@ -331,30 +359,36 @@ Major platform, architecture, and app milestones recently achieved:
 
 1. **Enforce SCAN at compile time.** The compiler must check whether each field predicate has a `ready` index or promoted column. Unindexed predicates without `SCAN` must be a compile error per QUERY_DESIGN.md §3.9.
 
-2. **Refine Subsonic Schema Queries.** Upgrade `getArtists` and `getAlbums` from heuristic field checks to schema conformance filtering (`WHERE n CONFORMS TO schema("subsonic/Artist")`).
+2. **Wire Up Prepared Statement Cache (`StatementCache`).** Connect `StatementCache` (`crates/panorama-server/src/query/cache.rs`) into `StorageBackend` and `MetaStore` physical query execution to skip re-compiling SQL strings for repeated IR shapes (§7.3).
 
-3. **Separate Required vs. Preferred Schema Tracking on Node.** Store `required_schemas: Vec<SchemaRef>` on `Node` struct and update table schema to explicitly differentiate required vs preferred schemas.
+3. **Refine Subsonic Schema Queries.** Upgrade `getArtists` and `getAlbums` from heuristic field checks to schema conformance filtering (`WHERE n CONFORMS TO schema("subsonic/Artist")`).
 
-### 4.2 Next (Deepens the Platform)
+4. **Separate Required vs. Preferred Schema Tracking on Node.** Store `required_schemas: Vec<SchemaRef>` on `Node` struct and update table schema to explicitly differentiate required vs preferred schemas.
 
-4. **Prepared Statement Cache (§7.3).** Every query currently re-prepares SQL. Add cache keyed on IR shape + physical table names, invalidated on schema migration or index changes.
+### 4.2 Next (Deepens Platform & Core Subsystems)
 
-5. **Computed Field Execution Engine.** Wire `ComputeMode` types into write path: on node write/update, evaluate computed field expressions and store results.
+5. **Panorama Reactor & Hook Subsystem (`design/HOOK_DESIGN.md`).**
+   - Declare `reactors` system schema.
+   - Implement Eager Reactor pre-commit validation pipeline with priority short-circuiting, no-network capability enforcement, and auto-quarantine (`error_quarantined`).
+   - Implement Deferred Reactor post-commit op stream engine watching `FieldWatch` and `LifecycleWatch` triggers with at-least-once cursor delivery and dead-lettering.
 
-6. **Pagination for List Endpoints.** Add `limit` and `cursor` pagination parameters across all app list handlers using PQL `LIMIT`/`SKIP`.
+6. **Index Control Surface & Index Suggestion Feedback Loop (§6.4, §6.5).**
+   - Implement `CREATE INDEX`, `DROP INDEX`, and `PROMOTE FIELD` parser and compilation execution.
+   - Build windowed `field_stats` rollup and surface index recommendations via `system.index_suggestions`.
 
-7. **Drag-and-Drop / Advanced UI Enhancements.** Add drag-and-drop panel repositioning for Grafana and drag-and-drop file upload for Files app.
+7. **Operator & Type Compatibility Validation Matrix (§3.7).** Add compile-time check enforcing valid operator/type pairs for typed schema fields.
+
+8. **Pagination for List Endpoints.** Add `limit` and `cursor` pagination parameters across all app list handlers using PQL `LIMIT`/`SKIP`.
+
+9. **Drag-and-Drop / Advanced UI Enhancements.** Add drag-and-drop panel repositioning for Grafana and drag-and-drop file upload for Files app.
 
 ### 4.3 Later (Polish and Advanced Features)
 
-8. `field_stats` → index suggestion feedback loop (§6.5)
-9. Windowed field_stats (hourly buckets)
-10. Type-compatibility validation at compile time (§3.7)
-11. Additional `StorageBackend` implementations (e.g. PostgreSQL via sqlx)
-12. CRDT FieldValue variants + merge semantics + `@ops`/`@at` view selectors
-13. Background task scheduler in plugin loader
-14. User auth + space-level permissions
-15. Query ID tracing and per-stage profiling
+10. Additional `StorageBackend` implementations (e.g. PostgreSQL via sqlx)
+11. CRDT FieldValue variants + merge semantics + `@ops`/`@at` view selectors
+12. Background task scheduler in plugin loader
+13. User auth + space-level permissions
+14. Query ID tracing and per-stage profiling
 
 ### 4.4 Explicitly Deferred (v0.x+)
 

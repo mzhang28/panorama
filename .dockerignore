@@ -1,9 +1,7 @@
-target/
-data/
-dist/
-node_modules/
-frontend/node_modules/
-frontend/dist/
+target
+data
+dist
+node_modules
 .git/
 .gitignore
 **/*.db
@@ -14,3 +12,7 @@ frontend/dist/
 .vite
 .claude
 3rd-party
+.rtk
+flamegraph.svg
+perf.data*
+fuzz/findings
