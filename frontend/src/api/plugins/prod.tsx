@@ -27,29 +27,27 @@ function registerPluginRemote(pluginId: string): void {
   registeredRemotes.add(name)
 }
 
-export function loadPluginComponent(
+export function getPluginComponent(
   pluginId: string,
-): React.LazyExoticComponent<PluginComponent> {
+): Promise<{ default: PluginComponent }> {
   registerPluginRemote(pluginId)
   const remoteName = pluginIdToRemoteName(pluginId)
 
-  return React.lazy(() =>
-    loadRemote<{ default: PluginComponent }>(`${remoteName}/App`)
-      .then((mod) => ({ default: mod?.default ?? (() => null) }))
-      .catch((err) => {
-        console.error(`Failed to load federated plugin UI for "${pluginId}":`, err)
-        return {
-          default: (() => (
-            <div className="card" style={{ padding: 20, textAlign: 'center' }}>
-              <p className="text-muted">
-                Plugin UI "{pluginId}" could not be loaded.
-              </p>
-              <p className="text-muted" style={{ fontSize: 12 }}>
-                Check that the plugin is installed and its UI bundle is available.
-              </p>
-            </div>
-          )) as PluginComponent,
-        }
-      }),
-  )
+  return loadRemote<{ default: PluginComponent }>(`${remoteName}/App`)
+    .then((mod) => ({ default: mod?.default ?? (() => null) }))
+    .catch((err) => {
+      console.error(`Failed to load federated plugin UI for "${pluginId}":`, err)
+      return {
+        default: (() => (
+          <div className="card" style={{ padding: 20, textAlign: 'center' }}>
+            <p className="text-muted">
+              Plugin UI "{pluginId}" could not be loaded.
+            </p>
+            <p className="text-muted" style={{ fontSize: 12 }}>
+              Check that the plugin is installed and its UI bundle is available.
+            </p>
+          </div>
+        )) as PluginComponent,
+      }
+    })
 }

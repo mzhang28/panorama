@@ -30,11 +30,9 @@ const FALLBACK: PluginComponent = () => (
   </div>
 )
 
-export function loadPluginComponent(
+export function getPluginComponent(
   pluginId: string,
-): React.LazyExoticComponent<PluginComponent> {
+): Promise<{ default: PluginComponent }> {
   const Component = PLUGINS[pluginId] || FALLBACK
-  // Wrap in React.lazy for API consistency with prod.tsx,
-  // but the component is already loaded — it resolves instantly.
-  return React.lazy(() => Promise.resolve({ default: Component }))
+  return Promise.resolve({ default: Component })
 }

@@ -19,10 +19,8 @@ export function loadPluginComponent(
 ): React.LazyExoticComponent<PluginComponent> {
   if (import.meta.env.MODE === 'production') {
     // Dynamic import — Rollup bundles only this path in production
-    const mod = import('./plugins/prod')
-    return React.lazy(() => mod.then(m => m.loadPluginComponent(pluginId) as any))
+    return React.lazy(() => import('./plugins/prod').then(m => m.getPluginComponent(pluginId)))
   }
   // Dynamic import — Rollup bundles only this path in dev/E2E
-  const mod = import('./plugins/dev')
-  return React.lazy(() => mod.then(m => m.loadPluginComponent(pluginId) as any))
+  return React.lazy(() => import('./plugins/dev').then(m => m.getPluginComponent(pluginId)))
 }
