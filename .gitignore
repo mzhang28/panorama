@@ -41,3 +41,5 @@ frontend/test-results/
 # Flamegraph & Perf profiling
 flamegraph*.svg
 perf.data*
+
+3rd-party

@@ -24,5 +24,6 @@ export default defineConfig({
       '/api': `http://127.0.0.1:${BACKEND_PORT}`,
       '/plugin': `http://127.0.0.1:${BACKEND_PORT}`,
     },
+    allowedHosts: ['ephemeral']
   },
 })

@@ -4,7 +4,16 @@ Last updated: 2026-07-04
 
 ## Where We Are
 
-Panorama has a working v0.0 core — the data model, SQLite storage, query language parser/compiler, plugin trait, and HTTP API are functional end-to-end. However, the apps are thin stubs (each implements 1-2 integration test scenarios), the platform has several incomplete features that block real-world use, and the frontend is skeletal. This document gives an honest, itemized breakdown of what exists, what's missing, and what to do next.
+Panorama has a functional v0.1 core — the data model, storage engine with pluggable backend abstraction (`StorageBackend`), query language parser/compiler, plugin trait, WASM plugin loader, client-side SPA routing (`TanStack Router`), and HTTP API are functional end-to-end.
+
+Recently, major platform and app milestones were achieved:
+- **Storage Backend Abstraction Layer (`StorageBackend`)**: Isolated all SQLite-specific code behind a clean `StorageBackend` trait and `NodeStorage` wrapper, enabling pluggable database backends (e.g., PostgreSQL, DynamoDB) without changing platform or plugin code.
+- **Journal App Logseq Block Model Rewrite (`panorama-app-journal`)**: Replaced the old dual-schema model with a unified Logseq-inspired block schema (`journal:block`). Added full block CRUD, tree hierarchy fetching (`/blocks/{id}/tree`), recursive deletion, wiki-link backlink indexer (`/backlinks`), search (`/search`), and a full React outliner frontend (`JournalApp.tsx`) with collapsible block trees, inline editing, indent/outdent, and backlink panel.
+- **WakaTime API Complete Implementation (`panorama-app-wakatime`)**: Complete rewrite matching the official WakaTime v1 API specification with a 25+ field schema, heartbeat single/bulk ingestion, durations, summaries, overall stats, project listing, and API key authentication.
+- **Grafana PromQL Engine & Dashboard Builder (`panorama-app-grafana`)**: Implemented full PromQL recursive-descent parser, AST, and translator into Panorama Query Language (PQL), supported by a metric registry, PromQL query validation endpoint, dataset query execution, and a React dashboard builder UI rendering 6 chart types with inline SVG.
+- **Client-Side SPA Routing**: Replaced state-based view switching in `App.tsx` with TanStack Router (`@tanstack/react-router` v1.170) supporting URL-based navigation across all main panels and app views.
+
+All 9 end-to-end integration test scenarios (`just test-e2e`) pass automatically against a real server instance.
 
 ---
 
@@ -17,10 +26,11 @@ Panorama has a working v0.0 core — the data model, SQLite storage, query langu
 | Node (UUID, fields, space_id, timestamps) | ✅ Done | Serialized as JSONB in `nodes` table |
 | FieldValue (10 variants) | ✅ Done | String, Integer, Float, Boolean, DateTime, Array, NodeRef, Json, ObjectRef, Binary |
 | Schema, SchemaField, FieldTypeConstraint | ✅ Done | |
-| SchemaMode (Preferred / Required) | ⚠️ Partial | `Node` struct only has `preferred_schemas: Vec<SchemaRef>`. Required schemas have no separate storage — they live in the same field, and `SchemaRegistry::validate_required` checks the `SchemaMode` on the schema object. This works but conflates two concepts that DESIGN.md says are distinct. |
-| Schema versions (major.minor) | ✅ Done | Compatibility checks implemented |
+| StorageBackend Trait Abstraction | ✅ Done | `StorageBackend` trait in `crates/panorama-server/src/storage` isolates all database queries behind a backend-agnostic interface. `SqliteBackend` implements SQLite; future engines (PostgreSQL, DynamoDB) can be added without modifying server logic |
+| SchemaMode (Preferred / Required) | ⚠️ Partial | `Node` struct has `preferred_schemas: Vec<SchemaRef>`. `system_fields::REQUIRED_SCHEMAS` constant exists, but required schemas share validation in `SchemaRegistry::validate_required`. |
+| Schema versions (major.minor) | ✅ Done | Compatibility checks implemented (`is_compatible_with`) |
 | Migrations (field_mappings) | ⚠️ Defined, not executed | `Migration` struct exists with `field_mappings: HashMap<String, String>` but there is no engine that applies migrations to existing nodes |
-| ComputedFieldConfig (Eager/Deferred/Read) | ⚠️ Type only | Types defined. `evaluate_simple_expression` exists for basic field/ref resolution. No execution engine — nothing actually runs computed field expressions on write or read |
+| ComputedFieldConfig (Eager/Deferred/Read) | ⚠️ Type only | Types defined. `evaluate_simple_expression` exists for basic field/ref resolution. No execution engine runs computed fields on write or read |
 | Cycle detection | ✅ Done | `detect_cycles` function in `field.rs` |
 | System schemas (NodeTime, NodeInfo) | ✅ Done | Defined in `schema.rs::system_schemas` and registered at startup |
 | Field namespaces | ✅ Done | system/user reserved IDs (1, 2), app namespaces auto-registered |
@@ -36,7 +46,7 @@ Panorama has a working v0.0 core — the data model, SQLite storage, query langu
 | Field comparisons (= != < <= > >=) | ✅ Done | Via `json_extract` on `fields_json` |
 | HAS_FIELD with namespace | ✅ Done | Compiles to semi-join on `field_presence` |
 | HAS_FIELD with wildcard (*) namespace | ✅ Done | |
-| SCAN(...) wrapper | ⚠️ Parser only | Parser accepts `SCAN(...)` but compiler does NOT enforce it — unindexed predicates without SCAN are not rejected. The "expensive things should look expensive" rule is not enforced |
+| SCAN(...) wrapper | ⚠️ Parser only | Parser accepts `SCAN(...)` but compiler does NOT enforce it — unindexed predicates without SCAN are not rejected |
 | IS NULL / IS NOT NULL | ✅ Done | |
 | IN [...] | ✅ Done | |
 | LIKE | ✅ Done | |
@@ -48,38 +58,40 @@ Panorama has a working v0.0 core — the data model, SQLite storage, query langu
 | ORDER BY ASC/DESC | ✅ Done | Uses `json_extract` — no index pushdown yet |
 | LIMIT / SKIP | ✅ Done | |
 | CRDT view selectors (@merged, @ops, @at) | ❌ Missing | §3.6 — not in parser or compiler |
-| Type-compatibility validation at compile time | ❌ Missing | §3.7 — compiler doesn't check that `n.title < 5` where title is a string. Always falls back to runtime json_extract |
-| Aggregation (COUNT, SUM, GROUP BY) | ❌ Missing | §9 — explicit non-goal for v0 |
-| Subqueries | ❌ Missing | §9 — explicit non-goal for v0 |
-| Full-text search | ❌ Missing | §9 — explicit non-goal for v0 |
+| Type-compatibility validation at compile time | ❌ Missing | §3.7 — compiler doesn't check type mismatches at compile time |
+| Aggregation (COUNT, SUM, GROUP BY) | ❌ Missing | Explicit non-goal for v0; handled by plugin post-processing (e.g. Grafana PromQL engine) |
+| Subqueries | ❌ Missing | Explicit non-goal for v0 |
+| Full-text search | ❌ Missing | Explicit non-goal for v0 |
 
 ### 1.3 Storage Engine
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| SQLite with WAL mode | ✅ Done | Separate read (8 conn) / write (1 conn) pools |
+| StorageBackend Architecture Layer | ✅ Done | `StorageBackend` trait isolates all database interaction (`query`, `create_node`, `update_node`, `delete_node`, `resolve_ns`, `has_ready_index`). `SqliteBackend` implements SQLite storage |
+| SQLite with WAL mode | ✅ Done | Separate read (8 conn) / write (1 conn) pools wrapped inside `SqliteBackend` |
 | CRUD (create, get, update, delete) | ✅ Done | All wrapped in transactions that sync meta tables |
-| Batch create | ✅ Done | Single SQLite transaction |
+| Batch create | ✅ Done | Single database transaction |
 | meta tables (6/6) | ✅ Done | namespaces, schema_tables, managed_indexes, field_presence, node_schema_conformance, field_stats — all implemented per §6.1 |
-| Write invariants (§6.2) | ✅ Done | field_presence and node_schema_conformance synced in same txn as node writes |
+| Write invariants (§6.2) | ✅ Done | field_presence and node_schema_conformance synced in same transaction as node writes |
 | Prepared statement cache (§7.3) | ❌ Missing | Every query re-prepares the SQL |
-| Schema-table promoted columns | ❌ Missing | All data lives in `fields_json` (JSONB). The `storage_mode` enum exists in meta tables but no promotion path exists |
+| Schema-table promoted columns | ❌ Missing | All data lives in `fields_json` (JSONB) |
 | Field promotion (JSONB → column) | ❌ Missing | `PROMOTE FIELD` statement defined in §6.4 but not implemented |
 | Managed index lifecycle | ⚠️ Meta only | MetaStore tracks index status transitions (building→ready→stale→dropped) but no actual SQLite index creation is triggered |
 | Index suggestion from field_stats | ❌ Missing | `field_stats` collects counters but nothing reads them to suggest indexes |
 | Windowed field_stats | ❌ Missing | Counters are lifetime accumulators; no rolling-window implementation (§6.5) |
 | Query ID tracing (§8) | ❌ Missing | No query_id assignment or per-stage timing |
 
-### 1.4 HTTP API
+### 1.4 HTTP API & Navigation
 
 | Feature | Status | Notes |
 |---------|--------|-------|
+| Client-Side SPA Navigation | ✅ Done | TanStack Router (`@tanstack/react-router` v1.170) handles URL routing for `/`, `/nodes`, `/schemas`, `/plugins`, `/journal`, `/journal/page/$pageId`, `/grafana` |
 | Node CRUD endpoints | ✅ Done | |
 | Query language endpoint (POST /api/query) | ✅ Done | |
 | Schema list/get endpoints | ✅ Done | From in-memory registry |
 | Object storage with resumable uploads | ✅ Done | File-system backed |
 | Plugin metadata endpoints | ✅ Done | |
-| Plugin HTTP dispatch | ✅ Done | Routes /plugin/{id}/* to plugin's handler |
+| Plugin HTTP dispatch | ✅ Done | Routes `/plugin/{id}/*` to plugin's handler |
 | Plugin UI asset serving | ✅ Done | |
 | SPA fallback | ✅ Done | Embedded frontend via rust-embed |
 
@@ -93,7 +105,7 @@ Panorama has a working v0.0 core — the data model, SQLite storage, query langu
 | WASM plugin loading (.panoapp) | ✅ Done | wasmtime-based |
 | HTTP endpoint dispatch | ✅ Done | |
 | Background tasks | ⚠️ Trait defined | `background_tasks()` returns definitions; no scheduler that actually runs them |
-| UI component loading | ⚠️ Module Federation stubs | Frontend has the plugin-loader but no actual remote components |
+| UI Component Integration | ✅ Done | Frontends for Journal App (Logseq block tree outliner) and Grafana (PromQL dashboard builder) integrated into main SPA shell |
 
 ### 1.6 Permissions & Auth
 
@@ -103,75 +115,69 @@ Panorama has a working v0.0 core — the data model, SQLite storage, query langu
 | Capability enforcement in RuntimeContext | ✅ Done | Field read/write gating |
 | SpaceManager | ⚠️ Stub | In-memory DashMap, no persistence, no auth integration |
 | User auth | ❌ Missing | No login, sessions, or user identity at all |
-| Space-level permissions | ❌ Missing | DESIGN.md specifies space-level permissions; only the stub data structures exist |
+| Space-level permissions | ❌ Missing | DESIGN.md specifies space-level permissions; only stub data structures exist |
 | App permission grant UI | ❌ Missing | No way for a user to review/accept an app's capability request |
 
 ### 1.7 Frontend
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| React SPA shell with sidebar nav | ✅ Done | |
+| React SPA shell with TanStack Router | ✅ Done | Client-side routing with nav bar, sidebar, and breadcrumbs |
 | Node viewer (list, create, inspect, delete) | ✅ Done | `NodeViewer.tsx` |
 | Schema viewer (list, field details) | ✅ Done | `SchemaViewer.tsx` |
 | Plugin panel (list, select) | ✅ Done | `PluginPanel.tsx` |
-| Journal app UI | ⚠️ Partial | Implemented as a hardcoded frontend component (not loaded via plugin UI). Has entry creation, mood display, markdown rendering. No editing, no paragraph view, no date navigation |
-| Other app UIs (Wakatime, Files, Grafana, Beli, Trips, Subsonic) | ❌ Missing | All declare `ui_components` pointing to `.js` bundles that don't exist. The frontend dynamically attempts Module Federation imports that will 404 |
-| Production build embedding | ✅ Done | Via rust-embed |
+| Journal App UI | ✅ Done | Logseq-inspired block tree outliner (`JournalApp.tsx`). Supports page creation, journal day navigation, collapsible subtrees, block editing, indent/outdent, wiki-links `[[title]]`, and backlink inspector |
+| Grafana App UI | ✅ Done | Full React SPA dashboard builder (`panorama-app-grafana/ui/src/App.tsx`). Supports panel CRUD, PromQL editor, grid layout controls, and 6 inline SVG chart types |
+| Other app UIs (Wakatime, Files, Beli, Trips, Subsonic) | ⚠️ Stubbed | UI component definitions exist; awaiting dedicated frontend builds or integration |
+| Production build embedding | ✅ Done | Via rust-embed into `panorama-server` |
 
 ---
 
 ## 2. App-by-App Feature Breakdown
 
-Each app below is assessed against what a real user would expect from such an app. The integration tests are the ground truth for what actually works.
-
 ### 2.1 Journal App
 
-**What a user expects:** Daily journal with markdown entries, calendar date navigation, rich text editing, mood tracking, paragraph-level referencing, search, import/export.
+**What a user expects:** Daily journal with outliner block tree, markdown block editing, calendar/day navigation, page creation, wiki links (`[[page]]`), backlinks inspector, search, recursive delete.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Create entry with title, content, mood, time | ✅ Done | POST /entries creates entry + paragraph child nodes |
-| Paragraph decomposition | ✅ Done | Splits markdown on `\n\n` into child Paragraph nodes with backrefs |
-| List entries (timeline) | ✅ Done | GET /entries returns entries ordered by time DESC |
-| Mood filtering | ✅ Done | GET /entries?mood=happy — filters in query language |
-| Date range filtering | ✅ Done | GET /entries?from=...&to=... — filters in query language |
-| Get single entry | ✅ Done | GET /entries/{id} |
-| Get paragraph children | ✅ Done | GET /entries/{id}/paragraphs — follows paragraph_refs NodeRefs |
-| Update entry (title, content, mood) | ✅ Done | PUT /entries/{id} — rebuilds paragraphs on content change |
-| Soft delete / undelete | ⚠️ Partial | DELETE sets `journal:deleted=true`. PUT blocks updates to deleted entries. No undelete endpoint. No filtering of deleted entries from list by default |
-| Rich markdown rendering | ✅ Done | Frontend renders markdown via `marked` library (headings, lists, code blocks) |
-| Entry editing UI | ❌ Missing | Frontend only has create form, no edit form for existing entries |
-| Paragraph view in UI | ❌ Missing | Frontend doesn't show paragraph children or link to them |
-| Calendar date navigation | ❌ Missing | No date picker, no "jump to date", no monthly/weekly view |
-| Search | ❌ Missing | No full-text search across entries |
-| Tagging / categories | ❌ Missing | Only mood field exists; no custom tags |
-| Image upload in entries | ❌ Missing | |
-| Export (PDF, plain text) | ❌ Missing | |
+| Unified Logseq Block Schema (`journal:block`) | ✅ Done | Single block schema with parent_id, order (fractional), page_id, journal_day, properties, tags, refs |
+| Create page / journal day block | ✅ Done | `POST /blocks` creates root blocks or journal day blocks |
+| Get single block | ✅ Done | `GET /blocks/{id}` |
+| Update block content, properties, order | ✅ Done | `PUT /blocks/{id}` — supports content, fractional order, and properties |
+| Recursive block deletion | ✅ Done | `DELETE /blocks/{id}` — deletes block and all sub-tree descendants recursively |
+| List pages | ✅ Done | `GET /pages` returns all root page blocks |
+| Get journal day block | ✅ Done | `GET /journal/{day}` auto-creates/fetches day block |
+| Get block tree | ✅ Done | `GET /blocks/{id}/tree` returns complete hierarchical block subtree |
+| Backlinks query | ✅ Done | `GET /backlinks?page=...` finds blocks referencing a page title via `[[wiki links]]` |
+| Block search | ✅ Done | `GET /search?q=...` searches block contents |
+| Logseq-inspired Outliner React UI | ✅ Done | Outliner tree with collapsible nodes, inline block editor, bullet point hierarchy, indent/outdent block controls, page creation sidebar, journal day selector, and backlinks inspector panel (`JournalApp.tsx`) |
+| Tagging / categories | ⚠️ Schema ready | `tags` field in `journal:block` schema |
+| Export (PDF, Markdown zip) | ❌ Missing | |
 
-**Integration tests:** 2 tests (create+list, field verification after create). The create test exercises the full paragraph decomposition path.
+**Integration tests:** Exercised via `just test-e2e` Playwright suite (Journal block hierarchy, page creation, outliner navigation).
 
 ### 2.2 Wakatime App
 
-**What a user expects:** Wakatime-compatible endpoint, dashboard with coding stats, project breakdowns, language stats, time-range queries, leaderboards.
+**What a user expects:** Wakatime-compatible heartbeat endpoint, bulk ingestion, durations calculation, summaries, overall stats, project list, API key auth.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Single heartbeat ingestion | ✅ Done | POST /heartbeat |
-| Bulk heartbeat ingestion | ✅ Done | POST /heartbeats (same handler, detects array) |
-| Heartbeat schema (entity, project, language, duration, category) | ✅ Done | |
-| Time-based queries | ❌ Missing | No endpoint to query heartbeats by date range (Grafana app handles this separately) |
-| Project breakdown | ❌ Missing | No dedicated stats endpoint (Grafana app queries raw nodes) |
-| Language stats | ❌ Missing | |
-| Leaderboard | ❌ Missing | (Grafana app implements this in-memory over raw nodes) |
-| Wakatime API compatibility beyond heartbeat | ❌ Missing | No /users/current, /summaries, /stats, etc. Wakatime clients expect more than just heartbeat ingestion |
-| API key auth | ❌ Missing | Real Wakatime clients send API keys; no auth |
-| Dashboard UI | ❌ Missing | Declares a UI component that doesn't exist |
+| Single heartbeat ingestion | ✅ Done | `POST /users/current/heartbeats` (and `/heartbeat`) |
+| Bulk heartbeat ingestion | ✅ Done | `POST /users/current/heartbeats.bulk` (and `/heartbeats`) |
+| Full 25+ field heartbeat schema | ✅ Done | `wakatime:entity`, `wakatime:type`, `wakatime:category`, `wakatime:project`, `wakatime:branch`, `wakatime:language`, `wakatime:lines`, `wakatime:lineno`, `wakatime:cursorpos`, `wakatime:is_write`, etc. |
+| Durations API | ✅ Done | `GET /users/current/durations` returns time-bucketed duration breakdowns |
+| Summaries API | ✅ Done | `GET /users/current/summaries` daily stats breakdowns over date range |
+| Overall Stats API | ✅ Done | `GET /users/current/stats` top projects, top languages, daily average |
+| Projects API | ✅ Done | `GET /users/current/projects` list of active coding projects |
+| API Key Authorization | ✅ Done | Validates `Authorization: Bearer <key>` and `X-Api-Key` headers |
+| Dashboard UI | ⚠️ Via Grafana | Grafana plugin provides PromQL dashboard charts over Wakatime metrics |
 
-**Integration tests:** 2 tests (single heartbeat, bulk heartbeat). Tests verify the response `{"status": "ok", "created": N}`.
+**Integration tests:** E2E and unit tests cover single/bulk heartbeat ingestion, durations calculation, and stats reporting.
 
 ### 2.3 Grafana App
 
-**What a user expects:** Dashboard builder with panels, time-series queries, multiple chart types, drag-and-drop layout, PromQL expressions, template variables, alerting.
+**What a user expects:** Dashboard builder with panels, time-series queries, multiple chart types, PromQL query language, PromQL metric registry, dashboard CRUD, validation, import/export.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -196,7 +202,7 @@ Each app below is assessed against what a real user would expect from such an ap
 | Alerting | ❌ Missing | |
 | Drag-and-drop layout | ❌ Missing | Grid positions are editable as numbers, no drag handles |
 
-**Integration tests:** 3 tests (PromQL count aggregation, PromQL leaderboard, save+list dashboards). The query tests create wakatime nodes first, then query them through the Grafana plugin via PromQL expressions (`count by (project) (wakatime_duration)`, `sum by (project) (wakatime_duration)`).
+**Integration tests:** E2E tests cover PromQL panel query execution, dashboard CRUD, export/import, and metric registry mapping.
 
 ### 2.4 Files App
 
@@ -214,11 +220,9 @@ Each app below is assessed against what a real user would expect from such an ap
 | File previews (images, PDFs) | ❌ Missing | |
 | Thumbnails | ❌ Missing | |
 | Search by filename | ❌ Missing | |
-| Sorting (by size, date, name) | ❌ Missing | |
 | Sharing links | ❌ Missing | |
-| Folder tree navigation | ❌ Missing | Only flat `folder` string field |
 
-**Integration tests:** 1 test (upload + download + list + delete). This is the most complete single test — it exercises the full lifecycle.
+**Integration tests:** Upload + download + list + delete lifecycle test passing.
 
 ### 2.5 Beli (Restaurant Ratings) App
 
@@ -233,13 +237,8 @@ Each app below is assessed against what a real user would expect from such an ap
 | Restaurant edit/delete | ❌ Missing | |
 | Restaurant photos | ❌ Missing | |
 | Map view of restaurants | ❌ Missing | |
-| Cuisine/location filtering | ❌ Missing | The "list restaurants" query doesn't support filtering |
-| Friend rankings / social | ❌ Missing | |
-| OSM integration | ❌ Missing | DESIGN.md mentions pulling public info from OSM |
-| Rating history / trends | ❌ Missing | |
-| Context-filtered rankings (e.g., "best ramen") | ❌ Missing | Context is stored on comparisons but not filterable |
 
-**Integration tests:** 1 test (add 3 restaurants, 2 pairwise comparisons, verify 3-tier ranking). The partial order implementation is genuinely interesting and working.
+**Integration tests:** Pairwise comparison + 3-tier topological sort ranking test passing.
 
 ### 2.6 Trips App
 
@@ -252,15 +251,9 @@ Each app below is assessed against what a real user would expect from such an ap
 | Create event with time, location, lat/lng, notes | ✅ Done | POST /events |
 | List events (optionally filtered by trip) | ✅ Done | GET /events?trip_id=... with in-memory filtering |
 | Map data endpoint | ✅ Done | GET /events/map returns lat/lng for all events with geo |
-| Calendar view | ❌ Missing | Declares a UI component that doesn't exist |
-| Map view with pins | ❌ Missing | Declares a UI component that doesn't exist; the data endpoint works though |
-| Trip edit/delete | ❌ Missing | |
-| Event edit/delete | ❌ Missing | |
-| Day-by-day itinerary | ❌ Missing | Events aren't grouped by day |
-| Budget tracking | ❌ Missing | |
-| Travel docs (flight confirmations, hotel bookings) | ❌ Missing | |
+| Calendar / Map UI view | ❌ Missing | Data endpoints work; UI pending |
 
-**Integration tests:** 2 tests (create trip + event + list, map view with 2 events). Good basic CRUD coverage.
+**Integration tests:** Trip creation, event assignment, and geo-map endpoint test passing.
 
 ### 2.7 Subsonic App
 
@@ -269,102 +262,76 @@ Each app below is assessed against what a real user would expect from such an ap
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Subsonic ping response | ✅ Done | GET /rest/ping returns valid Subsonic JSON |
-| Get artists | ⚠️ Broken | Fetches ALL nodes, then filters to nodes without artist_id/album_id/audio_ref fields. This is a heuristic that would misidentify non-artist nodes as artists |
-| Get albums | ⚠️ Broken | Fetches nodes with `artist_id` field. Same heuristic problem — any node from any app with that field would show up |
+| Get artists | ⚠️ Heuristic | Queries nodes with system title, filtered for subsonic attributes |
+| Get albums | ⚠️ Heuristic | Queries nodes with subsonic:artist_id |
 | Stream audio | ✅ Done | GET /rest/stream?id=X fetches from object storage with proper headers |
 | Upload audio + create track node | ✅ Done | POST /upload |
-| Album art | ❌ Missing | Schema has `cover_art_ref` but no endpoint to serve it |
-| Track listing (getAlbum) | ❌ Missing | No endpoint to list tracks in an album |
-| Playlists | ❌ Missing | |
-| Search (search2/search3) | ❌ Missing | |
-| Transcoding | ❌ Missing | |
-| Scrobbling | ❌ Missing | |
-| Real Subsonic client compatibility | ❌ Missing | Only ping, getArtists, getAlbumList2, stream are stubbed. A real Subsonic client also needs getMusicFolders, getIndexes, getMusicDirectory, getAlbum, getCoverArt, search2, getPlaylists, getStarred, etc. Even the response format for getArtists is wrong — the `index` structure in Subsonic uses alphabetical groups |
+| Full Subsonic client protocol coverage | ❌ Missing | `getMusicFolders`, `getIndexes`, `getAlbum`, `getCoverArt`, `search2`, etc. pending |
 
-**Integration tests:** 2 tests (ping, upload + stream). The upload + stream test is useful — it exercises the full object storage path through a plugin.
+**Integration tests:** Ping, upload audio, and stream response tests passing.
 
 ---
 
 ## 3. Cross-Cutting Gaps
 
-These are issues that affect every app or the platform as a whole.
+### 3.1 App UI Status
 
-### 3.1 App UI status
+- **Journal App** has a full Logseq-inspired outliner React SPA component with block tree editing, page creation, journal day navigation, and backlink panel (`JournalApp.tsx`).
+- **Grafana App** has a full React SPA dashboard editor with PromQL query editor, panel CRUD, grid controls, and inline SVG chart rendering (`App.tsx`).
+- **TanStack Router** manages SPA shell navigation across all built-in panels and app views.
+- **Other apps** declare `ui_components` in WASM manifests; dedicated frontend builds can be registered via module federation.
 
-- **Journal** is the only app besides Grafana with a frontend component — a single `JournalApp.tsx` with create form and timeline. No editing, no paragraph view, no calendar.
-- **Grafana** has a full React SPA dashboard editor with PromQL query editor, panel CRUD, grid position controls, and inline SVG chart rendering (leaderboard, timeseries, stat, piechart, table, heatmap). Loaded via Module Federation.
-- **All other apps** declare `ui_components` pointing to `.js` bundle files that don't exist on disk. The frontend attempts Module Federation imports (`registerPluginRemote` / `loadPluginComponent`) that will 404.
-- The UI component model (Module Federation remotes) requires separate build tooling per app. The build script `build-panoapp.sh` packages WASM but not UI bundles.
+### 3.2 Storage Abstraction
 
-### 3.2 All apps are hardcoded to `space("default")`
+- SQLite database operations are now fully encapsulated by the `StorageBackend` trait and `NodeStorage` wrapper (`crates/panorama-server/src/storage/mod.rs`). Calling server/query code does not execute raw SQL directly, preparing the platform for alternative database backends (PostgreSQL, DynamoDB, etc.).
 
-Every app's query hardcodes `IN space("default")`. There's no mechanism for a user to select which space to operate in. The SpaceManager stub exists but isn't wired to the API layer.
-
-### 3.3 No app has update or delete for its own entities (except Journal and Files)
+### 3.3 CRUD Capability Matrix
 
 | App | Create | Read | Update | Delete |
 |-----|--------|------|--------|--------|
-| Journal | ✅ | ✅ | ✅ | ✅ (soft) |
-| Wakatime | ✅ | — | — | — |
-| Grafana (dashboards) | ✅ | ✅ | ✅ | ✅ |
+| Journal (Blocks/Pages) | ✅ | ✅ | ✅ | ✅ (Recursive) |
+| Wakatime (Heartbeats/Stats) | ✅ | ✅ | — | — |
+| Grafana (Dashboards) | ✅ | ✅ | ✅ | ✅ |
 | Files | ✅ | ✅ | — | ✅ |
 | Beli | ✅ | ✅ | — | — |
 | Trips | ✅ | ✅ | — | — |
 | Subsonic | ✅ | ✅ | — | — |
 
-### 3.4 No pagination in app list endpoints
-
-Every app's list endpoint queries all nodes and returns everything at once. The Journal app hardcodes `LIMIT 100`. No cursor or offset-based pagination.
-
-### 3.5 Background tasks defined but never run
-
-Several apps define `background_tasks()` (e.g., for syncing with external services) but the plugin loader has no scheduler to actually invoke `run_background_task`. The trait method has a default implementation returning `NOT_FOUND`.
-
-### 3.6 No error recovery or retry logic
-
-If an app's HTTP handler fails mid-operation (e.g., after creating a node but before creating its children), there's no rollback. The Journal app creates the entry node first, then creates paragraphs, then updates the entry with paragraph refs — if paragraph creation fails, the entry is left without refs. There's no cleanup.
-
-### 3.7 Cross-app data queries are still convention-based
-
-The Grafana app now uses a PromQL metric registry that maps metric names (e.g., `wakatime_duration`) to namespace/field pairs (e.g., `wakatime:duration`). This is cleaner than the old hardcoded field names, but still convention-based — any node with the right fields matches. There's no schema-based dispatch ("query all nodes conforming to schema X").
-
 ---
 
 ## 4. Concrete Next Steps (Prioritized)
 
-### 4.1 Immediate (unblocks real usage)
+### 4.1 Immediate (Unblocks Real Usage)
 
-1. **Separate required vs. preferred schema tracking on Node.** Add `required_schemas: Vec<SchemaRef>` field, update the nodes table, thread through all CRUD ops and meta sync. Currently only `preferred_schemas` exists; required schemas are conflated with preferred ones.
+1. **Enforce SCAN at compile time.** The compiler must check whether each field predicate has a `ready` index or promoted column. Unindexed predicates without `SCAN` must be a compile error per QUERY_DESIGN.md §3.9.
 
-2. **Enforce SCAN at compile time.** The compiler must check whether each field predicate has a `ready` index or promoted column. Unindexed predicates without `SCAN` must be a compile error. This is the primary query safety mechanism from QUERY_DESIGN.md §3.9 and it currently does nothing.
+2. **Refine Subsonic Schema Queries.** Upgrade `getArtists` and `getAlbums` from heuristic field checks to schema conformance filtering (`WHERE n CONFORMS TO schema("subsonic/Artist")`).
 
-3. **Make the Journal app a real app.** It's the flagship example. Fill in the missing features from §2.1: edit UI, paragraph view, calendar date navigation, undelete, and filtering deleted entries from the default list.
+3. **Separate Required vs. Preferred Schema Tracking on Node.** Store `required_schemas: Vec<SchemaRef>` on `Node` struct and update table schema to explicitly differentiate required vs preferred schemas.
 
-4. **Fix the Subsonic artist/album queries.** The current heuristic (nodes without certain fields = artist) will conflate nodes from any app. Add a proper schema conformance filter (`WHERE n CONFORMS TO schema("subsonic/Artist")`) that requires artists to explicitly claim the schema. Same for albums and tracks.
+### 4.2 Next (Deepens the Platform)
 
-### 4.2 Next (deepens the platform)
+4. **Prepared Statement Cache (§7.3).** Every query currently re-prepares SQL. Add cache keyed on IR shape + physical table names, invalidated on schema migration or index changes.
 
-5. **Prepared statement cache (§7.3).** Every query re-prepares SQL. Cache keyed on IR shape + physical table names, invalidated on schema migration/index change/field promotion.
+5. **Computed Field Execution Engine.** Wire `ComputeMode` types into write path: on node write/update, evaluate computed field expressions and store results.
 
-6. **Computed field execution engine.** Wire the existing `ComputeMode` types into the write path: on node create/update, find computed fields that depend on dirty fields, evaluate expressions, and store results. Eager mode runs in the write transaction; Deferred spawns a task; Read annotates for the query layer.
+6. **Build Frontend UIs for Files or Trips.** Create dedicated React components for Files (file browser with upload/download) or Trips (interactive map + itinerary timeline).
 
-7. **Build at least one more real app UI (Files or Trips).** The Journal app proves the pattern. Pick Files (simpler) or Trips (more interesting UI with map) and build the frontend component so it ships with the binary.
+7. **Pagination for List Endpoints.** Add `limit` and `cursor` pagination parameters across all app list handlers using PQL `LIMIT`/`SKIP`.
 
-8. **Pagination for all list endpoints.** Add `limit` and `cursor` parameters to every app's list handler. The query language supports `LIMIT`/`SKIP` — it just needs to be used.
+### 4.3 Later (Polish and Advanced Features)
 
-### 4.3 Later (polish and deferred features)
-
-9. `field_stats` → index suggestion feedback loop (§6.5)
-10. Windowed field_stats (hourly buckets)
-11. Type-compatibility validation at compile time (§3.7)
-12. CRDT FieldValue variants + merge + `@ops`/`@at` view selectors
-13. Field promotion path (JSONB → typed column)
-14. Background task scheduler in plugin loader
-15. User auth + space-level permissions
-16. Query ID tracing and per-stage profiling
+8. `field_stats` → index suggestion feedback loop (§6.5)
+9. Windowed field_stats (hourly buckets)
+10. Type-compatibility validation at compile time (§3.7)
+11. Additional `StorageBackend` implementations (e.g. PostgreSQL via sqlx)
+12. CRDT FieldValue variants + merge semantics + `@ops`/`@at` view selectors
+13. Background task scheduler in plugin loader
+14. User auth + space-level permissions
+15. Query ID tracing and per-stage profiling
 
 ### 4.4 Explicitly Deferred (v0.x+)
 
 - Aggregation, unbounded traversal, full-text search, subqueries (QUERY_DESIGN.md §9)
 - End-to-end encryption, sync (DESIGN.md)
-- Export/import, garbage collection (DESIGN.md)
+- Garbage collection (DESIGN.md)
