@@ -28,7 +28,7 @@ impl BeliPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Restaurant name".to_string()),
@@ -37,7 +37,7 @@ impl BeliPlugin {
                 SchemaField {
                     name: "cuisine".to_string(),
                     namespace: "beli".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Type of cuisine".to_string()),
@@ -46,7 +46,7 @@ impl BeliPlugin {
                 SchemaField {
                     name: "location".to_string(),
                     namespace: "beli".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Restaurant address/location".to_string()),
@@ -55,7 +55,7 @@ impl BeliPlugin {
                 SchemaField {
                     name: "notes".to_string(),
                     namespace: "beli".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("User notes".to_string()),
@@ -77,7 +77,7 @@ impl BeliPlugin {
                 SchemaField {
                     name: "better_id".to_string(),
                     namespace: "beli".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "NodeRef".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("ID of the preferred restaurant".to_string()),
@@ -86,7 +86,7 @@ impl BeliPlugin {
                 SchemaField {
                     name: "worse_id".to_string(),
                     namespace: "beli".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "NodeRef".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("ID of the less preferred restaurant".to_string()),
@@ -95,7 +95,7 @@ impl BeliPlugin {
                 SchemaField {
                     name: "context".to_string(),
                     namespace: "beli".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Optional context (e.g., 'best pizza')".to_string()),

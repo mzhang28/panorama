@@ -159,14 +159,34 @@ impl WakatimePlugin {
 
 /// Convenience helper for building schema fields.
 fn schema_field(name: &str, namespace: &str, required: bool, description: &str) -> SchemaField {
+    let type_tag = ft(name);
     SchemaField {
         name: name.to_string(),
         namespace: namespace.to_string(),
-        field_type: None,
+        field_type: Some(FieldTypeConstraint { type_tag: type_tag.into(), element_type: None }),
         required,
         default: None,
         description: Some(description.to_string()),
         computed: None,
+    }
+}
+
+/// Infer the FieldTypeConstraint type_tag from a field name.
+fn ft(name: &str) -> &str {
+    match name {
+        // DateTime fields
+        "node_time" | "node_end_time" | "time" | "created_at" | "updated_at" => "DateTime",
+        // Integer fields
+        "cursorpos" | "lineno" | "heartbeat_count" | "session_count"
+        | "lines_added" | "lines_removed" | "total_lines" => "Integer",
+        // Float fields
+        "duration" | "duration_seconds" | "total_seconds" | "ai_seconds" => "Float",
+        // Boolean fields
+        "is_write" | "is_debugging" | "is_ai_generated" | "is_unsaved_entity" => "Boolean",
+        // Integer (epoch) fields — stored as Float for precision
+        "sent_at" => "Float",
+        // Everything else is a String
+        _ => "String",
     }
 }
 

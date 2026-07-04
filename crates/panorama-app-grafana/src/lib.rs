@@ -495,7 +495,7 @@ impl GrafanaPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Dashboard name".to_string()),
@@ -504,7 +504,7 @@ impl GrafanaPlugin {
                 SchemaField {
                     name: "config".to_string(),
                     namespace: "grafana".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Json".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Full dashboard JSON configuration".to_string()),
@@ -513,7 +513,7 @@ impl GrafanaPlugin {
                 SchemaField {
                     name: "uid".to_string(),
                     namespace: "grafana".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Unique dashboard identifier (short hash)".to_string()),
@@ -522,7 +522,7 @@ impl GrafanaPlugin {
                 SchemaField {
                     name: "tags".to_string(),
                     namespace: "grafana".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Comma-separated tags".to_string()),
@@ -531,7 +531,7 @@ impl GrafanaPlugin {
                 SchemaField {
                     name: "folder_uid".to_string(),
                     namespace: "grafana".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Folder this dashboard belongs to".to_string()),
@@ -540,7 +540,7 @@ impl GrafanaPlugin {
                 SchemaField {
                     name: "version".to_string(),
                     namespace: "grafana".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Integer".into(), element_type: None }),
                     required: false,
                     default: Some(FieldValue::Integer(1)),
                     description: Some("Dashboard revision version number".to_string()),
@@ -562,7 +562,7 @@ impl GrafanaPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Folder name".to_string()),
@@ -571,7 +571,7 @@ impl GrafanaPlugin {
                 SchemaField {
                     name: "uid".to_string(),
                     namespace: "grafana".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Unique folder identifier".to_string()),

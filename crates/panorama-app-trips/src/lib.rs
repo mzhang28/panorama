@@ -27,7 +27,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Trip name".to_string()),
@@ -36,7 +36,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "start_date".to_string(),
                     namespace: "trips".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "DateTime".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Trip start date".to_string()),
@@ -45,7 +45,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "end_date".to_string(),
                     namespace: "trips".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "DateTime".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Trip end date".to_string()),
@@ -67,7 +67,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Event name".to_string()),
@@ -76,7 +76,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "node_start_time".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "DateTime".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Event start time".to_string()),
@@ -85,7 +85,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "node_end_time".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "DateTime".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Event end time".to_string()),
@@ -94,7 +94,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "trip_id".to_string(),
                     namespace: "trips".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "NodeRef".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Reference to the parent trip".to_string()),
@@ -103,7 +103,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "latitude".to_string(),
                     namespace: "trips".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Float".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Event location latitude".to_string()),
@@ -112,7 +112,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "longitude".to_string(),
                     namespace: "trips".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Float".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Event location longitude".to_string()),
@@ -121,7 +121,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "location_name".to_string(),
                     namespace: "trips".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Human-readable location name".to_string()),
@@ -130,7 +130,7 @@ impl TripsPlugin {
                 SchemaField {
                     name: "notes".to_string(),
                     namespace: "trips".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Event notes/description".to_string()),

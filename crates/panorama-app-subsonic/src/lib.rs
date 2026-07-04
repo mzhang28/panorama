@@ -27,7 +27,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Artist name".to_string()),
@@ -49,7 +49,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Album name".to_string()),
@@ -58,7 +58,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "artist_id".to_string(),
                     namespace: "subsonic".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "NodeRef".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Reference to artist node".to_string()),
@@ -67,7 +67,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "year".to_string(),
                     namespace: "subsonic".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Integer".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Release year".to_string()),
@@ -76,7 +76,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "cover_art_ref".to_string(),
                     namespace: "subsonic".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "ObjectRef".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Object storage ref for cover art".to_string()),
@@ -98,7 +98,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Track title".to_string()),
@@ -107,7 +107,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "album_id".to_string(),
                     namespace: "subsonic".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "NodeRef".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Reference to album node".to_string()),
@@ -116,7 +116,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "artist_id".to_string(),
                     namespace: "subsonic".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "NodeRef".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Reference to artist node".to_string()),
@@ -125,7 +125,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "track_number".to_string(),
                     namespace: "subsonic".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Integer".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Track number in album".to_string()),
@@ -134,7 +134,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "duration".to_string(),
                     namespace: "subsonic".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Float".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Duration in seconds".to_string()),
@@ -143,7 +143,7 @@ impl SubsonicPlugin {
                 SchemaField {
                     name: "audio_ref".to_string(),
                     namespace: "subsonic".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "ObjectRef".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Object storage ref for audio file".to_string()),

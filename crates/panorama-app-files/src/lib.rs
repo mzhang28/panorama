@@ -28,7 +28,7 @@ impl FilesPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("File name".to_string()),
@@ -37,7 +37,7 @@ impl FilesPlugin {
                 SchemaField {
                     name: "object_ref".to_string(),
                     namespace: "files".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "ObjectRef".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Object storage reference".to_string()),
@@ -46,7 +46,7 @@ impl FilesPlugin {
                 SchemaField {
                     name: "file_size".to_string(),
                     namespace: "files".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Integer".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("File size in bytes".to_string()),
@@ -55,7 +55,7 @@ impl FilesPlugin {
                 SchemaField {
                     name: "mime_type".to_string(),
                     namespace: "files".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("MIME type".to_string()),
@@ -64,7 +64,7 @@ impl FilesPlugin {
                 SchemaField {
                     name: "folder".to_string(),
                     namespace: "files".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Virtual folder path".to_string()),

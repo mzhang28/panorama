@@ -51,7 +51,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: Some(FieldValue::String("".to_string())),
                     description: Some("Block title (display text for pages)".to_string()),
@@ -60,7 +60,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "node_time".to_string(),
                     namespace: "system".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "DateTime".into(), element_type: None }),
                     required: true,
                     default: None,
                     description: Some("Creation / last-edit timestamp".to_string()),
@@ -69,7 +69,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "content".to_string(),
                     namespace: "journal".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Markdown content of the block".to_string()),
@@ -78,7 +78,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "parent_id".to_string(),
                     namespace: "journal".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "NodeRef".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("UUID of the parent block (null = root page)".to_string()),
@@ -87,7 +87,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "order".to_string(),
                     namespace: "journal".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: Some(FieldValue::String("a0".to_string())),
                     description: Some("Fractional index for sibling ordering".to_string()),
@@ -96,7 +96,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "page_id".to_string(),
                     namespace: "journal".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "NodeRef".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("UUID of the root page this block belongs to".to_string()),
@@ -105,7 +105,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "journal_day".to_string(),
                     namespace: "journal".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "String".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("ISO date string for journal pages (e.g. 2026-07-04)".to_string()),
@@ -114,7 +114,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "properties".to_string(),
                     namespace: "journal".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Json".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("JSON map of typed key-value properties".to_string()),
@@ -123,7 +123,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "tags".to_string(),
                     namespace: "journal".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Json".into(), element_type: None }),
                     required: false,
                     default: None,
                     description: Some("Array of tag strings".to_string()),
@@ -132,7 +132,10 @@ impl JournalPlugin {
                 SchemaField {
                     name: "refs".to_string(),
                     namespace: "journal".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint {
+                        type_tag: "Array".into(),
+                        element_type: Some(Box::new(FieldTypeConstraint { type_tag: "NodeRef".into(), element_type: None })),
+                    }),
                     required: false,
                     default: None,
                     description: Some("Array of UUIDs this block references via [[links]]".to_string()),
@@ -141,7 +144,7 @@ impl JournalPlugin {
                 SchemaField {
                     name: "deleted".to_string(),
                     namespace: "journal".to_string(),
-                    field_type: None,
+                    field_type: Some(FieldTypeConstraint { type_tag: "Boolean".into(), element_type: None }),
                     required: false,
                     default: Some(FieldValue::Boolean(false)),
                     description: Some("Soft-delete flag".to_string()),
