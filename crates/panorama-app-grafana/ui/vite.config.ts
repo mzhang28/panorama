@@ -9,6 +9,7 @@ export default defineConfig({
     federation({
       name: 'io_mzhang_panorama_grafana',
       filename: 'remoteEntry.js',
+      dts: false,
       exposes: { './App': './src/App.tsx' },
       shared: {
         react: { singleton: true, requiredVersion: '^19.0.0' },
