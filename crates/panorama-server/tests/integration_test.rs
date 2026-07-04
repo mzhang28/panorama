@@ -31,44 +31,44 @@ fn setup_test_env() -> (PluginLoader, tempfile::TempDir) {
 // ─── Journal App Tests ───────────────────────────────────────
 
 #[tokio::test]
-async fn test_journal_create_and_list_entries() {
+async fn test_journal_create_and_list_blocks() {
     let (loader, _tmp) = setup_test_env();
     let plugin = Arc::new(panorama_app_journal::JournalPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
 
     let ctx = loader.create_context("io.mzhang.panorama.journal", plugin.required_capabilities());
 
-    // Create a journal entry via HTTP
+    // Create a root block (page) via HTTP
     let req = HttpRequest {
         method: "POST".into(),
-        path: "entries".into(),
+        path: "blocks".into(),
         query_params: Default::default(),
         headers: Default::default(),
         body: Some(serde_json::json!({
-            "title": "My First Entry",
-            "content": "# Hello\nThis is a journal entry.",
-            "mood": "excited"
+            "title": "My First Page",
+            "content": "# Hello\nThis is a journal block.",
+            "tags": ["test", "journal"]
         }).to_string().into_bytes().into()),
     };
-    let resp = plugin.handle_http_request("entries", req, &ctx).await.unwrap();
+    let resp = plugin.handle_http_request("blocks", req, &ctx).await.unwrap();
     assert_eq!(resp.status, 200);
 
-    // List entries
+    // List blocks
     let req = HttpRequest {
         method: "GET".into(),
-        path: "entries".into(),
+        path: "blocks".into(),
         query_params: Default::default(),
         headers: Default::default(),
         body: None,
     };
-    let resp = plugin.handle_http_request("entries", req, &ctx).await.unwrap();
+    let resp = plugin.handle_http_request("blocks", req, &ctx).await.unwrap();
     assert_eq!(resp.status, 200);
-    let entries: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
-    assert!(!entries.is_empty());
+    let blocks: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
+    assert!(!blocks.is_empty());
 }
 
 #[tokio::test]
-async fn test_journal_entry_has_fields() {
+async fn test_journal_block_has_fields() {
     let (loader, _tmp) = setup_test_env();
     let plugin = Arc::new(panorama_app_journal::JournalPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
@@ -77,21 +77,133 @@ async fn test_journal_entry_has_fields() {
 
     let req = HttpRequest {
         method: "POST".into(),
-        path: "entries".into(),
+        path: "blocks".into(),
         query_params: Default::default(),
         headers: Default::default(),
         body: Some(serde_json::json!({
-            "title": "Test Entry",
-            "content": "Testing journal content"
+            "title": "Test Block",
+            "content": "Testing journal block content"
         }).to_string().into_bytes().into()),
     };
-    let resp = plugin.handle_http_request("entries", req, &ctx).await.unwrap();
-    let entry: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
-    assert_eq!(entry["fields"]["system:node_title"]["value"], "Test Entry");
+    let resp = plugin.handle_http_request("blocks", req, &ctx).await.unwrap();
+    let block: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(block["fields"]["system:node_title"]["value"], "Test Block");
     assert_eq!(
-        entry["fields"]["journal:content"]["value"],
-        "Testing journal content"
+        block["fields"]["journal:content"]["value"],
+        "Testing journal block content"
     );
+}
+
+#[tokio::test]
+async fn test_journal_block_refs_extraction() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_journal::JournalPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+
+    let ctx = loader.create_context("io.mzhang.panorama.journal", plugin.required_capabilities());
+
+    // Create a page to reference
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "blocks".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "title": "Target Page",
+            "content": "The target"
+        }).to_string().into_bytes().into()),
+    };
+    let resp = plugin.handle_http_request("blocks", req, &ctx).await.unwrap();
+    let target: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    let target_id = target["id"].as_str().unwrap();
+
+    // Create a block that references the target via [[link]]
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "blocks".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "title": "Source Block",
+            "content": "See [[Target Page]] for details."
+        }).to_string().into_bytes().into()),
+    };
+    let resp = plugin.handle_http_request("blocks", req, &ctx).await.unwrap();
+    let source: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    let source_id = source["id"].as_str().unwrap();
+
+    // Check that refs were extracted (refs are serialized as {"type":"NodeRef","value":"uuid"})
+    let refs_val = &source["fields"]["journal:refs"];
+    let refs_arr = refs_val["value"].as_array().unwrap();
+    assert_eq!(refs_arr.len(), 1, "should have one ref");
+    let ref_value = refs_arr[0]["value"].as_str().unwrap();
+    assert_eq!(ref_value, target_id, "ref should point to target page");
+
+    // Check backlinks
+    let backlinks_path = format!("pages/{}/backlinks", target_id);
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: backlinks_path.clone(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request(&backlinks_path, req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let backlinks: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
+    assert!(!backlinks.is_empty(), "should have backlinks");
+}
+
+#[tokio::test]
+async fn test_journal_pages_today() {
+    let (loader, _tmp) = setup_test_env();
+    let plugin = Arc::new(panorama_app_journal::JournalPlugin::new());
+    loader.load(plugin.clone()).await.unwrap();
+
+    let ctx = loader.create_context("io.mzhang.panorama.journal", plugin.required_capabilities());
+
+    // Create a block first to ensure the "journal" namespace is registered
+    let req = HttpRequest {
+        method: "POST".into(),
+        path: "blocks".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: Some(serde_json::json!({
+            "title": "Warmup",
+            "content": "warmup"
+        }).to_string().into_bytes().into()),
+    };
+    plugin.handle_http_request("blocks", req, &ctx).await.unwrap();
+
+    // Get today's page — auto-creates if missing
+    let req = HttpRequest {
+        method: "GET".into(),
+        path: "pages/today".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp = plugin.handle_http_request("pages/today", req, &ctx).await.unwrap();
+    assert_eq!(resp.status, 200);
+    let page: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+
+    // Should have journal_day set to today
+    let journal_day = &page["fields"]["journal:journal_day"]["value"];
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    assert_eq!(journal_day.as_str().unwrap(), today);
+
+    // Calling again should return the same page (not create a duplicate)
+    let req2 = HttpRequest {
+        method: "GET".into(),
+        path: "pages/today".into(),
+        query_params: Default::default(),
+        headers: Default::default(),
+        body: None,
+    };
+    let resp2 = plugin.handle_http_request("pages/today", req2, &ctx).await.unwrap();
+    assert_eq!(resp2.status, 200);
+    let page2: serde_json::Value = serde_json::from_slice(&resp2.body).unwrap();
+    assert_eq!(page["id"], page2["id"]);
 }
 
 // ─── Wakatime App Tests ──────────────────────────────────────

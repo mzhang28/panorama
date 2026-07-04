@@ -7,598 +7,579 @@ import { marked } from 'marked'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-interface JournalEntry {
+interface Block {
   id: string
   fields: Record<string, { type: string; value: any }>
   created_at: string
   updated_at: string
 }
 
-interface Paragraph {
-  id: string
-  fields: Record<string, { type: string; value: any }>
+interface BlockNode {
+  n?: Block
+  id?: string
+  fields?: Record<string, { type: string; value: any }>
+  created_at?: string
+  updated_at?: string
 }
 
 const PLUGIN_ID = 'io.mzhang.panorama.journal'
 
-function fieldStr(entry: JournalEntry, key: string): string | undefined {
-  const node = (entry as any)?.n || entry
-  const fields = node?.fields || node?.fields_json || {}
-  const f = fields[key]
-  if (!f || f.value === null || f.value === undefined) return undefined
-  return String(f.value)
+// ── Field helpers ─────────────────────────────────────────────────────────────
+
+function f(node: BlockNode, key: string): any {
+  const n = node?.n || node
+  const fields = n?.fields ?? {}
+  return fields[key]?.value
 }
 
-function fieldBool(entry: JournalEntry, key: string): boolean {
-  const node = (entry as any)?.n || entry
-  const fields = node?.fields || node?.fields_json || {}
-  const f = fields[key]
-  if (!f) return false
-  return f.value === true || f.value === 'true'
+function fStr(node: BlockNode, key: string): string {
+  const v = f(node, key)
+  return v != null ? String(v) : ''
 }
 
-// ── API helpers ──────────────────────────────────────────────────────────────
+function fBool(node: BlockNode, key: string): boolean {
+  const v = f(node, key)
+  return v === true || v === 'true'
+}
 
-async function listEntries(params: Record<string, string> = {}): Promise<JournalEntry[]> {
+function fJson(node: BlockNode, key: string): any {
+  const v = f(node, key)
+  if (typeof v === 'string') {
+    try { return JSON.parse(v) } catch { return v }
+  }
+  return v
+}
+
+function normalizeBlock(raw: any): Block {
+  return raw?.n || raw
+}
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+
+async function api(path: string, method = 'GET', body?: any): Promise<any> {
+  const res = await callPluginEndpoint(PLUGIN_ID, path, method, body)
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(err)
+  }
+  return res.json()
+}
+
+async function listBlocks(params: Record<string, string> = {}): Promise<Block[]> {
   const qs = new URLSearchParams(params).toString()
-  const res = await callPluginEndpoint(PLUGIN_ID, `entries?${qs}`)
-  if (!res.ok) throw new Error(await res.text())
-  const data = await res.json()
-  const raw = Array.isArray(data) ? data : (data && Array.isArray(data.rows)) ? data.rows : []
-  return raw.map((item: any) => item?.n || item)
+  const data = await api(`blocks?${qs}`)
+  return (Array.isArray(data) ? data : data?.rows ?? []).map(normalizeBlock)
 }
 
-async function createEntry(body: {
-  title: string
-  content: string
-  mood?: string
-  time?: string
-}): Promise<JournalEntry> {
-  const res = await callPluginEndpoint(PLUGIN_ID, 'entries', 'POST', body)
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err)
-  }
-  return res.json()
+async function listPages(): Promise<Block[]> {
+  const data = await api('pages')
+  return (Array.isArray(data) ? data : data?.rows ?? []).map(normalizeBlock)
 }
 
-async function updateEntry(
-  id: string,
-  body: { title?: string; content?: string; mood?: string },
-): Promise<JournalEntry> {
-  const res = await callPluginEndpoint(PLUGIN_ID, `entries/${id}`, 'PUT', body)
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err)
-  }
-  return res.json()
+async function getBlock(id: string): Promise<Block> {
+  return normalizeBlock(await api(`blocks/${id}`))
 }
 
-async function deleteEntry(id: string): Promise<JournalEntry> {
-  const res = await callPluginEndpoint(PLUGIN_ID, `entries/${id}`, 'DELETE')
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err)
-  }
-  return res.json()
+async function getChildren(id: string): Promise<Block[]> {
+  const data = await api(`blocks/${id}/children`)
+  return (Array.isArray(data) ? data : data?.rows ?? []).map(normalizeBlock)
 }
 
-async function getParagraphs(entryId: string): Promise<Paragraph[]> {
-  const res = await callPluginEndpoint(PLUGIN_ID, `entries/${entryId}/paragraphs`)
-  if (!res.ok) return []
-  const data = await res.json()
-  return Array.isArray(data) ? data : []
+async function getTodayPage(): Promise<Block> {
+  return normalizeBlock(await api('pages/today'))
 }
 
-// ── Mood colours ─────────────────────────────────────────────────────────────
-
-const MOOD_COLORS: Record<string, string> = {
-  happy: '#6cff8c',
-  excited: '#ffcc6c',
-  thoughtful: '#6c8cff',
-  melancholic: '#aa88ff',
-  anxious: '#ff8c6c',
-  calm: '#6cffcc',
-  grateful: '#ff6cff',
+async function getBacklinks(pageId: string): Promise<Block[]> {
+  const data = await api(`pages/${pageId}/backlinks`)
+  return (Array.isArray(data) ? data : data?.rows ?? []).map(normalizeBlock)
 }
 
-// ── Markdown renderer ────────────────────────────────────────────────────────
-
-function renderMarkdown(md: string): string {
-  return marked.parse(md, { async: false }) as string
+async function renderMarkdown(content: string): Promise<string> {
+  const data = await api('blocks/render', 'POST', { content })
+  return data.html ?? marked.parse(content) ?? ''
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
+// ── Journal App ───────────────────────────────────────────────────────────────
+
+const TODAY = new Date().toISOString().slice(0, 10)
 
 export function JournalApp() {
   const queryClient = useQueryClient()
-  const [showCreate, setShowCreate] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null)
+  const [showNewBlock, setShowNewBlock] = useState(false)
+  const [editingBlockId, setEditingBlockId] = useState<string | null>(null)
+  const [showBacklinks, setShowBacklinks] = useState(false)
 
-  // Filters
-  const [moodFilter, setMoodFilter] = useState('')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  // ── Queries ────────────────────────────────────────────────────────────
 
-  const queryParams = useMemo(() => {
-    const p: Record<string, string> = {}
-    if (moodFilter) p.mood = moodFilter
-    if (fromDate) p.from = fromDate
-    if (toDate) p.to = toDate
-    return p
-  }, [moodFilter, fromDate, toDate])
-
-  const {
-    data: entries = [],
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ['journal-entries', queryParams],
-    queryFn: () => listEntries(queryParams),
+  const { data: pages = [], isLoading: pagesLoading } = useQuery({
+    queryKey: ['journal-pages'],
+    queryFn: listPages,
+    refetchInterval: 15_000,
   })
 
-  const {
-    data: selectedEntry,
-  } = useQuery({
-    queryKey: ['journal-entry', selectedId],
-    queryFn: async () => {
-      if (!selectedId) return null
-      const res = await callPluginEndpoint(PLUGIN_ID, `entries/${selectedId}`)
-      if (!res.ok) throw new Error(await res.text())
-      return res.json() as Promise<JournalEntry>
-    },
-    enabled: !!selectedId,
+  const { data: todayPage } = useQuery({
+    queryKey: ['journal-today'],
+    queryFn: getTodayPage,
   })
 
-  const {
-    data: paragraphs = [],
-  } = useQuery({
-    queryKey: ['journal-paragraphs', selectedId],
-    queryFn: () => getParagraphs(selectedId!),
-    enabled: !!selectedId,
+  const { data: selectedPage } = useQuery({
+    queryKey: ['journal-page', selectedPageId],
+    queryFn: () => selectedPageId ? getBlock(selectedPageId) : null,
+    enabled: !!selectedPageId,
   })
 
-  // Mutations
-  const createMut = useMutation({
-    mutationFn: createEntry,
+  const { data: pageChildren = [] } = useQuery({
+    queryKey: ['journal-children', selectedPageId],
+    queryFn: () => selectedPageId ? getChildren(selectedPageId) : [],
+    enabled: !!selectedPageId,
+  })
+
+  const { data: backlinks = [] } = useQuery({
+    queryKey: ['journal-backlinks', selectedPageId],
+    queryFn: () => selectedPageId ? getBacklinks(selectedPageId) : [],
+    enabled: !!selectedPageId && showBacklinks,
+  })
+
+  // ── Mutations ──────────────────────────────────────────────────────────
+
+  const createBlock = useMutation({
+    mutationFn: (body: any) => api('blocks', 'POST', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['journal-entries'] })
-      setShowCreate(false)
+      queryClient.invalidateQueries({ queryKey: ['journal-pages'] })
+      queryClient.invalidateQueries({ queryKey: ['journal-children'] })
+      queryClient.invalidateQueries({ queryKey: ['journal-page'] })
+      setShowNewBlock(false)
     },
   })
 
-  const updateMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: any }) => updateEntry(id, body),
+  const updateBlock = useMutation({
+    mutationFn: ({ id, ...body }: any) => api(`blocks/${id}`, 'PUT', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['journal-entries'] })
-      queryClient.invalidateQueries({ queryKey: ['journal-entry', selectedId] })
-      queryClient.invalidateQueries({ queryKey: ['journal-paragraphs', selectedId] })
-      setEditingId(null)
+      queryClient.invalidateQueries({ queryKey: ['journal-pages'] })
+      queryClient.invalidateQueries({ queryKey: ['journal-children'] })
+      queryClient.invalidateQueries({ queryKey: ['journal-page'] })
+      setEditingBlockId(null)
     },
   })
 
-  const deleteMut = useMutation({
-    mutationFn: deleteEntry,
+  const deleteBlock = useMutation({
+    mutationFn: (id: string) => api(`blocks/${id}`, 'DELETE'),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['journal-entries'] })
-      setSelectedId(null)
+      queryClient.invalidateQueries({ queryKey: ['journal-pages'] })
+      queryClient.invalidateQueries({ queryKey: ['journal-page'] })
     },
   })
 
-  // ── Mood options ─────────────────────────────────────────────────────────
+  // ── Determine active page ──────────────────────────────────────────────
 
-  const moodOptions = ['', 'happy', 'excited', 'thoughtful', 'melancholic', 'anxious', 'calm', 'grateful']
+  const activePageId = selectedPageId || (todayPage as any)?.id
+  const activePage = selectedPageId ? selectedPage : todayPage as Block | null
+
+  // ── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div>
-      {/* Header */}
-      <div className="flex-row mb-1" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <div>
-          <h2 style={{ margin: 0 }}>📓 Journal</h2>
-          <p className="text-muted">Daily entries with markdown, mood tagging &amp; paragraph references</p>
+    <div className="journal-layout">
+      {/* Left sidebar: page list */}
+      <aside className="journal-sidebar">
+        <div className="journal-sidebar-section">
+          <button
+            className="journal-today-btn"
+            onClick={() => {
+              setSelectedPageId(null)
+              queryClient.invalidateQueries({ queryKey: ['journal-today'] })
+            }}
+          >
+            📅 Today
+          </button>
+          <button
+            className="journal-new-page-btn"
+            onClick={() => {
+              setSelectedPageId(null)
+              setShowNewBlock(true)
+            }}
+          >
+            + New Page
+          </button>
         </div>
-        <button className="primary" onClick={() => setShowCreate(!showCreate)}>
-          {showCreate ? 'Cancel' : '+ New Entry'}
-        </button>
-      </div>
 
-      {/* Create form */}
-      {showCreate && (
-        <EntryForm
-          onSubmit={(data) => createMut.mutate(data)}
-          isPending={createMut.isPending}
-        />
-      )}
+        <h3 className="journal-sidebar-heading">All Pages</h3>
+        {pagesLoading ? (
+          <p className="text-muted" style={{ fontSize: 13 }}>Loading...</p>
+        ) : pages.length === 0 ? (
+          <p className="text-muted" style={{ fontSize: 13 }}>No pages yet</p>
+        ) : (
+          <div className="journal-page-list">
+            {pages.map((p) => {
+              const title = fStr(p, 'system:node_title') || 'Untitled'
+              const day = fStr(p, 'journal:journal_day')
+              const isDeleted = fBool(p, 'journal:deleted')
+              return (
+                <button
+                  key={normalizeBlock(p).id || title}
+                  className={`journal-page-link${activePageId === normalizeBlock(p).id ? ' active' : ''}${isDeleted ? ' deleted' : ''}`}
+                  onClick={() => {
+                    setSelectedPageId(normalizeBlock(p).id)
+                    setShowBacklinks(false)
+                  }}
+                  title={day || undefined}
+                >
+                  <span className="journal-page-link-icon">{day ? '📅' : '📄'}</span>
+                  <span className="journal-page-link-title">{title || 'Untitled'}</span>
+                  {isDeleted && <span className="journal-deleted-badge">deleted</span>}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </aside>
 
-      {/* Filter bar */}
-      <FilterBar
-        moodFilter={moodFilter}
-        onMoodChange={setMoodFilter}
-        fromDate={fromDate}
-        onFromChange={setFromDate}
-        toDate={toDate}
-        onToChange={setToDate}
-        moodOptions={moodOptions}
-      />
+      {/* Main content */}
+      <main className="journal-main">
+        {activePage ? (
+          <>
+            {/* Page header */}
+            <div className="journal-page-header">
+              <h2 className="journal-page-title">
+                {fStr(activePage, 'system:node_title') || 'Untitled'}
+              </h2>
+              <div className="journal-page-meta">
+                {fStr(activePage, 'journal:journal_day') && (
+                  <span className="journal-date-badge">
+                    📅 {fStr(activePage, 'journal:journal_day')}
+                  </span>
+                )}
+                <button
+                  className="journal-icon-btn"
+                  onClick={() => setShowBacklinks(!showBacklinks)}
+                  title="Toggle backlinks"
+                >
+                  🔗 Backlinks
+                </button>
+                <button
+                  className="journal-icon-btn"
+                  onClick={() => {
+                    if (activePageId) {
+                      if (confirm('Delete this page?')) {
+                        deleteBlock.mutate(activePageId)
+                      }
+                    }
+                  }}
+                  title="Delete page"
+                >
+                  🗑️
+                </button>
+              </div>
+              {/* Tags */}
+              {fJson(activePage, 'journal:tags') && (
+                <div className="journal-tags">
+                  {(Array.isArray(fJson(activePage, 'journal:tags'))
+                    ? fJson(activePage, 'journal:tags')
+                    : []
+                  ).map((tag: string) => (
+                    <span key={tag} className="journal-tag">#{tag}</span>
+                  ))}
+                </div>
+              )}
+            </div>
 
-      {/* Entry list */}
-      {isLoading && <p>Loading entries...</p>}
-      {error && <p className="text-muted" style={{ color: 'var(--danger)' }}>Error: {String(error)}</p>}
+            {/* Properties */}
+            {fJson(activePage, 'journal:properties') && (
+              <PropertiesBlock
+                properties={fJson(activePage, 'journal:properties')}
+              />
+            )}
 
-      <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-        {entries.map((entry) => (
-          <div key={entry.id}>
-            <EntryCard
-              entry={entry}
-              isSelected={selectedId === entry.id}
-              isEditing={editingId === entry.id}
-              onClick={() => {
-                setSelectedId(selectedId === entry.id ? null : entry.id)
-                setEditingId(null)
+            {/* Page content block */}
+            <BlockView
+              block={activePage as BlockNode}
+              depth={0}
+              onEdit={(id) => setEditingBlockId(id)}
+              editingBlockId={editingBlockId}
+              onSave={(id, content) => {
+                updateBlock.mutate({ id, content })
               }}
-              onEdit={() => setEditingId(entry.id)}
-              onDelete={() => {
-                if (confirm('Soft-delete this entry? It can be recovered.')) {
-                  deleteMut.mutate(entry.id)
-                }
+              onCancel={() => setEditingBlockId(null)}
+              onDelete={(id) => {
+                if (confirm('Delete this block?')) deleteBlock.mutate(id)
               }}
             />
 
-            {/* Inline edit form */}
-            {editingId === entry.id && (
-              <EntryForm
-                initialTitle={fieldStr(entry, 'system:node_title') || ''}
-                initialContent={fieldStr(entry, 'journal:content') || ''}
-                initialMood={fieldStr(entry, 'journal:mood') || ''}
-                isEdit
-                onSubmit={(data) => updateMut.mutate({ id: entry.id, body: data })}
-                onCancel={() => setEditingId(null)}
-                isPending={updateMut.isPending}
+            {/* Child blocks (tree) */}
+            {pageChildren.map((child: BlockNode) => (
+              <BlockView
+                key={normalizeBlock(child as any).id || fStr(child, 'journal:order')}
+                block={child}
+                depth={1}
+                onEdit={(id) => setEditingBlockId(id)}
+                editingBlockId={editingBlockId}
+                onSave={(id, content) => {
+                  updateBlock.mutate({ id, content })
+                }}
+                onCancel={() => setEditingBlockId(null)}
+                onDelete={(id) => {
+                  if (confirm('Delete this block?')) deleteBlock.mutate(id)
+                }}
               />
-            )}
+            ))}
 
-            {/* Expanded detail */}
-            {selectedId === entry.id && selectedEntry && (
-              <EntryDetail
-                entry={selectedEntry}
-                paragraphs={paragraphs}
-                onClose={() => setSelectedId(null)}
-              />
-            )}
-          </div>
-        ))}
+            {/* New child block */}
+            <NewBlockForm
+              parentId={activePageId}
+              pageId={activePageId}
+              onCreated={() => {
+                queryClient.invalidateQueries({ queryKey: ['journal-children'] })
+              }}
+            />
 
-        {!isLoading && entries.length === 0 && (
-          <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-            <p className="text-muted">No entries yet. Write your first journal entry!</p>
+            {/* Backlinks panel */}
+            {showBacklinks && (
+              <div className="journal-backlinks">
+                <h3>🔗 Backlinks</h3>
+                {backlinks.length === 0 ? (
+                  <p className="text-muted">No backlinks yet. Link to this page with [[page name]].</p>
+                ) : (
+                  backlinks.map((bl: BlockNode) => (
+                    <div key={normalizeBlock(bl as any).id} className="journal-backlink-item">
+                      <div className="journal-backlink-title">
+                        {fStr(bl, 'system:node_title') || 'Untitled'}
+                      </div>
+                      <div className="journal-backlink-preview">
+                        {(fStr(bl, 'journal:content') || '').slice(0, 200)}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </>
+        ) : showNewBlock ? (
+          <NewBlockForm
+            parentId={null}
+            pageId={null}
+            onCreated={() => {
+              queryClient.invalidateQueries({ queryKey: ['journal-pages'] })
+            }}
+          />
+        ) : (
+          <div className="journal-empty">
+            <p className="text-muted">Select a page or create a new one.</p>
           </div>
         )}
-      </div>
+      </main>
     </div>
   )
 }
 
-// ── Filter bar ───────────────────────────────────────────────────────────────
+// ── Block View (Logseq-style bullet + indentation) ───────────────────────────
 
-function FilterBar({
-  moodFilter,
-  onMoodChange,
-  fromDate,
-  onFromChange,
-  toDate,
-  onToChange,
-  moodOptions,
-}: {
-  moodFilter: string
-  onMoodChange: (v: string) => void
-  fromDate: string
-  onFromChange: (v: string) => void
-  toDate: string
-  onToChange: (v: string) => void
-  moodOptions: string[]
-}) {
-  const hasFilters = moodFilter || fromDate || toDate
-
-  return (
-    <div
-      className="card"
-      style={{ marginTop: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}
-    >
-      <span className="text-muted" style={{ fontWeight: 600, minWidth: 40 }}>
-        Filters
-      </span>
-
-      <select
-        value={moodFilter}
-        onChange={(e) => onMoodChange(e.target.value)}
-        style={{ minWidth: 140 }}
-      >
-        <option value="">All moods</option>
-        {moodOptions.filter(Boolean).map((m) => (
-          <option key={m} value={m}>
-            {m.charAt(0).toUpperCase() + m.slice(1)}
-          </option>
-        ))}
-      </select>
-
-      <input
-        type="date"
-        value={fromDate}
-        onChange={(e) => onFromChange(e.target.value)}
-        placeholder="From date"
-        style={{ minWidth: 150 }}
-      />
-      <input
-        type="date"
-        value={toDate}
-        onChange={(e) => onToChange(e.target.value)}
-        placeholder="To date"
-        style={{ minWidth: 150 }}
-      />
-
-      {hasFilters && (
-        <button
-          onClick={() => {
-            onMoodChange('')
-            onFromChange('')
-            onToChange('')
-          }}
-          style={{ fontSize: 12 }}
-        >
-          Clear filters
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ── Entry card (list item) ──────────────────────────────────────────────────
-
-function EntryCard({
-  entry,
-  isSelected,
-  isEditing,
-  onClick,
+function BlockView({
+  block,
+  depth,
   onEdit,
+  editingBlockId,
+  onSave,
+  onCancel,
   onDelete,
 }: {
-  entry: JournalEntry
-  isSelected: boolean
-  isEditing: boolean
-  onClick: () => void
-  onEdit: () => void
-  onDelete: () => void
+  block: BlockNode
+  depth: number
+  onEdit: (id: string) => void
+  editingBlockId: string | null
+  onSave: (id: string, content: string) => void
+  onCancel: () => void
+  onDelete: (id: string) => void
 }) {
-  const title = fieldStr(entry, 'system:node_title') || 'Untitled'
-  const content = fieldStr(entry, 'journal:content') || ''
-  const mood = fieldStr(entry, 'journal:mood')
-  const isDeleted = fieldBool(entry, 'journal:deleted')
-  const date = fieldStr(entry, 'system:node_time')
+  const id = normalizeBlock(block as any).id || ''
+  const content = fStr(block, 'journal:content') || ''
+  const title = fStr(block, 'system:node_title') || ''
+  const isEditing = editingBlockId === id
+  const isDeleted = fBool(block, 'journal:deleted')
 
-  // Truncate content for preview
-  const preview =
-    content.length > 120 ? content.slice(0, 120).replace(/\n/g, ' ') + '…' : content.replace(/\n/g, ' ')
+  const [editContent, setEditContent] = useState(content)
+  const [previewHtml, setPreviewHtml] = useState('')
+  const [showPreview, setShowPreview] = useState(false)
 
-  return (
-    <div
-      className="card"
-      style={{
-        cursor: 'pointer',
-        borderColor: isSelected ? 'var(--accent)' : isDeleted ? 'var(--danger)' : undefined,
-        opacity: isDeleted ? 0.6 : 1,
-      }}
-      onClick={onClick}
-    >
-      <div className="flex-row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <strong style={{ fontSize: 16 }}>
-            {isDeleted && '🗑 '}
-            {title}
-          </strong>
-          <span className="text-muted" style={{ marginLeft: 12 }}>
-            {date ? new Date(date).toLocaleDateString('en-US', {
-              weekday: 'short',
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-            }) : ''}
-          </span>
-          {mood && (
-            <span
-              className="mood-badge"
-              style={{
-                marginLeft: 8,
-                padding: '2px 8px',
-                borderRadius: 12,
-                fontSize: 12,
-                fontWeight: 600,
-                background: MOOD_COLORS[mood] || 'var(--bg-hover)',
-                color: '#0f0f14',
-              }}
-            >
-              {mood}
-            </span>
-          )}
-          {isDeleted && (
-            <span
-              style={{
-                marginLeft: 8,
-                padding: '2px 8px',
-                borderRadius: 12,
-                fontSize: 12,
-                background: 'var(--danger)',
-                color: 'white',
-              }}
-            >
-              deleted
-            </span>
-          )}
-        </div>
+  const indent = depth * 28
 
-        <div className="flex-row" style={{ gap: 8 }}>
-          {!isDeleted && (
-            <>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onEdit()
-                }}
-                style={{ fontSize: 12, padding: '4px 10px', minHeight: 32 }}
-              >
-                Edit
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDelete()
-                }}
-                style={{
-                  fontSize: 12,
-                  padding: '4px 10px',
-                  minHeight: 32,
-                  color: 'var(--danger)',
-                  borderColor: 'var(--danger)',
-                }}
-              >
-                Delete
-              </button>
-            </>
-          )}
-        </div>
+  // Render [[links]] as styled spans
+  const renderContent = (text: string) => {
+    return text.replace(
+      /\[\[([^\]]+)\]\]/g,
+      '<span class="journal-ref">$1</span>'
+    )
+  }
+
+  if (isDeleted) {
+    return (
+      <div className="journal-block deleted" style={{ marginLeft: indent }}>
+        <span className="journal-bullet">·</span>
+        <span className="text-muted" style={{ textDecoration: 'line-through' }}>
+          {title || content.slice(0, 80)}
+        </span>
       </div>
-
-      <p className="text-muted" style={{ marginTop: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {preview || '(empty entry)'}
-      </p>
-
-      {/* Paragraph count */}
-      {(() => {
-        const refs = entry.fields['journal:paragraph_refs']
-        const count =
-          refs && refs.type === 'Array' && Array.isArray(refs.value) ? refs.value.length : 0
-        if (count > 0) {
-          return (
-            <span className="text-muted" style={{ fontSize: 11 }}>
-              {count} paragraph{count !== 1 ? 's' : ''}
-            </span>
-          )
-        }
-        return null
-      })()}
-    </div>
-  )
-}
-
-// ── Entry form (create / edit) ──────────────────────────────────────────────
-
-function EntryForm({
-  initialTitle = '',
-  initialContent = '',
-  initialMood = '',
-  isEdit = false,
-  onSubmit,
-  onCancel,
-  isPending,
-}: {
-  initialTitle?: string
-  initialContent?: string
-  initialMood?: string
-  isEdit?: boolean
-  onSubmit: (data: { title: string; content: string; mood?: string }) => void
-  onCancel?: () => void
-  isPending: boolean
-}) {
-  const [title, setTitle] = useState(initialTitle ?? '')
-  const [content, setContent] = useState(initialContent ?? '')
-  const [mood, setMood] = useState(initialMood ?? '')
-  const [preview, setPreview] = useState(false)
-
-  const handleSubmit = () => {
-    const t = (title || '').trim()
-    const c = (content || '').trim()
-    if (!t && !c) return
-    const data: { title: string; content: string; mood?: string } = {
-      title: t || 'Untitled Entry',
-      content: c,
-    }
-    if (mood) data.mood = mood
-    onSubmit(data)
+    )
   }
 
   return (
-    <div className="card" style={{ marginTop: 8, marginBottom: 8 }}>
-      <div className="flex-row mb-1" style={{ justifyContent: 'space-between' }}>
-        <strong>{isEdit ? 'Edit Entry' : 'New Entry'}</strong>
-        <div className="flex-row" style={{ gap: 8 }}>
-          {!isEdit && (
-            <button
-              onClick={() => setPreview(!preview)}
-              style={{ fontSize: 12, padding: '4px 10px', minHeight: 32 }}
-            >
-              {preview ? 'Edit' : 'Preview'}
-            </button>
-          )}
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              style={{ fontSize: 12, padding: '4px 10px', minHeight: 32 }}
-            >
-              Cancel
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="journal-block" style={{ marginLeft: indent }}>
+      {/* Bullet + content */}
+      <div className="journal-block-row">
+        <span className="journal-bullet">{depth === 0 ? '◆' : '•'}</span>
 
-      <div className="flex-col">
-        <input
-          placeholder="Entry title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          style={{ fontWeight: 600 }}
-        />
-
-        {preview ? (
-          <div
-            className="journal-entry-body"
-            style={{
-              minHeight: 120,
-              padding: '12px',
-              background: 'var(--bg)',
-              borderRadius: 6,
-              border: '1px solid var(--border)',
-              overflow: 'auto',
-            }}
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(content || '*Nothing written yet*') }}
-          />
+        {isEditing ? (
+          <div className="journal-block-editor">
+            <textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              rows={Math.max(3, editContent.split('\n').length)}
+              className="journal-block-textarea"
+              autoFocus
+            />
+            <div className="journal-block-editor-actions">
+              <button onClick={() => onSave(id, editContent)}>Save</button>
+              <button onClick={onCancel}>Cancel</button>
+              <button
+                onClick={async () => {
+                  const html = await renderMarkdown(editContent)
+                  setPreviewHtml(html)
+                  setShowPreview(!showPreview)
+                }}
+              >
+                {showPreview ? 'Edit' : 'Preview'}
+              </button>
+            </div>
+            {showPreview && (
+              <div
+                className="journal-markdown-preview"
+                dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
+            )}
+          </div>
         ) : (
-          <textarea
-            placeholder="Write your entry in markdown…&#10;&#10;# Heading&#10;- bullet&#10;- list&#10;&#10;**bold** *italic* `code`"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={8}
-            style={{ fontFamily: 'monospace', fontSize: 14, resize: 'vertical' }}
-          />
+          <div className="journal-block-content" onClick={() => onEdit(id)}>
+            {title && depth === 0 ? (
+              <div
+                className="journal-markdown-body"
+                dangerouslySetInnerHTML={{
+                  __html: renderContent(content) || '<span class="text-muted">Empty page — click to edit</span>',
+                }}
+              />
+            ) : (
+              <div
+                className="journal-block-text"
+                dangerouslySetInnerHTML={{
+                  __html: renderContent(content) || '<span class="text-muted">Click to edit</span>',
+                }}
+              />
+            )}
+          </div>
         )}
 
-        <div className="flex-row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-          <select
-            value={mood}
-            onChange={(e) => setMood(e.target.value)}
-            style={{ minWidth: 140 }}
-          >
-            <option value="">Mood (optional)</option>
-            <option value="happy">😊 Happy</option>
-            <option value="excited">🎉 Excited</option>
-            <option value="thoughtful">🤔 Thoughtful</option>
-            <option value="melancholic">🌧 Melancholic</option>
-            <option value="anxious">😰 Anxious</option>
-            <option value="calm">🧘 Calm</option>
-            <option value="grateful">🙏 Grateful</option>
-          </select>
+        {/* Hover actions */}
+        {!isEditing && (
+          <div className="journal-block-actions">
+            <button
+              className="journal-icon-btn-sm"
+              onClick={(e) => { e.stopPropagation(); onEdit(id) }}
+              title="Edit"
+            >
+              ✏️
+            </button>
+            <button
+              className="journal-icon-btn-sm"
+              onClick={(e) => { e.stopPropagation(); onDelete(id) }}
+              title="Delete"
+            >
+              🗑️
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
-          <button className="primary" onClick={handleSubmit} disabled={isPending}>
-            {isPending ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Entry'}
+// ── New Block Form ────────────────────────────────────────────────────────────
+
+function NewBlockForm({
+  parentId,
+  pageId,
+  onCreated,
+}: {
+  parentId: string | null
+  pageId: string | null
+  onCreated: () => void
+}) {
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [tags, setTags] = useState('')
+  const [journalDay, setJournalDay] = useState(parentId === null ? TODAY : '')
+
+  const isPage = parentId === null
+
+  const handleSubmit = async () => {
+    const body: any = { content }
+    if (title) body.title = title
+    if (parentId) body.parent_id = parentId
+    if (tags) body.tags = tags.split(',').map((t) => t.trim()).filter(Boolean)
+    if (journalDay) body.journal_day = journalDay
+
+    try {
+      await api('blocks', 'POST', body)
+      setTitle('')
+      setContent('')
+      setTags('')
+      onCreated()
+    } catch (e: any) {
+      alert(e.message)
+    }
+  }
+
+  return (
+    <div className="journal-new-block" style={{ marginLeft: parentId ? 28 : 0 }}>
+      <span className="journal-bullet">{isPage ? '◆' : '•'}</span>
+      <div className="journal-new-block-form">
+        {isPage && (
+          <input
+            type="text"
+            placeholder="Page title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="journal-new-title-input"
+          />
+        )}
+        <textarea
+          placeholder={isPage ? 'Start writing...' : 'New block...'}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={2}
+          className="journal-new-textarea"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              handleSubmit()
+            }
+          }}
+        />
+        <div className="journal-new-block-meta">
+          <input
+            type="text"
+            placeholder="tags (comma-separated)"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            style={{ flex: 1, fontSize: 11, padding: '2px 6px' }}
+          />
+          {isPage && (
+            <input
+              type="date"
+              value={journalDay}
+              onChange={(e) => setJournalDay(e.target.value)}
+              style={{ fontSize: 11, padding: '2px 6px' }}
+            />
+          )}
+          <button onClick={handleSubmit} className="primary" style={{ fontSize: 12 }}>
+            {isPage ? 'Create Page' : 'Add Block'}
           </button>
         </div>
       </div>
@@ -606,118 +587,21 @@ function EntryForm({
   )
 }
 
-// ── Entry detail (expanded view) ────────────────────────────────────────────
+// ── Properties Block ──────────────────────────────────────────────────────────
 
-function EntryDetail({
-  entry,
-  paragraphs,
-  onClose,
-}: {
-  entry: JournalEntry
-  paragraphs: Paragraph[]
-  onClose: () => void
-}) {
-  const title = fieldStr(entry, 'system:node_title') || 'Untitled'
-  const content = fieldStr(entry, 'journal:content') || ''
-  const mood = fieldStr(entry, 'journal:mood')
-  const date = fieldStr(entry, 'system:node_time')
-  const isDeleted = fieldBool(entry, 'journal:deleted')
+function PropertiesBlock({ properties }: { properties: Record<string, any> }) {
+  if (!properties || Object.keys(properties).length === 0) return null
 
   return (
-    <div className="card" style={{ marginTop: 12, position: 'relative' }}>
-      <button
-        onClick={onClose}
-        style={{ position: 'absolute', top: 8, right: 8, fontSize: 12, padding: '4px 10px', minHeight: 32 }}
-      >
-        ✕ Close
-      </button>
-
-      <h3 style={{ paddingRight: 60 }}>{title}</h3>
-      <div className="flex-row text-muted" style={{ gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
-        <span>
-          {date
-            ? new Date(date).toLocaleString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            : ''}
-        </span>
-        {mood && (
-          <span
-            style={{
-              padding: '2px 10px',
-              borderRadius: 12,
-              fontSize: 12,
-              fontWeight: 600,
-              background: MOOD_COLORS[mood] || 'var(--bg-hover)',
-              color: '#0f0f14',
-            }}
-          >
-            {mood}
+    <div className="journal-properties">
+      {Object.entries(properties).map(([key, value]) => (
+        <div key={key} className="journal-property-row">
+          <span className="journal-property-key">{key}</span>
+          <span className="journal-property-value">
+            {typeof value === 'boolean' ? (value ? '✅' : '⬜') : String(value)}
           </span>
-        )}
-        {isDeleted && (
-          <span
-            style={{
-              padding: '2px 10px',
-              borderRadius: 12,
-              fontSize: 12,
-              background: 'var(--danger)',
-              color: 'white',
-            }}
-          >
-            Deleted
-          </span>
-        )}
-        <span>ID: {entry.id.slice(0, 8)}…</span>
-      </div>
-
-      {/* Rendered markdown */}
-      <div
-        className="journal-entry-body"
-        style={{
-          marginTop: 16,
-          padding: '16px 20px',
-          background: 'var(--bg)',
-          borderRadius: 8,
-          border: '1px solid var(--border)',
-          lineHeight: 1.8,
-          fontSize: 15,
-          overflow: 'auto',
-        }}
-        dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
-      />
-
-      {/* Paragraph child nodes */}
-      {paragraphs.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <h4>📄 Paragraph Nodes ({paragraphs.length})</h4>
-          <p className="text-muted">
-            Each paragraph is a separate node that can be referenced from other entries.
-          </p>
-          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-            {paragraphs.map((p, i) => (
-              <div
-                key={p.id}
-                className="card"
-                style={{ padding: 12, borderLeft: '3px solid var(--accent)' }}
-              >
-                <div className="flex-row text-muted" style={{ justifyContent: 'space-between', fontSize: 12 }}>
-                  <span>Paragraph {i + 1}</span>
-                  <span style={{ fontFamily: 'monospace' }}>{p.id.slice(0, 8)}…</span>
-                </div>
-                <p style={{ marginTop: 6, fontSize: 14 }}>
-                  {String(p.fields?.['journal:content']?.value || '')}
-                </p>
-              </div>
-            ))}
-          </div>
         </div>
-      )}
+      ))}
     </div>
   )
 }

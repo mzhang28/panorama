@@ -1,19 +1,36 @@
-//! Journal App — Daily journal with markdown entries, block-level paragraph
-//! decomposition, mood tagging, and rich filtering.
+//! Journal App -- Logseq-inspired block-based notebook with daily journal,
+//! outliner tree structure, bidirectional `[[references]]`, backlinks, and a
+//! typed properties system.
 //!
-//! Features (aligned with PROGRESS.md §2.1):
-//! 1. **Block-Level Paragraph Decomposition** — markdown content is split into
-//!    paragraph child nodes on create/update, with bidirectional refs.
-//! 2. **Rich Markdown Content** — entries store full markdown; the frontend
-//!    renders it with headings, lists, code blocks, etc.
-//! 3. **Entry Editing & Soft Deletion** — PUT updates entries in place;
-//!    DELETE marks `journal:deleted` rather than removing the node.
-//! 4. **Timeline & Mood Filtering** — GET /entries supports `?mood=`,
-//!    `?from=`, and `?to=` query parameters.
+//! ## Data Model
+//!
+//! A single **Block** schema replaces the old Entry + Paragraph split:
+//!
+//! ```text
+//! Block {
+//!   title        -- optional display text
+//!   content      -- markdown body
+//!   parent_id    -- UUID of parent block (null = root / page)
+//!   order        -- fractional index ("a0", "a1"...) for sibling ordering
+//!   page_id      -- UUID of the root page this block belongs to
+//!   journal_day  -- date string "2026-07-04" (only on journal page roots)
+//!   properties   -- JSON typed key-value pairs
+//!   tags         -- array of tag strings
+//!   refs         -- array of UUIDs referenced via [[links]]
+//!   deleted      -- soft-delete flag
+//! }
+//! ```
+//!
+//! A "page" is a block with `parent_id = null`.  A "journal page" additionally
+//! has `journal_day` set.  Nested blocks form a tree via `parent_id`.
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use panorama_core::*;
+use regex::Regex;
+use serde_json::json;
+use std::collections::HashMap;
+use std::sync::LazyLock;
 use uuid::Uuid;
 
 pub struct JournalPlugin;
@@ -23,19 +40,21 @@ impl JournalPlugin {
         Self
     }
 
-    fn journal_entry_schema() -> Schema {
+    // ── Schemas ────────────────────────────────────────────────────────────
+
+    fn block_schema() -> Schema {
         Schema {
             node_id: Uuid::nil(),
-            name: "journal/JournalEntry".to_string(),
-            version: SchemaVersion::new(1, 0),
+            name: "journal/Block".to_string(),
+            version: SchemaVersion::new(2, 0),
             fields: vec![
                 SchemaField {
                     name: "node_title".to_string(),
                     namespace: "system".to_string(),
                     field_type: None,
                     required: false,
-                    default: Some(FieldValue::String("Untitled Entry".to_string())),
-                    description: Some("Journal entry title".to_string()),
+                    default: Some(FieldValue::String("".to_string())),
+                    description: Some("Block title (display text for pages)".to_string()),
                     computed: None,
                 },
                 SchemaField {
@@ -44,34 +63,79 @@ impl JournalPlugin {
                     field_type: None,
                     required: true,
                     default: None,
-                    description: Some("Date of the journal entry".to_string()),
+                    description: Some("Creation / last-edit timestamp".to_string()),
                     computed: None,
                 },
                 SchemaField {
                     name: "content".to_string(),
                     namespace: "journal".to_string(),
                     field_type: None,
-                    required: true,
+                    required: false,
                     default: None,
-                    description: Some("Markdown content of the journal entry".to_string()),
+                    description: Some("Markdown content of the block".to_string()),
                     computed: None,
                 },
                 SchemaField {
-                    name: "mood".to_string(),
+                    name: "parent_id".to_string(),
                     namespace: "journal".to_string(),
                     field_type: None,
                     required: false,
                     default: None,
-                    description: Some("Optional mood tag (happy, thoughtful, excited, etc.)".to_string()),
+                    description: Some("UUID of the parent block (null = root page)".to_string()),
                     computed: None,
                 },
                 SchemaField {
-                    name: "paragraph_refs".to_string(),
+                    name: "order".to_string(),
+                    namespace: "journal".to_string(),
+                    field_type: None,
+                    required: false,
+                    default: Some(FieldValue::String("a0".to_string())),
+                    description: Some("Fractional index for sibling ordering".to_string()),
+                    computed: None,
+                },
+                SchemaField {
+                    name: "page_id".to_string(),
                     namespace: "journal".to_string(),
                     field_type: None,
                     required: false,
                     default: None,
-                    description: Some("Array of paragraph child node UUIDs for block-level referencing".to_string()),
+                    description: Some("UUID of the root page this block belongs to".to_string()),
+                    computed: None,
+                },
+                SchemaField {
+                    name: "journal_day".to_string(),
+                    namespace: "journal".to_string(),
+                    field_type: None,
+                    required: false,
+                    default: None,
+                    description: Some("ISO date string for journal pages (e.g. 2026-07-04)".to_string()),
+                    computed: None,
+                },
+                SchemaField {
+                    name: "properties".to_string(),
+                    namespace: "journal".to_string(),
+                    field_type: None,
+                    required: false,
+                    default: None,
+                    description: Some("JSON map of typed key-value properties".to_string()),
+                    computed: None,
+                },
+                SchemaField {
+                    name: "tags".to_string(),
+                    namespace: "journal".to_string(),
+                    field_type: None,
+                    required: false,
+                    default: None,
+                    description: Some("Array of tag strings".to_string()),
+                    computed: None,
+                },
+                SchemaField {
+                    name: "refs".to_string(),
+                    namespace: "journal".to_string(),
+                    field_type: None,
+                    required: false,
+                    default: None,
+                    description: Some("Array of UUIDs this block references via [[links]]".to_string()),
                     computed: None,
                 },
                 SchemaField {
@@ -89,137 +153,65 @@ impl JournalPlugin {
             migrations: vec![],
         }
     }
-
-    fn paragraph_schema() -> Schema {
-        Schema {
-            node_id: Uuid::nil(),
-            name: "journal/Paragraph".to_string(),
-            version: SchemaVersion::new(1, 0),
-            fields: vec![
-                SchemaField {
-                    name: "node_title".to_string(),
-                    namespace: "system".to_string(),
-                    field_type: None,
-                    required: false,
-                    default: Some(FieldValue::String("Paragraph".to_string())),
-                    description: Some("Auto-generated paragraph title".to_string()),
-                    computed: None,
-                },
-                SchemaField {
-                    name: "node_time".to_string(),
-                    namespace: "system".to_string(),
-                    field_type: None,
-                    required: true,
-                    default: None,
-                    description: Some("Same date as the parent entry".to_string()),
-                    computed: None,
-                },
-                SchemaField {
-                    name: "content".to_string(),
-                    namespace: "journal".to_string(),
-                    field_type: None,
-                    required: true,
-                    default: None,
-                    description: Some("Plain-text paragraph content (no markdown wrapper)".to_string()),
-                    computed: None,
-                },
-                SchemaField {
-                    name: "entry_ref".to_string(),
-                    namespace: "journal".to_string(),
-                    field_type: None,
-                    required: true,
-                    default: None,
-                    description: Some("NodeRef pointing back to the parent journal entry".to_string()),
-                    computed: None,
-                },
-                SchemaField {
-                    name: "paragraph_index".to_string(),
-                    namespace: "journal".to_string(),
-                    field_type: None,
-                    required: false,
-                    default: None,
-                    description: Some("0-based position within the parent entry".to_string()),
-                    computed: None,
-                },
-            ],
-            schema_mode: SchemaMode::Preferred,
-            previous_versions: vec![],
-            migrations: vec![],
-        }
-    }
 }
 
-// ── Paragraph decomposition ──────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 
-/// Split markdown content into logical paragraph blocks.
-///
-/// Paragraphs are separated by one or more blank lines.  Each paragraph is
-/// returned as plain text (the markdown formatting is preserved — it will
-/// be rendered by the frontend when viewing individual paragraphs).
-fn split_into_paragraphs(markdown: &str) -> Vec<String> {
-    markdown
-        .split("\n\n")
-        .map(|p| p.trim().to_string())
-        .filter(|p| !p.is_empty())
+/// Regex for `[[page reference]]` wiki-style links.
+static REF_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\[\[([^\]]+)\]\]").unwrap()
+});
+
+/// Extract `[[page names]]` from markdown content.
+fn extract_refs(content: &str) -> Vec<String> {
+    REF_RE
+        .captures_iter(content)
+        .map(|cap| cap[1].to_string())
         .collect()
 }
 
-/// Create child Paragraph nodes for a journal entry and return their UUIDs.
-async fn decompose_paragraphs(
+/// Render markdown to HTML via Sattleri.
+fn render_markdown(content: &str) -> String {
+    satteri::markdown_to_html(content)
+}
+
+/// Generate the next fractional index between two existing orders.
+/// Uses simple midpoint string insertion — "a0", "a1", ..., "a0a0" etc.
+fn next_order(existing: &[String]) -> String {
+    if existing.is_empty() {
+        return "a0".to_string();
+    }
+    // Take the last order and increment its last segment
+    let last = &existing[existing.len() - 1];
+    // Simple strategy: append "a0" to the last one
+    format!("{}a0", last)
+}
+
+/// Resolve a page name to its UUID by searching for a block with matching title
+/// and no parent_id. Returns None if not found.
+async fn resolve_page_ref(
     ctx: &dyn PluginContext,
-    entry_id: Uuid,
-    entry_time: &str,
-    markdown: &str,
-) -> Result<Vec<Uuid>, PluginError> {
-    // First, remove old paragraph nodes (if any — e.g. on update)
-    // We don't have a direct "query paragraphs by entry_ref" yet, so we
-    // rely on the frontend to pass previous paragraph_refs on update and
-    // we delete those.  For now, orphaned paragraph nodes are harmless;
-    // the entry's paragraph_refs field is the source of truth.
-
-    let paragraphs = split_into_paragraphs(markdown);
-    let mut refs = Vec::with_capacity(paragraphs.len());
-
-    for (i, para_text) in paragraphs.iter().enumerate() {
-        let mut para_node = Node::new(Uuid::nil());
-        para_node.set_field(
-            "system:node_title",
-            FieldValue::String(format!("Paragraph {}", i + 1)),
-        );
-        para_node.set_field(
-            "system:node_time",
-            FieldValue::DateTime(entry_time.to_string()),
-        );
-        para_node.set_field(
-            "journal:content",
-            FieldValue::String(para_text.clone()),
-        );
-        para_node.set_field(
-            "journal:entry_ref",
-            FieldValue::NodeRef(entry_id),
-        );
-        para_node.set_field(
-            "journal:paragraph_index",
-            FieldValue::Integer(i as i64),
-        );
-
-        let created = ctx.create_node(para_node).await?;
-        refs.push(created.id);
+    page_name: &str,
+) -> Result<Option<Uuid>, PluginError> {
+    let query = format!(
+        "MATCH (n) IN space(\"default\") \
+         WHERE HAS_FIELD(n, \"journal\", \"content\") \
+         AND n.system.node_title = \"{}\" \
+         RETURN n LIMIT 1",
+        page_name.replace('"', "\\\"")
+    );
+    let rows = ctx.query(&query).await?;
+    for row in &rows {
+        if let Some(node) = panorama_core::query::row_to_node(row) {
+            if !node.fields.contains_key("journal:parent_id") {
+                return Ok(Some(node.id));
+            }
+        }
     }
-
-    Ok(refs)
+    Ok(None)
 }
 
-/// Delete paragraph child nodes given their UUIDs.
-async fn delete_paragraphs(ctx: &dyn PluginContext, refs: &[Uuid]) -> Result<(), PluginError> {
-    for id in refs {
-        // Best-effort — don't fail the whole operation if one delete fails
-        let _ = ctx.delete_node(*id).await;
-    }
-    Ok(())
-}
-
-// ── Plugin trait implementation ──────────────────────────────────────────────
+// ── Plugin trait ───────────────────────────────────────────────────────────
 
 #[async_trait]
 impl Plugin for JournalPlugin {
@@ -232,67 +224,81 @@ impl Plugin for JournalPlugin {
     }
 
     fn version(&self) -> &str {
-        "0.2.0"
+        "1.0.0"
     }
 
     fn description(&self) -> &str {
-        "Daily journal with markdown, block-level paragraph references, mood tagging, and rich filtering"
+        "Logseq-inspired block-based notebook with daily journal, [[references]], backlinks, and properties"
     }
 
     fn schemas(&self) -> Vec<Schema> {
-        vec![Self::journal_entry_schema(), Self::paragraph_schema()]
+        vec![Self::block_schema()]
     }
 
     fn http_endpoints(&self) -> Vec<HttpEndpoint> {
         vec![
+            // Blocks
             HttpEndpoint {
                 method: HttpMethod::POST,
-                path: "/entries".to_string(),
-                description: "Create a new journal entry with paragraph decomposition".to_string(),
+                path: "/blocks".to_string(),
+                description: "Create a block (page or child)".to_string(),
             },
             HttpEndpoint {
                 method: HttpMethod::GET,
-                path: "/entries".to_string(),
-                description: "List journal entries (supports ?mood=, ?from=, ?to=)".to_string(),
+                path: "/blocks".to_string(),
+                description: "List blocks (?page_id=, ?date=, ?tag=)".to_string(),
             },
             HttpEndpoint {
                 method: HttpMethod::GET,
-                path: "/entries/{id}".to_string(),
-                description: "Get a specific journal entry".to_string(),
+                path: "/blocks/{id}".to_string(),
+                description: "Get a single block".to_string(),
             },
             HttpEndpoint {
                 method: HttpMethod::PUT,
-                path: "/entries/{id}".to_string(),
-                description: "Update a journal entry (title, content, mood)".to_string(),
+                path: "/blocks/{id}".to_string(),
+                description: "Update a block".to_string(),
             },
             HttpEndpoint {
                 method: HttpMethod::DELETE,
-                path: "/entries/{id}".to_string(),
-                description: "Soft-delete a journal entry".to_string(),
+                path: "/blocks/{id}".to_string(),
+                description: "Soft-delete a block".to_string(),
             },
             HttpEndpoint {
                 method: HttpMethod::GET,
-                path: "/entries/{id}/paragraphs".to_string(),
-                description: "Get paragraph child nodes for an entry".to_string(),
+                path: "/blocks/{id}/children".to_string(),
+                description: "Get child blocks".to_string(),
+            },
+            HttpEndpoint {
+                method: HttpMethod::POST,
+                path: "/blocks/render".to_string(),
+                description: "Render markdown to HTML".to_string(),
+            },
+            // Pages
+            HttpEndpoint {
+                method: HttpMethod::GET,
+                path: "/pages".to_string(),
+                description: "List root pages (blocks with no parent)".to_string(),
+            },
+            HttpEndpoint {
+                method: HttpMethod::GET,
+                path: "/pages/today".to_string(),
+                description: "Get or create today's journal page".to_string(),
+            },
+            HttpEndpoint {
+                method: HttpMethod::GET,
+                path: "/pages/{id}/backlinks".to_string(),
+                description: "Get blocks that reference this page".to_string(),
             },
         ]
     }
 
     fn ui_components(&self) -> Vec<UiComponent> {
-        vec![
-            UiComponent {
-                id: "journal-main".to_string(),
-                name: "Journal View".to_string(),
-                mount_point: UiMountPoint::MainPage,
-                bundle_path: "ui/journal.js".to_string(),
-            },
-            UiComponent {
-                id: "journal-sidebar".to_string(),
-                name: "Journal Sidebar".to_string(),
-                mount_point: UiMountPoint::Sidebar,
-                bundle_path: "ui/journal-sidebar.js".to_string(),
-            },
-        ]
+        vec![UiComponent {
+            id: "journal-main".to_string(),
+            name: "Journal".to_string(),
+            mount_point: UiMountPoint::MainPage,
+            bundle_path: "ui/journal.js".to_string(),
+        }]
     }
 
     fn required_capabilities(&self) -> CapabilityGrants {
@@ -319,170 +325,209 @@ impl Plugin for JournalPlugin {
         ctx: &dyn PluginContext,
     ) -> Result<HttpResponse, PluginError> {
         match (request.method.as_str(), endpoint) {
-            // ── POST /entries — create entry with paragraph decomposition ──
-            ("POST", "entries") => {
+            // ── POST /blocks ────────────────────────────────────────
+            ("POST", "blocks") => {
                 let body: serde_json::Value = serde_json::from_slice(
                     request.body.as_deref().unwrap_or(&[]),
                 )
                 .map_err(|e| PluginError::bad_request(&e.to_string()))?;
 
-                let title = body["title"].as_str().unwrap_or("Untitled");
+                let title = body["title"].as_str().unwrap_or("");
                 let content = body["content"].as_str().unwrap_or("");
-                let mood = body["mood"].as_str();
-                let entry_time = body["time"]
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| Utc::now().to_rfc3339());
+                let parent_id = body["parent_id"].as_str().and_then(|s| Uuid::parse_str(s).ok());
+                let journal_day = body["journal_day"].as_str().map(String::from);
+                let tags: Vec<String> = body["tags"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_default();
+                let properties = body.get("properties").cloned();
 
-                let mut node = Node::new(Uuid::nil());
-                node.set_field("system:node_title", FieldValue::String(title.to_string()));
-                node.set_field("system:node_time", FieldValue::DateTime(entry_time.clone()));
-                node.set_field("journal:content", FieldValue::String(content.to_string()));
-                node.set_field("journal:deleted", FieldValue::Boolean(false));
-                if let Some(m) = mood {
-                    if !m.is_empty() {
-                        node.set_field("journal:mood", FieldValue::String(m.to_string()));
+                // Extract [[references]] from content
+                let ref_names = extract_refs(content);
+
+                // Resolve refs to page UUIDs
+                let mut ref_uuids: Vec<Uuid> = Vec::new();
+                for name in &ref_names {
+                    if let Some(id) = resolve_page_ref(ctx, name).await? {
+                        ref_uuids.push(id);
                     }
                 }
 
-                // 1. Create the entry node first (need its ID for paragraph refs)
-                let entry = ctx.create_node(node).await?;
+                let now = Utc::now().to_rfc3339();
 
-                // 2. Decompose paragraphs into child nodes
-                let para_refs = decompose_paragraphs(ctx, entry.id, &entry_time, content).await?;
+                let mut node = Node::new(Uuid::nil());
+                if !title.is_empty() {
+                    node.set_field("system:node_title", FieldValue::String(title.to_string()));
+                }
+                node.set_field("system:node_time", FieldValue::DateTime(now));
+                node.set_field("journal:content", FieldValue::String(content.to_string()));
+                node.set_field("journal:deleted", FieldValue::Boolean(false));
 
-                // 3. Update the entry with paragraph_refs
-                let mut refs_update = std::collections::HashMap::new();
-                refs_update.insert(
-                    "journal:paragraph_refs".to_string(),
-                    FieldValue::Array(
-                        para_refs
-                            .iter()
-                            .map(|id| FieldValue::NodeRef(*id))
-                            .collect(),
-                    ),
+                if let Some(pid) = parent_id {
+                    node.set_field("journal:parent_id", FieldValue::NodeRef(pid));
+                }
+                if let Some(ref day) = journal_day {
+                    node.set_field("journal:journal_day", FieldValue::String(day.clone()));
+                }
+                if !tags.is_empty() {
+                    node.set_field(
+                        "journal:tags",
+                        FieldValue::Json(json!(tags)),
+                    );
+                }
+                if let Some(props) = &properties {
+                    node.set_field("journal:properties", FieldValue::Json(props.clone()));
+                }
+                if !ref_uuids.is_empty() {
+                    node.set_field(
+                        "journal:refs",
+                        FieldValue::Array(
+                            ref_uuids.iter().map(|id| FieldValue::NodeRef(*id)).collect(),
+                        ),
+                    );
+                }
+
+                // Determine page_id: if parent is set, inherit from parent
+                let page_id = if let Some(pid) = parent_id {
+                    if let Some(parent) = ctx.get_node(pid).await? {
+                        parent
+                            .fields
+                            .get("journal:page_id")
+                            .and_then(|v| {
+                                if let FieldValue::NodeRef(id) = v { Some(*id) } else { None }
+                            })
+                            .unwrap_or(pid)
+                    } else {
+                        // parent not found, this block is its own page
+                        Uuid::nil() // will be set after creation
+                    }
+                } else {
+                    Uuid::nil() // will be set after creation
+                };
+
+                // Assign order
+                let order = "a0".to_string(); // first child — frontend can reorder later
+                node.set_field("journal:order", FieldValue::String(order));
+
+                let created = ctx.create_node(node).await?;
+
+                // Set page_id after creation (self-reference for root pages)
+                let actual_page_id = if parent_id.is_some() && page_id != Uuid::nil() {
+                    page_id
+                } else {
+                    created.id
+                };
+
+                let mut patch = HashMap::new();
+                patch.insert(
+                    "journal:page_id".to_string(),
+                    FieldValue::NodeRef(actual_page_id),
                 );
-                let entry = ctx.update_node(entry.id, refs_update).await?;
+                let updated = ctx.update_node(created.id, patch).await?;
 
-                HttpResponse::json(&entry)
+                HttpResponse::json(&updated)
             }
 
-            // ── GET /entries — list with optional mood & date filters ──
-            ("GET", "entries") => {
-                let mood_filter = request.query_params.get("mood").cloned();
-                let from = request.query_params.get("from").cloned();
-                let to = request.query_params.get("to").cloned();
+            // ── GET /blocks ─────────────────────────────────────────
+            ("GET", "blocks") => {
+                let page_id = request.query_params.get("page_id").cloned();
+                let date = request.query_params.get("date").cloned();
+                let tag = request.query_params.get("tag").cloned();
 
-                // Build the query dynamically depending on which filters are present
                 let mut preds: Vec<String> = Vec::new();
                 preds.push("HAS_FIELD(n, \"journal\", \"content\")".to_string());
 
-                if let Some(ref mood) = mood_filter {
+                if let Some(ref pid) = page_id {
                     preds.push(format!(
-                        "n.journal.mood = \"{}\"",
-                        mood.replace('"', "\\\"")
+                        "n.journal.page_id = \"{}\"",
+                        pid.replace('"', "\\\"")
                     ));
                 }
-                if let Some(ref from_date) = from {
+                if let Some(ref d) = date {
                     preds.push(format!(
-                        "n.system.node_time >= \"{}\"",
-                        from_date.replace('"', "\\\"")
+                        "n.journal.journal_day = \"{}\"",
+                        d.replace('"', "\\\"")
                     ));
                 }
-                if let Some(ref to_date) = to {
+                if let Some(ref t) = tag {
+                    // tags is a JSON array — use LIKE for simple matching
                     preds.push(format!(
-                        "n.system.node_time <= \"{}\"",
-                        to_date.replace('"', "\\\"")
+                        "n.journal.tags LIKE \"%{}%\"",
+                        t.replace('"', "\\\"")
                     ));
                 }
 
                 let query_str = format!(
-                    "MATCH (n) IN space(\"default\") WHERE {} RETURN n ORDER BY n.system.node_time DESC LIMIT 100",
+                    "MATCH (n) IN space(\"default\") WHERE {} RETURN n ORDER BY n.journal.order ASC LIMIT 200",
                     preds.join(" AND ")
                 );
-
                 let rows = ctx.query(&query_str).await?;
                 HttpResponse::json(&rows)
             }
 
-            // ── GET /entries/{id} — get single entry ──
-            ("GET", _) if endpoint.starts_with("entries/")
-                && !endpoint.ends_with("/paragraphs") =>
+            // ── GET /blocks/{id} ────────────────────────────────────
+            ("GET", _) if endpoint.starts_with("blocks/")
+                && !endpoint.contains("/children")
+                && !endpoint.contains("/render") =>
             {
-                let id_str = &endpoint["entries/".len()..];
+                let id_str = endpoint.strip_prefix("blocks/").unwrap_or(endpoint);
                 let id = Uuid::parse_str(id_str)
                     .map_err(|_| PluginError::bad_request("Invalid UUID"))?;
                 let node = ctx
                     .get_node(id)
                     .await?
-                    .ok_or_else(|| PluginError::not_found("Entry not found"))?;
+                    .ok_or_else(|| PluginError::not_found("Block not found"))?;
                 HttpResponse::json(&node)
             }
 
-            // ── GET /entries/{id}/paragraphs — get paragraph children ──
-            ("GET", _) if endpoint.ends_with("/paragraphs") => {
-                // endpoint looks like "entries/{id}/paragraphs"
-                let path = endpoint
-                    .strip_suffix("/paragraphs")
-                    .unwrap_or(endpoint);
-                let id_str = &path["entries/".len()..];
+            // ── GET /blocks/{id}/children ───────────────────────────
+            ("GET", _) if endpoint.ends_with("/children") => {
+                let id_str = endpoint
+                    .strip_suffix("/children")
+                    .unwrap_or(endpoint)
+                    .strip_prefix("blocks/")
+                    .unwrap_or("");
                 let id = Uuid::parse_str(id_str)
                     .map_err(|_| PluginError::bad_request("Invalid UUID"))?;
 
-                // Get the entry to find its paragraph_refs
-                let entry = ctx
-                    .get_node(id)
-                    .await?
-                    .ok_or_else(|| PluginError::not_found("Entry not found"))?;
-
-                // Extract paragraph refs and fetch each paragraph
-                let para_refs = match entry.fields.get("journal:paragraph_refs") {
-                    Some(FieldValue::Array(refs)) => refs.clone(),
-                    _ => vec![],
-                };
-
-                let mut paragraphs = Vec::new();
-                for pref in &para_refs {
-                    if let FieldValue::NodeRef(pid) = pref {
-                        if let Some(pnode) = ctx.get_node(*pid).await? {
-                            paragraphs.push(serde_json::to_value(&pnode).unwrap_or_default());
-                        }
-                    }
-                }
-
-                HttpResponse::json(&paragraphs)
+                let query = format!(
+                    "MATCH (n) IN space(\"default\") \
+                     WHERE HAS_FIELD(n, \"journal\", \"parent_id\") \
+                     AND n.journal.parent_id = \"{}\" \
+                     RETURN n ORDER BY n.journal.order ASC",
+                    id
+                );
+                let rows = ctx.query(&query).await?;
+                HttpResponse::json(&rows)
             }
 
-            // ── PUT /entries/{id} — update entry ──
-            ("PUT", _) if endpoint.starts_with("entries/")
-                && !endpoint.ends_with("/paragraphs") =>
+            // ── PUT /blocks/{id} ────────────────────────────────────
+            ("PUT", _) if endpoint.starts_with("blocks/")
+                && !endpoint.contains("/children") =>
             {
-                let id_str = &endpoint["entries/".len()..];
+                let id_str = endpoint.strip_prefix("blocks/").unwrap_or(endpoint);
                 let id = Uuid::parse_str(id_str)
                     .map_err(|_| PluginError::bad_request("Invalid UUID"))?;
+
+                let existing = ctx
+                    .get_node(id)
+                    .await?
+                    .ok_or_else(|| PluginError::not_found("Block not found"))?;
+
+                if let Some(FieldValue::Boolean(true)) = existing.fields.get("journal:deleted") {
+                    return Err(PluginError::bad_request("Cannot update a deleted block"));
+                }
 
                 let body: serde_json::Value = serde_json::from_slice(
                     request.body.as_deref().unwrap_or(&[]),
                 )
                 .map_err(|e| PluginError::bad_request(&e.to_string()))?;
 
-                // Verify entry exists
-                let existing = ctx
-                    .get_node(id)
-                    .await?
-                    .ok_or_else(|| PluginError::not_found("Entry not found"))?;
-
-                // Check soft-delete flag
-                if let Some(FieldValue::Boolean(true)) =
-                    existing.fields.get("journal:deleted")
-                {
-                    return Err(PluginError::bad_request(
-                        "Cannot update a deleted entry. Undelete first.",
-                    ));
-                }
-
-                let mut updates: std::collections::HashMap<String, FieldValue> =
-                    std::collections::HashMap::new();
+                let mut updates: HashMap<String, FieldValue> = HashMap::new();
+                updates.insert(
+                    "system:node_time".to_string(),
+                    FieldValue::DateTime(Utc::now().to_rfc3339()),
+                );
 
                 if let Some(title) = body.get("title").and_then(|v| v.as_str()) {
                     updates.insert(
@@ -491,91 +536,160 @@ impl Plugin for JournalPlugin {
                     );
                 }
                 if let Some(content) = body.get("content").and_then(|v| v.as_str()) {
+                    // Re-extract [[refs]]
+                    let ref_names = extract_refs(content);
+                    let mut ref_uuids: Vec<Uuid> = Vec::new();
+                    for name in &ref_names {
+                        if let Some(rid) = resolve_page_ref(ctx, name).await? {
+                            ref_uuids.push(rid);
+                        }
+                    }
                     updates.insert(
                         "journal:content".to_string(),
                         FieldValue::String(content.to_string()),
                     );
-                    // Content changed — update node_time for "last edited" tracking
                     updates.insert(
-                        "system:node_time".to_string(),
-                        FieldValue::DateTime(Utc::now().to_rfc3339()),
-                    );
-
-                    // Delete old paragraph nodes if they exist
-                    if let Some(FieldValue::Array(old_refs)) =
-                        existing.fields.get("journal:paragraph_refs")
-                    {
-                        let old_ids: Vec<Uuid> = old_refs
-                            .iter()
-                            .filter_map(|fv| {
-                                if let FieldValue::NodeRef(id) = fv {
-                                    Some(*id)
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        delete_paragraphs(ctx, &old_ids).await?;
-                    }
-
-                    // Re-decompose
-                    let entry_time = Utc::now().to_rfc3339();
-                    let new_refs =
-                        decompose_paragraphs(ctx, id, &entry_time, content).await?;
-                    updates.insert(
-                        "journal:paragraph_refs".to_string(),
+                        "journal:refs".to_string(),
                         FieldValue::Array(
-                            new_refs
-                                .iter()
-                                .map(|pid| FieldValue::NodeRef(*pid))
-                                .collect(),
+                            ref_uuids.iter().map(|rid| FieldValue::NodeRef(*rid)).collect(),
                         ),
                     );
                 }
-                if let Some(mood) = body.get("mood").and_then(|v| v.as_str()) {
+                if let Some(order) = body.get("order").and_then(|v| v.as_str()) {
                     updates.insert(
-                        "journal:mood".to_string(),
-                        FieldValue::String(mood.to_string()),
+                        "journal:order".to_string(),
+                        FieldValue::String(order.to_string()),
                     );
                 }
+                if let Some(tags) = body.get("tags") {
+                    updates.insert("journal:tags".to_string(), FieldValue::Json(tags.clone()));
+                }
+                if let Some(props) = body.get("properties") {
+                    updates.insert("journal:properties".to_string(), FieldValue::Json(props.clone()));
+                }
 
-                if updates.is_empty() {
-                    return Err(PluginError::bad_request(
-                        "No fields to update. Provide title, content, and/or mood.",
-                    ));
+                if updates.len() <= 1 {
+                    // only node_time
+                    return Err(PluginError::bad_request("No fields to update"));
                 }
 
                 let updated = ctx.update_node(id, updates).await?;
                 HttpResponse::json(&updated)
             }
 
-            // ── DELETE /entries/{id} — soft delete ──
-            ("DELETE", _) if endpoint.starts_with("entries/")
-                && !endpoint.ends_with("/paragraphs") =>
-            {
-                let id_str = &endpoint["entries/".len()..];
+            // ── DELETE /blocks/{id} ─────────────────────────────────
+            ("DELETE", _) if endpoint.starts_with("blocks/") => {
+                let id_str = endpoint.strip_prefix("blocks/").unwrap_or(endpoint);
                 let id = Uuid::parse_str(id_str)
                     .map_err(|_| PluginError::bad_request("Invalid UUID"))?;
 
                 let existing = ctx
                     .get_node(id)
                     .await?
-                    .ok_or_else(|| PluginError::not_found("Entry not found"))?;
+                    .ok_or_else(|| PluginError::not_found("Block not found"))?;
 
-                // Check if already deleted
-                if let Some(FieldValue::Boolean(true)) =
-                    existing.fields.get("journal:deleted")
-                {
-                    return Err(PluginError::bad_request("Entry is already deleted"));
+                if let Some(FieldValue::Boolean(true)) = existing.fields.get("journal:deleted") {
+                    return Err(PluginError::bad_request("Block is already deleted"));
                 }
 
-                let mut updates = std::collections::HashMap::new();
-                updates.insert(
-                    "journal:deleted".to_string(),
-                    FieldValue::Boolean(true),
-                );
+                let mut updates = HashMap::new();
+                updates.insert("journal:deleted".to_string(), FieldValue::Boolean(true));
                 let updated = ctx.update_node(id, updates).await?;
                 HttpResponse::json(&updated)
+            }
+
+            // ── POST /blocks/render ─────────────────────────────────
+            ("POST", "blocks/render") => {
+                let body: serde_json::Value = serde_json::from_slice(
+                    request.body.as_deref().unwrap_or(&[]),
+                )
+                .map_err(|e| PluginError::bad_request(&e.to_string()))?;
+                let content = body["content"].as_str().unwrap_or("");
+                let html = render_markdown(content);
+                HttpResponse::json(&json!({ "html": html }))
+            }
+
+            // ── GET /pages ──────────────────────────────────────────
+            ("GET", "pages") => {
+                let journal_only = request.query_params.get("journal")
+                    .map(|v| v == "true")
+                    .unwrap_or(false);
+
+                let mut preds = vec![
+                    "HAS_FIELD(n, \"journal\", \"content\")".to_string(),
+                ];
+
+                if journal_only {
+                    preds.push("n.journal.journal_day IS NOT NULL".to_string());
+                } else {
+                    // Pages have no parent_id
+                    preds.push("n.journal.parent_id IS NULL".to_string());
+                }
+
+                let query = format!(
+                    "MATCH (n) IN space(\"default\") WHERE {} RETURN n ORDER BY n.system.node_time DESC LIMIT 100",
+                    preds.join(" AND ")
+                );
+                let rows = ctx.query(&query).await?;
+                HttpResponse::json(&rows)
+            }
+
+            // ── GET /pages/today ────────────────────────────────────
+            ("GET", "pages/today") => {
+                let today = Utc::now().date_naive().format("%Y-%m-%d").to_string();
+
+                // Look for existing today page
+                let query = format!(
+                    "MATCH (n) IN space(\"default\") \
+                     WHERE HAS_FIELD(n, \"journal\", \"journal_day\") \
+                     AND n.journal.journal_day = \"{}\" \
+                     RETURN n LIMIT 1",
+                    today
+                );
+                let rows = ctx.query(&query).await?;
+                if let Some(row) = rows.first() {
+                    return HttpResponse::json(row);
+                }
+
+                // Auto-create today's journal page
+                let mut node = Node::new(Uuid::nil());
+                let title = Utc::now().format("%B %d, %Y").to_string();
+                node.set_field("system:node_title", FieldValue::String(title.clone()));
+                node.set_field("system:node_time", FieldValue::DateTime(Utc::now().to_rfc3339()));
+                node.set_field("journal:content", FieldValue::String(String::new()));
+                node.set_field("journal:journal_day", FieldValue::String(today));
+                node.set_field("journal:order", FieldValue::String("a0".to_string()));
+                node.set_field("journal:deleted", FieldValue::Boolean(false));
+
+                let created = ctx.create_node(node).await?;
+
+                let mut patch = HashMap::new();
+                patch.insert(
+                    "journal:page_id".to_string(),
+                    FieldValue::NodeRef(created.id),
+                );
+                let updated = ctx.update_node(created.id, patch).await?;
+
+                HttpResponse::json(&updated)
+            }
+
+            // ── GET /pages/{id}/backlinks ───────────────────────────
+            ("GET", _) if endpoint.starts_with("pages/") && endpoint.contains("/backlinks") => {
+                let path = endpoint.strip_suffix("/backlinks").unwrap_or(endpoint);
+                let id_str = path.strip_prefix("pages/").unwrap_or("");
+                let id = Uuid::parse_str(id_str)
+                    .map_err(|_| PluginError::bad_request("Invalid UUID"))?;
+
+                // Find blocks whose refs contain this page UUID
+                let query = format!(
+                    "MATCH (n) IN space(\"default\") \
+                     WHERE HAS_FIELD(n, \"journal\", \"refs\") \
+                     AND n.journal.refs LIKE \"%{}%\" \
+                     RETURN n ORDER BY n.system.node_time DESC LIMIT 50",
+                    id
+                );
+                let rows = ctx.query(&query).await?;
+                HttpResponse::json(&rows)
             }
 
             _ => Err(PluginError::not_found(&format!(
