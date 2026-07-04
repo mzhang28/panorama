@@ -6,7 +6,7 @@
 #   3. runtime     — slim Debian, production image
 
 # ── Stage 1: Build plugin UIs ────────────────────────────────────────────────
-FROM node:22-slim AS ui-builder
+FROM oven/bun:1 AS ui-builder
 
 WORKDIR /build
 COPY crates/ ./crates/
@@ -15,7 +15,7 @@ COPY crates/ ./crates/
 RUN for dir in crates/panorama-app-*/ui/; do \
       if [ -f "$dir/package.json" ] && [ -f "$dir/vite.config.ts" ]; then \
         echo "=== Building UI in $dir ==="; \
-        (cd "$dir" && npm ci && npm run build); \
+        (cd "$dir" && bun install && bun run build); \
       fi \
     done
 

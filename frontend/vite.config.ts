@@ -23,7 +23,9 @@ export default defineConfig(({ mode }) => ({
         })]
       : []),
   ],
-  resolve: mode === 'production' ? {} : {
+  resolve: {
+    // Rollup needs these aliases in all modes because both dev.tsx and
+    // prod.tsx are parsed, even though only one is loaded at runtime.
     alias: {
       'panorama-plugin-journal-ui':  resolvePlugin('journal'),
       'panorama-plugin-grafana-ui':  resolvePlugin('grafana'),
