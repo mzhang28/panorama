@@ -11,12 +11,13 @@ use panorama_core::types::{FieldValue, Node};
 use panorama_server::object_store::ObjectStorage;
 use panorama_server::plugin_loader::PluginLoader;
 use panorama_server::schema_registry::SchemaRegistry;
-use panorama_server::storage::NodeStorage;
+use panorama_server::storage::{NodeStorage, sqlite::SqliteBackend};
 
 /// Helper to create a test plugin loader with in-memory storage
 fn setup_test_env() -> (PluginLoader, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
-    let storage = NodeStorage::new(tmp.path().join("nodes"));
+    let backend = Arc::new(SqliteBackend::new(tmp.path().join("nodes")));
+    let storage = NodeStorage::new(backend);
     let schema_registry = SchemaRegistry::new();
     let object_storage = ObjectStorage::new(tmp.path().join("objects"));
 

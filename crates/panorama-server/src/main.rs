@@ -6,7 +6,7 @@ use panorama_server::api::{build_router, AppState};
 use panorama_server::object_store::ObjectStorage;
 use panorama_server::plugin_loader::PluginLoader;
 use panorama_server::schema_registry::SchemaRegistry;
-use panorama_server::storage::NodeStorage;
+use panorama_server::storage::{NodeStorage, sqlite::SqliteBackend};
 
 #[tokio::main]
 async fn main() {
@@ -15,7 +15,8 @@ async fn main() {
     let data_dir = std::env::var("PANORAMA_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
     let data_path = PathBuf::from(&data_dir);
 
-    let storage = NodeStorage::new(data_path.join("nodes"));
+    let backend = std::sync::Arc::new(SqliteBackend::new(data_path.join("nodes")));
+    let storage = NodeStorage::new(backend);
     let schema_registry = SchemaRegistry::new();
     let object_storage = ObjectStorage::new(data_path.join("objects"));
 

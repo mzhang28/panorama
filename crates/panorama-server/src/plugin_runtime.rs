@@ -85,7 +85,7 @@ impl PluginContext for RuntimeContext {
     }
 
     async fn get_node(&self, id: Uuid) -> Result<Option<Node>, PluginError> {
-        Ok(self.storage.get(&id))
+        self.storage.get(id).map_err(|e| PluginError::internal(e))
     }
 
     async fn update_node(
@@ -99,7 +99,7 @@ impl PluginContext for RuntimeContext {
         }
 
         // Validate merged fields against required schemas
-        if let Some(existing) = self.storage.get(&id) {
+        if let Ok(Some(existing)) = self.storage.get(id) {
             let mut merged = existing.fields.clone();
             for (key, value) in &fields {
                 merged.insert(key.clone(), value.clone());
@@ -112,78 +112,19 @@ impl PluginContext for RuntimeContext {
         }
 
         self.storage
-            .update(&id, fields)
+            .update(id, fields)
             .map_err(|e| PluginError::internal(e))
     }
 
     async fn delete_node(&self, id: Uuid) -> Result<(), PluginError> {
         self.storage
-            .delete(&id)
+            .delete(id)
             .map_err(|e| PluginError::internal(e))
     }
 
     async fn query(&self, query_string: &str) -> Result<Vec<serde_json::Value>, PluginError> {
-        // Parse
-        let ast = panorama_core::query::parse_query(query_string)
-            .map_err(|e| PluginError::bad_request(&format!("Query parse error: {}", e)))?;
-
-        // Compile (requires connection for Phase 1 meta lookup)
-        let conn = self.storage.raw_conn()
-            .map_err(|e| PluginError::internal(e))?;
-        let compiled = crate::query::compiler::compile(&ast, &conn)
-            .map_err(|e| PluginError::bad_request(&format!("Query compile error: {}", e)))?;
-
-        // Execute
-
-        let mut stmt = conn.prepare(&compiled.sql)
-            .map_err(|e| PluginError::internal(format!("SQL prepare: {}", e)))?;
-
-        let column_names: Vec<String> = stmt
-            .column_names()
-            .iter()
-            .map(|c| c.to_string())
-            .collect();
-
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = compiled
-            .params
-            .iter()
-            .map(|p| p as &dyn rusqlite::types::ToSql)
-            .collect();
-
-        let mut results: Vec<serde_json::Value> = Vec::new();
-        let rows = stmt
-            .query_map(params_refs.as_slice(), |row| {
-                let mut obj = serde_json::Map::new();
-                for (i, col) in column_names.iter().enumerate() {
-                    let val: Result<String, _> = row.get(i);
-                    let json_val = match val {
-                        Ok(s) => serde_json::from_str(&s).unwrap_or(serde_json::Value::String(s)),
-                        Err(_) => serde_json::Value::Null,
-                    };
-                    obj.insert(col.clone(), json_val);
-                }
-                if let Some(v) = obj.get("fields_json").cloned() {
-                    obj.insert("fields".to_string(), v);
-                }
-                if let Some(v) = obj.get("preferred_schemas_json").cloned() {
-                    obj.insert("preferred_schemas".to_string(), v);
-                }
-                if let Some(v) = obj.get("app_managed_json").cloned() {
-                    obj.insert("app_managed".to_string(), v);
-                }
-                if column_names.len() == 1 && column_names[0] == "n" {
-                    if let Some(val) = obj.remove("n") {
-                        return Ok(val);
-                    }
-                }
-                Ok(serde_json::Value::Object(obj))
-            })
-            .map_err(|e| PluginError::internal(format!("Query exec: {}", e)))?;
-
-        for row in rows.flatten() {
-            results.push(row);
-        }
-        Ok(results)
+        self.storage.query_lang(query_string)
+            .map_err(|e| PluginError::internal(e))
     }
 
     async fn register_schema(&self, schema: Schema) -> Result<Schema, PluginError> {

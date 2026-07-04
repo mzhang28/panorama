@@ -138,7 +138,10 @@ async fn get_node(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Node>, (StatusCode, Json<ApiError>)> {
-    state.storage.get(&id).map(Json).ok_or_else(|| ApiError::not_found("Node not found"))
+    let node = state.storage.get(id)
+        .map_err(|e| ApiError::internal(e))?
+        .ok_or_else(|| ApiError::not_found("Node not found"))?;
+    Ok(Json(node))
 }
 
 async fn update_node(
@@ -147,7 +150,9 @@ async fn update_node(
     Json(req): Json<UpdateNodeRequest>,
 ) -> Result<Json<Node>, (StatusCode, Json<ApiError>)> {
     // Fetch existing node to merge schemas and validate
-    let existing = state.storage.get(&id).ok_or_else(|| ApiError::not_found("Node not found"))?;
+    let existing = state.storage.get(id)
+        .map_err(|e| ApiError::internal(e))?
+        .ok_or_else(|| ApiError::not_found("Node not found"))?;
 
     let schemas = if let Some(new_schemas) = req.schemas {
         new_schemas
@@ -166,14 +171,14 @@ async fn update_node(
         return Err(ApiError::bad_request(&errors.join("; ")));
     }
 
-    state.storage.update(&id, req.fields).map(Json).map_err(|e| ApiError::internal(e))
+    state.storage.update(id, req.fields).map(Json).map_err(|e| ApiError::internal(e))
 }
 
 async fn delete_node(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, Json<ApiError>)> {
-    state.storage.delete(&id).map(|_| StatusCode::NO_CONTENT).map_err(|e| ApiError::internal(e))
+    state.storage.delete(id).map(|_| StatusCode::NO_CONTENT).map_err(|e| ApiError::internal(e))
 }
 
 async fn query_nodes(
@@ -449,64 +454,11 @@ fn execute_query(
     state: &AppState,
     query_string: &str,
 ) -> Result<serde_json::Value, (StatusCode, Json<ApiError>)> {
-    let ast = panorama_core::query::parse_query(query_string)
-        .map_err(|e| ApiError::bad_request(&format!("Parse error: {}", e)))?;
-    let conn = state.storage.raw_conn()
-        .map_err(|e| ApiError::internal(e))?;
-    let compiled = crate::query::compiler::compile(&ast, &conn)
-        .map_err(|e| ApiError::bad_request(&format!("Compile error: {}", e)))?;
-    let mut stmt = conn.prepare(&compiled.sql)
-        .map_err(|e| ApiError::bad_request(&format!("SQL prepare error: {}", e)))?;
-
-    let params_refs: Vec<&dyn rusqlite::types::ToSql> = compiled
-        .params
-        .iter()
-        .map(|p| p as &dyn rusqlite::types::ToSql)
-        .collect();
-
-    let column_names: Vec<String> = stmt
-        .column_names()
-        .iter()
-        .map(|c| c.to_string())
-        .collect();
-
-    let mut results: Vec<serde_json::Value> = Vec::new();
-    let rows = stmt
-        .query_map(params_refs.as_slice(), |row| {
-            let mut obj = serde_json::Map::new();
-            for (i, col) in column_names.iter().enumerate() {
-                let val: Result<String, _> = row.get(i);
-                let json_val = match val {
-                    Ok(s) => serde_json::from_str(&s).unwrap_or(serde_json::Value::String(s)),
-                    Err(_) => serde_json::Value::Null,
-                };
-                obj.insert(col.clone(), json_val);
-            }
-            if let Some(v) = obj.get("fields_json").cloned() {
-                obj.insert("fields".to_string(), v);
-            }
-            if let Some(v) = obj.get("preferred_schemas_json").cloned() {
-                obj.insert("preferred_schemas".to_string(), v);
-            }
-            if let Some(v) = obj.get("app_managed_json").cloned() {
-                obj.insert("app_managed".to_string(), v);
-            }
-            if column_names.len() == 1 && column_names[0] == "n" {
-                if let Some(val) = obj.remove("n") {
-                    return Ok(val);
-                }
-            }
-            Ok(serde_json::Value::Object(obj))
-        })
-        .map_err(|e| ApiError::internal(format!("Query execution error: {}", e)))?;
-
-    for row in rows.flatten() {
-        results.push(row);
-    }
-
+    let rows = state.storage.query_lang(query_string)
+        .map_err(|e| ApiError::bad_request(&format!("Query error: {}", e)))?;
     Ok(serde_json::json!({
-        "rows": results,
-        "count": results.len(),
+        "rows": rows,
+        "count": rows.len(),
     }))
 }
 
