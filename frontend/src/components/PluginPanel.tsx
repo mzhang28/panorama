@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { callPluginEndpoint, PluginInfo } from '../api/client'
 
 export function PluginPanel({
@@ -7,8 +8,8 @@ export function PluginPanel({
   onSelect,
 }: {
   plugins: PluginInfo[]
-  selectedId: string | null
-  onSelect: (id: string) => void
+  selectedId?: string | null
+  onSelect?: (id: string) => void
 }) {
   return (
     <div>
@@ -19,14 +20,18 @@ export function PluginPanel({
 
       <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
         {plugins.map((p) => (
-          <div
+          <Link
             key={p.id}
-            className={`card ${selectedId === p.id ? '' : ''}`}
+            to="/app/$pluginId"
+            params={{ pluginId: p.id }}
             style={{
-              cursor: 'pointer',
+              display: 'block',
+              textDecoration: 'none',
+              color: 'inherit',
               borderColor: selectedId === p.id ? 'var(--accent)' : undefined,
             }}
-            onClick={() => onSelect(p.id)}
+            className="card"
+            onClick={() => onSelect?.(p.id)}
           >
             <div className="flex-row" style={{ justifyContent: 'space-between' }}>
               <div>
@@ -43,7 +48,7 @@ export function PluginPanel({
                 {p.endpoints.length} endpoints · {p.ui_components.length} UI components
               </span>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 

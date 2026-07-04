@@ -40,6 +40,24 @@ button:hover { background: var(--bg-hover); border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: white; }
 button.primary:hover { background: var(--accent-hover); }
 
+/* Navigation links styled as buttons (for TanStack Router Link components) */
+a.nav-btn {
+  display: block;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+a.nav-btn:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--text); }
+a.nav-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+a.nav-btn.primary:hover { background: var(--accent-hover); }
+a.plugin-nav-btn { margin-top: 4px; }
+
 input, textarea, select {
   padding: 8px 12px;
   border: 1px solid var(--border);

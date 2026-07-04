@@ -12,11 +12,11 @@ test.describe('Panorama Core UI', () => {
     await expect(page.locator('.sidebar')).toBeVisible();
   });
 
-  test('sidebar has navigation buttons', async ({ page }) => {
+  test('sidebar has navigation links', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('button:has-text("Nodes")')).toBeVisible();
-    await expect(page.locator('button:has-text("Schemas")')).toBeVisible();
-    await expect(page.locator('button:has-text("Plugins")')).toBeVisible();
+    await expect(page.locator('a:has-text("Nodes")').first()).toBeVisible();
+    await expect(page.locator('a:has-text("Schemas")').first()).toBeVisible();
+    await expect(page.locator('a:has-text("Plugins")').first()).toBeVisible();
   });
 
   test('sidebar has Installed Apps section', async ({ page }) => {
@@ -27,9 +27,9 @@ test.describe('Panorama Core UI', () => {
   test('can navigate between views', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('h2')).toContainText('Nodes');
-    await page.click('button:has-text("Schemas")');
+    await page.click('a:has-text("Schemas")');
     await expect(page.locator('h2')).toContainText('Schemas');
-    await page.click('button:has-text("Nodes")');
+    await page.click('a:has-text("Nodes")');
     await expect(page.locator('h2')).toContainText('Nodes');
   });
 });
@@ -86,7 +86,7 @@ test.describe('Schema Viewer', () => {
 
   test('shows system schemas', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Schemas")');
+    await page.click('a:has-text("Schemas")');
     await expect(page.locator('h2')).toContainText('Schemas');
     await expect(page.locator('strong:has-text("NodeTime")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('strong:has-text("NodeInfo")')).toBeVisible({ timeout: 5000 });
@@ -94,7 +94,7 @@ test.describe('Schema Viewer', () => {
 
   test('shows schema fields with namespaces', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Schemas")');
+    await page.click('a:has-text("Schemas")');
     await expect(page.locator('text=system:node_time').first()).toBeVisible({ timeout: 5000 });
     await expect(page.locator('text=system:node_title').first()).toBeVisible({ timeout: 5000 });
   });
@@ -104,7 +104,7 @@ test.describe('Plugin Panel', () => {
 
   test('plugins view shows plugin browser', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Plugins")');
+    await page.click('a:has-text("Plugins")');
     await expect(page.locator('h2')).toContainText('Plugins');
     await expect(page.locator('text=Plugins are third-party apps')).toBeVisible();
   });
@@ -118,7 +118,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('opens journal from sidebar and shows header', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('Journal', { timeout: 5000 });
     // "+ New Entry" toggle should be visible
@@ -127,7 +127,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('clicking + New Entry opens the create form', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
 
     // Form should NOT be visible until we click the button
@@ -141,7 +141,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('mood selector has all mood options with emoji labels', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
     await page.click('button:has-text("+ New Entry")');
     await page.waitForTimeout(300);
@@ -158,7 +158,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('markdown preview toggle shows rendered content', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
     await page.click('button:has-text("+ New Entry")');
     await page.waitForTimeout(300);
@@ -179,7 +179,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('creates a journal entry with mood and sees it in the list', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
     await page.click('button:has-text("+ New Entry")');
     await page.waitForTimeout(300);
@@ -200,7 +200,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('clicking an entry expands detail with rendered markdown', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
     await page.click('button:has-text("+ New Entry")');
     await page.waitForTimeout(300);
@@ -224,7 +224,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('creates entry with paragraph decomposition', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
     await page.click('button:has-text("+ New Entry")');
     await page.waitForTimeout(300);
@@ -252,7 +252,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('edits an existing entry inline', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
     await page.click('button:has-text("+ New Entry")');
     await page.waitForTimeout(300);
@@ -282,7 +282,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('soft-deletes an entry', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
     await page.click('button:has-text("+ New Entry")');
     await page.waitForTimeout(300);
@@ -307,7 +307,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('mood filter filters entries by mood', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
 
     // Create a happy entry
@@ -345,7 +345,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('date range filter filters entries by date', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
 
     // Create an entry first so the list is non-empty
@@ -370,7 +370,7 @@ test.describe('Journal Plugin UI', () => {
 
   test('can cancel create form without creating', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Journal")');
+    await page.click('a:has-text("Journal")');
     await page.waitForTimeout(800);
     await page.click('button:has-text("+ New Entry")');
     await page.waitForTimeout(300);
@@ -393,7 +393,7 @@ test.describe('Wakatime Plugin UI', () => {
 
   test('opens coding activity and shows heartbeat form', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Coding Activity")');
+    await page.click('a:has-text("Coding Activity")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('Coding Activity', { timeout: 5000 });
     await expect(page.locator('textarea')).toBeVisible({ timeout: 3000 });
@@ -402,7 +402,7 @@ test.describe('Wakatime Plugin UI', () => {
 
   test('can send a heartbeat and see stats panels', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Coding Activity")');
+    await page.click('a:has-text("Coding Activity")');
     await page.waitForTimeout(1000);
 
     await page.click('button:has-text("Send Heartbeat")');
@@ -415,7 +415,7 @@ test.describe('Wakatime Plugin UI', () => {
 
   test('heartbeat form is pre-populated with JSON', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Coding Activity")');
+    await page.click('a:has-text("Coding Activity")');
     await page.waitForTimeout(1000);
 
     const textarea = page.locator('textarea');
@@ -432,7 +432,7 @@ test.describe('Dashboards Plugin UI', () => {
 
   test('opens dashboards and shows home dashboard with panels', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Dashboards")');
+    await page.click('a:has-text("Dashboards")');
     await page.waitForTimeout(2000);
     // New dashboard UI shows the home dashboard with panel titles
     await expect(page.locator('h2')).toBeVisible({ timeout: 5000 });
@@ -442,7 +442,7 @@ test.describe('Dashboards Plugin UI', () => {
 
   test('has time range presets and refresh selector', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Dashboards")');
+    await page.click('a:has-text("Dashboards")');
     await page.waitForTimeout(2000);
 
     // Time range preset buttons — first 6 are shown by default
@@ -455,7 +455,7 @@ test.describe('Dashboards Plugin UI', () => {
 
   test('shows panel grid with leaderboard and timeseries panels', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Dashboards")');
+    await page.click('a:has-text("Dashboards")');
     await page.waitForTimeout(2000);
 
     // Should see coding activity panels
@@ -465,7 +465,7 @@ test.describe('Dashboards Plugin UI', () => {
 
   test('has Edit button to open dashboard builder', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Dashboards")');
+    await page.click('a:has-text("Dashboards")');
     await page.waitForTimeout(2000);
 
     const editBtn = page.locator('button:has-text("Edit")');
@@ -474,7 +474,7 @@ test.describe('Dashboards Plugin UI', () => {
 
   test('can open builder modal to edit dashboard', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Dashboards")');
+    await page.click('a:has-text("Dashboards")');
     await page.waitForTimeout(2000);
 
     await page.click('button:has-text("Edit")');
@@ -490,7 +490,7 @@ test.describe('Beli Plugin UI', () => {
 
   test('opens restaurant rankings and shows explanation', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Restaurant Rankings")');
+    await page.click('a:has-text("Restaurant Rankings")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('Restaurant Rankings', { timeout: 5000 });
     await expect(page.locator('text=partial order')).toBeVisible({ timeout: 3000 });
@@ -500,7 +500,7 @@ test.describe('Beli Plugin UI', () => {
 
   test('can add a restaurant', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Restaurant Rankings")');
+    await page.click('a:has-text("Restaurant Rankings")');
     await page.waitForTimeout(1000);
 
     await page.locator('input[placeholder="Restaurant name"]').fill('E2E Sushi Place');
@@ -512,7 +512,7 @@ test.describe('Beli Plugin UI', () => {
 
   test('comparison form shows restaurant options after adding', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Restaurant Rankings")');
+    await page.click('a:has-text("Restaurant Rankings")');
     await page.waitForTimeout(1000);
 
     // Add two restaurants
@@ -537,7 +537,7 @@ test.describe('Beli Plugin UI', () => {
 
   test('can record a comparison between two restaurants', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Restaurant Rankings")');
+    await page.click('a:has-text("Restaurant Rankings")');
     await page.waitForTimeout(1000);
 
     // Add restaurants
@@ -570,7 +570,7 @@ test.describe('Trip Planner Plugin UI', () => {
 
   test('opens trip planner and creates a trip', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Trip Planner")');
+    await page.click('a:has-text("Trip Planner")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('Trip Planner', { timeout: 5000 });
 
@@ -584,14 +584,14 @@ test.describe('Trip Planner Plugin UI', () => {
 
   test('shows Map Locations section', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Trip Planner")');
+    await page.click('a:has-text("Trip Planner")');
     await page.waitForTimeout(1000);
     await expect(page.locator('text=Map Locations')).toBeVisible({ timeout: 5000 });
   });
 
   test('selecting a trip shows add-event form', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Trip Planner")');
+    await page.click('a:has-text("Trip Planner")');
     await page.waitForTimeout(1000);
 
     // Create a trip first
@@ -612,7 +612,7 @@ test.describe('Trip Planner Plugin UI', () => {
 
   test('can add an event with geo coordinates', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Trip Planner")');
+    await page.click('a:has-text("Trip Planner")');
     await page.waitForTimeout(1000);
 
     await page.locator('input[placeholder="Trip name"]').fill('Geo Trip');
@@ -642,7 +642,7 @@ test.describe('File Manager Plugin UI', () => {
 
   test('opens file manager and shows upload zone', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("File Manager")');
+    await page.click('a:has-text("File Manager")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('File Manager', { timeout: 5000 });
     await expect(page.locator('text=Drop files here')).toBeVisible({ timeout: 3000 });
@@ -650,7 +650,7 @@ test.describe('File Manager Plugin UI', () => {
 
   test('shows file count and list area', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("File Manager")');
+    await page.click('a:has-text("File Manager")');
     await page.waitForTimeout(1000);
 
     await expect(page.locator('text=No files uploaded yet').first()).toBeVisible({ timeout: 5000 });
@@ -663,7 +663,7 @@ test.describe('Subsonic Music Plugin UI', () => {
 
   test('opens music library and shows upload section', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Music Library")');
+    await page.click('a:has-text("Music Library")');
     await page.waitForTimeout(1000);
     await expect(page.locator('h2')).toContainText('Music Library', { timeout: 5000 });
     await expect(page.locator('text=Upload Music')).toBeVisible({ timeout: 3000 });
@@ -671,7 +671,7 @@ test.describe('Subsonic Music Plugin UI', () => {
 
   test('shows artists and albums sections', async ({ page }) => {
     await page.goto('/');
-    await page.click('button:has-text("Music Library")');
+    await page.click('a:has-text("Music Library")');
     await page.waitForTimeout(1000);
 
     await expect(page.locator('h4:has-text("Artists")')).toBeVisible({ timeout: 5000 });
