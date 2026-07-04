@@ -64,6 +64,8 @@
 //! - Time-series bucketing: hour, day, week, month
 //! - Multi-query panels (multiple series on one chart)
 
+pub mod promql;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use panorama_core::*;
@@ -228,6 +230,10 @@ pub struct PanelQuery {
     /// Hide this query's results from the visualization
     #[serde(default)]
     pub hide: bool,
+    /// Optional PromQL expression (mutually exclusive with group_by/aggregation).
+    /// When set, the query engine parses PromQL and translates to PQL.
+    #[serde(default)]
+    pub promql: Option<String>,
 }
 
 fn default_datasource() -> String {
@@ -486,6 +492,7 @@ impl GrafanaPlugin {
             "piechart" => self.query_piechart(ctx, query, from, to, &ref_id).await,
             "table" => self.query_table(ctx, query, from, to, &ref_id).await,
             "heatmap" => self.query_heatmap(ctx, query, from, to, &ref_id).await,
+            "promql" => self.execute_promql_query(ctx, query, from, to, &ref_id).await,
             _ => {
                 // Fallback: delegate to the data source plugin's stats endpoint
                 self.query_datasource_delegate(ctx, query, from, to, &ref_id).await
@@ -841,6 +848,60 @@ impl GrafanaPlugin {
         })
     }
 
+    /// Execute a PromQL query: parse, translate to PQL, execute, apply post-steps.
+    async fn execute_promql_query(
+        &self,
+        ctx: &dyn PluginContext,
+        query: &PanelQuery,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        ref_id: &str,
+    ) -> Result<DataFrame, PluginError> {
+        let promql_str = query.promql.as_deref().unwrap_or_default();
+        if promql_str.is_empty() {
+            return Err(PluginError::bad_request("PromQL expression is empty"));
+        }
+
+        // 1. Parse PromQL
+        let expr = promql::parser::parse(promql_str)?;
+
+        // 2. Load metric registry (default for now, extensible later)
+        let registry = promql::registry::MetricRegistry::with_wakatime_defaults();
+
+        // 3. Translate to PQL + post-steps
+        let tq = promql::translator::translate(
+            &expr,
+            &registry,
+            from.timestamp(),
+            to.timestamp(),
+        )
+        .map_err(|e| PluginError::bad_request(&format!("PromQL translation error: {}", e)))?;
+
+        // 4. Execute PQL query
+        let rows = ctx.query(&tq.pql).await?;
+        let nodes: Vec<Node> = rows
+            .iter()
+            .filter_map(panorama_core::query::row_to_node)
+            .collect();
+
+        // 5. Apply post-processing steps and produce DataFrame
+        let mut df = promql::translator::execute_translated(&tq, &nodes)
+            .map_err(|e| PluginError::internal(format!("PromQL execution error: {}", e)))?;
+
+        // Override the name with the ref_id
+        df.name = ref_id.to_string();
+
+        // Add metadata
+        df.meta = Some(serde_json::json!({
+            "aggregation": "promql",
+            "expression": promql_str,
+            "from": from.to_rfc3339(),
+            "to": to.to_rfc3339(),
+        }));
+
+        Ok(df)
+    }
+
     /// Group nodes by dimension and sum values.
     async fn query_grouped_sum(
         &self,
@@ -1112,6 +1173,17 @@ impl Plugin for GrafanaPlugin {
                 path: "/api/dashboards/home".to_string(),
                 description: "Get the home dashboard (auto-created if missing)".to_string(),
             },
+            // ── PromQL ─────────────────────────────────────────────────
+            HttpEndpoint {
+                method: HttpMethod::POST,
+                path: "/api/promql/validate".to_string(),
+                description: "Validate a PromQL expression".to_string(),
+            },
+            HttpEndpoint {
+                method: HttpMethod::GET,
+                path: "/api/promql/metrics".to_string(),
+                description: "List registered PromQL metrics".to_string(),
+            },
             // ── Backward compat ───────────────────────────────────
             HttpEndpoint {
                 method: HttpMethod::POST,
@@ -1216,6 +1288,7 @@ impl Plugin for GrafanaPlugin {
                     serde_json::json!({"value": "piechart", "label": "Pie Chart"}),
                     serde_json::json!({"value": "table", "label": "Table"}),
                     serde_json::json!({"value": "heatmap", "label": "Heatmap"}),
+                    serde_json::json!({"value": "promql", "label": "PromQL (Prometheus Query Language)"}),
                 ];
                 let group_bys = vec![
                     serde_json::json!({"value": "project", "label": "Project"}),
@@ -1238,6 +1311,54 @@ impl Plugin for GrafanaPlugin {
                     "group_by_options": group_bys,
                     "buckets": buckets,
                 }))
+            }
+
+            // ── PromQL ────────────────────────────────────────────
+            ("POST", "api/promql/validate") => {
+                let body: serde_json::Value = serde_json::from_slice(
+                    request.body.as_deref().unwrap_or(&[]),
+                )
+                .map_err(|e| PluginError::bad_request(&format!("Invalid JSON: {}", e)))?;
+                let expr_str = body["expression"].as_str().unwrap_or("");
+                match promql::parser::parse(expr_str) {
+                    Ok(expr) => {
+                        let registry = promql::registry::MetricRegistry::with_wakatime_defaults();
+                        let from_ts = Utc::now().timestamp();
+                        let to_ts = from_ts + 3600;
+                        match promql::translator::translate(&expr, &registry, from_ts, to_ts) {
+                            Ok(tq) => HttpResponse::json(&serde_json::json!({
+                                "valid": true,
+                                "pql": tq.pql,
+                                "value_field": tq.value_field,
+                                "time_field": tq.time_field,
+                                "label_fields": tq.label_fields,
+                                "post_steps_count": tq.post_steps.len(),
+                            })),
+                            Err(e) => HttpResponse::json(&serde_json::json!({
+                                "valid": false,
+                                "error": format!("Translation error: {}", e),
+                            })),
+                        }
+                    }
+                    Err(e) => HttpResponse::json(&serde_json::json!({
+                        "valid": false,
+                        "error": format!("Parse error: {}", e),
+                    })),
+                }
+            }
+            ("GET", "api/promql/metrics") => {
+                let registry = promql::registry::MetricRegistry::with_wakatime_defaults();
+                let metrics: Vec<serde_json::Value> = registry.mappings.values().map(|m| {
+                    serde_json::json!({
+                        "metric_name": m.metric_name,
+                        "namespace": m.namespace,
+                        "value_field": m.value_field,
+                        "time_field": m.time_field,
+                        "required_fields": m.required_fields,
+                        "description": m.description,
+                    })
+                }).collect();
+                HttpResponse::json(&metrics)
             }
 
             // ── Folders ───────────────────────────────────────────
@@ -1272,6 +1393,7 @@ impl Plugin for GrafanaPlugin {
                             bucket: String::new(),
                             limit,
                             hide: false,
+                            promql: None,
                         }],
                         range: DashboardTime::default(),
                         from: String::new(),
@@ -1700,6 +1822,7 @@ impl GrafanaPlugin {
                         bucket: String::new(),
                         limit: 10,
                         hide: false,
+                        promql: None,
                     }],
                     options: serde_json::json!({"orientation": "horizontal", "showValues": true}),
                     field_config: serde_json::json!({}),
@@ -1722,6 +1845,7 @@ impl GrafanaPlugin {
                         bucket: String::new(),
                         limit: 10,
                         hide: false,
+                        promql: None,
                     }],
                     options: serde_json::json!({"orientation": "horizontal", "showValues": true}),
                     field_config: serde_json::json!({}),
@@ -1744,6 +1868,7 @@ impl GrafanaPlugin {
                         bucket: "auto".to_string(),
                         limit: 10,
                         hide: false,
+                        promql: None,
                     }],
                     options: serde_json::json!({"fill": 1, "lineWidth": 2}),
                     field_config: serde_json::json!({}),
@@ -1766,6 +1891,7 @@ impl GrafanaPlugin {
                         bucket: String::new(),
                         limit: 15,
                         hide: false,
+                        promql: None,
                     }],
                     options: serde_json::json!({"orientation": "horizontal", "showValues": true}),
                     field_config: serde_json::json!({}),

@@ -40,6 +40,7 @@ interface PanelQuery {
   bucket?: string
   limit?: number
   hide?: boolean
+  promql?: string
 }
 
 interface Panel {
@@ -981,6 +982,24 @@ function DashboardBuilder({
                       }}
                       style={{ width: '100%', fontSize: 12, padding: '3px 6px' }} />
                   </div>
+                  {q.aggregation === 'promql' && (
+                    <div style={{ marginTop: 6 }}>
+                      <label className="text-muted" style={{ display: 'block', fontSize: 11 }}>
+                        PromQL Expression
+                      </label>
+                      <textarea
+                        value={q.promql ?? ''}
+                        placeholder={`wakatime_duration{project="panorama"}\nrate(wakatime_duration[5m])\nsum by (language) (rate(wakatime_duration[1h]))`}
+                        rows={4}
+                        onChange={e => {
+                          const queries = [...panel.queries]
+                          queries[qi] = { ...queries[qi], promql: e.target.value }
+                          handleUpdatePanel(panel.id, { queries })
+                        }}
+                        style={{ width: '100%', fontSize: 13, padding: '6px 8px', fontFamily: 'monospace', resize: 'vertical' }}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
 
