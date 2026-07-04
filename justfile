@@ -12,12 +12,12 @@ build-wasm:
 build-panoapps:
     bash scripts/build-panoapp.sh
 
-# Build everything (WASM + plugin UIs + .panoapp + frontend + server)
+# Build everything (frontend, WASM plugins, server, and .panoapp packages)
 build:
+    cd frontend && bun install --silent && bun x vite build --mode development
     bash scripts/build-wasm.sh
-    bash scripts/build-panoapp.sh
-    cd frontend && npm ci && npm run build
     cargo build --release -p panorama-server
+    bash scripts/build-panoapp.sh
 
 # Build + start the server (loads .panoapp from data/plugins/)
 serve: build-panoapps
@@ -36,13 +36,13 @@ frontend: install-frontend
 test-setup: install-frontend
     cd frontend && npx playwright install chromium
 
-# Run isolated E2E tests (builds everything, spawns temp server, cleans up)
-test-e2e:
-    bash scripts/e2e-harness.sh
+# Run isolated E2E tests against pre-built server & apps (pass arguments directly to e2e.py / playwright)
+test-e2e *args:
+    python3 scripts/e2e.py {{ args }}
 
-# Run E2E tests with pre-built artifacts (skip build phase)
-test-e2e-quick:
-    bash scripts/e2e-harness.sh --no-build
+# Alias for test-e2e (runs without building by default)
+test-e2e-quick *args:
+    python3 scripts/e2e.py {{ args }}
 
 # Run Rust tests
 test-rust:
