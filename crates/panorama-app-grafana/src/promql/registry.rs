@@ -118,7 +118,9 @@ impl MetricRegistry {
             metric_name: "wakatime_duration".to_string(),
             namespace: "wakatime".to_string(),
             value_field: "duration".to_string(),
-            time_field: "time".to_string(),
+            // Use system:node_time as it's present on every node.
+            // The DataPoint extractor handles both epoch floats and DateTime strings.
+            time_field: "system:node_time".to_string(),
             required_fields: vec!["wakatime:entity".to_string()],
             default_labels: HashMap::from([
                 ("source".to_string(), "wakatime".to_string()),

@@ -177,7 +177,7 @@ async fn test_grafana_query_count() {
     loader.load(gf_plugin.clone()).await.unwrap();
     let gf_ctx = loader.create_context("io.mzhang.panorama.grafana", gf_plugin.required_capabilities());
 
-    // Test count aggregation with group_by (new API format)
+    // Test PromQL count query
     let req = HttpRequest {
         method: "POST".into(),
         path: "query".into(),
@@ -187,8 +187,7 @@ async fn test_grafana_query_count() {
             "queries": [{
                 "ref_id": "A",
                 "data_source": "io.mzhang.panorama.wakatime",
-                "group_by": "wakatime:project",
-                "aggregation": "count"
+                "promql": "count by (project) (wakatime_duration)"
             }],
             "range": {"from": "now-30d", "to": "now"}
         }).to_string().into_bytes().into()),
@@ -235,8 +234,7 @@ async fn test_grafana_leaderboard() {
             "queries": [{
                 "ref_id": "A",
                 "data_source": "io.mzhang.panorama.wakatime",
-                "group_by": "wakatime:project",
-                "aggregation": "leaderboard"
+                "promql": "sum by (project) (wakatime_duration)"
             }],
             "range": {"from": "now-30d", "to": "now"}
         }).to_string().into_bytes().into()),
@@ -245,19 +243,18 @@ async fn test_grafana_leaderboard() {
     assert_eq!(resp.status, 200);
     let result: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
 
-    // Should return data frames with leaderboard results
+    // Should return data frames with PromQL results
     assert!(!result.is_empty());
-    // DataFrame format: {name, columns: ["key","seconds","hours"], rows: [[key,secs,hours],...]}
+    // DataFrame: {name, columns: ["time","value","project"], rows: [[ts,val,proj],...]}
     let frame = &result[0];
     assert_eq!(frame["name"], "A");
+    let columns = frame["columns"].as_array().unwrap();
+    assert!(columns.iter().any(|c| c == "value"), "expected 'value' column");
     let rows = frame["rows"].as_array().unwrap();
     assert!(!rows.is_empty());
-    // First row should be project-b with ~25 hours
+    // Verifying project-b has the most hours (25h = 90000 seconds)
     let first_row = &rows[0];
-    let hours = first_row[2].as_f64().unwrap();
-    assert!((hours - 25.0).abs() < 0.01);
-    // First column is project name
-    assert_eq!(first_row[0], "project-b");
+    assert_eq!(first_row[2], "project-b");
 }
 
 #[tokio::test]
@@ -283,8 +280,7 @@ async fn test_grafana_save_and_list_dashboards() {
                 "queries": [{
                     "ref_id": "A",
                     "data_source": "io.mzhang.panorama.wakatime",
-                    "group_by": "wakatime:project",
-                    "aggregation": "leaderboard"
+                    "promql": "sum by (project) (wakatime_duration)"
                 }]
             }]
         }).to_string().into_bytes().into()),

@@ -74,24 +74,24 @@ pub enum PostStep {
 
 struct Ctx<'a> {
     registry: &'a MetricRegistry,
-    /// Dashboard time range start (unix timestamp seconds).
-    from: i64,
-    /// Dashboard time range end (unix timestamp seconds).
-    to: i64,
+    /// Dashboard time range start (RFC 3339 / ISO 8601 string).
+    from: String,
+    /// Dashboard time range end (RFC 3339 / ISO 8601 string).
+    to: String,
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Translate a PromQL expression into a PQL query and post-processing steps.
 ///
-/// `from` and `to` are the dashboard time range as unix timestamps in seconds.
+/// `from` and `to` are the dashboard time range as RFC 3339 strings.
 pub fn translate(
     expr: &Expr,
     registry: &MetricRegistry,
-    from: i64,
-    to: i64,
+    from: &str,
+    to: &str,
 ) -> Result<TranslatedQuery, String> {
-    let ctx = Ctx { registry, from, to };
+    let ctx = Ctx { registry, from: from.to_string(), to: to.to_string() };
     translate_expr(expr, &ctx)
 }
 
@@ -193,26 +193,32 @@ fn translate_instant_vector(
 
     // Time range constraint (from range vector or dashboard range)
     let time_field_key = mapping.time_field_key();
+    let time_pql_path = field_key_to_pql_path(&time_field_key);
     if let Some(dur) = range {
         // Range vector: look back from the dashboard `to` time
-        let range_start = ctx.to - (dur.millis_i64() / 1000);
+        // For range vectors, compute the start time relative to `to`
+        // and format both as ISO 8601 strings for PQL comparison
+        let to_dt = chrono::DateTime::parse_from_rfc3339(&ctx.to)
+            .map(|d| d.with_timezone(&chrono::Utc))
+            .unwrap_or_else(|_| chrono::Utc::now());
+        let range_start = to_dt - chrono::Duration::milliseconds(dur.millis_i64());
         predicates.push(format!(
-            "n.{} >= {}",
-            time_field_key, range_start
+            "n.{} >= \"{}\"",
+            time_pql_path, range_start.to_rfc3339()
         ));
         predicates.push(format!(
-            "n.{} <= {}",
-            time_field_key, ctx.to
+            "n.{} <= \"{}\"",
+            time_pql_path, ctx.to
         ));
     } else {
-        // Dashboard time range
+        // Dashboard time range — use as-is (already RFC 3339 strings)
         predicates.push(format!(
-            "n.{} >= {}",
-            time_field_key, ctx.from
+            "n.{} >= \"{}\"",
+            time_pql_path, ctx.from
         ));
         predicates.push(format!(
-            "n.{} <= {}",
-            time_field_key, ctx.to
+            "n.{} <= \"{}\"",
+            time_pql_path, ctx.to
         ));
     }
 
@@ -439,13 +445,13 @@ fn translate_aggregation(
     };
 
     let step = match agg.op {
-        AggregationOp::Sum => PostStep::GroupSum { group_by },
-        AggregationOp::Avg => PostStep::GroupAvg { group_by },
-        AggregationOp::Min => PostStep::GroupMin { group_by },
-        AggregationOp::Max => PostStep::GroupMax { group_by },
-        AggregationOp::Count => PostStep::GroupCount { group_by },
-        AggregationOp::Stddev => PostStep::GroupStddev { group_by },
-        AggregationOp::Stdvar => PostStep::GroupStdvar { group_by },
+        AggregationOp::Sum => PostStep::GroupSum { group_by: group_by.clone() },
+        AggregationOp::Avg => PostStep::GroupAvg { group_by: group_by.clone() },
+        AggregationOp::Min => PostStep::GroupMin { group_by: group_by.clone() },
+        AggregationOp::Max => PostStep::GroupMax { group_by: group_by.clone() },
+        AggregationOp::Count => PostStep::GroupCount { group_by: group_by.clone() },
+        AggregationOp::Stddev => PostStep::GroupStddev { group_by: group_by.clone() },
+        AggregationOp::Stdvar => PostStep::GroupStdvar { group_by: group_by.clone() },
         AggregationOp::TopK => {
             let k = agg.param.as_ref()
                 .and_then(|p| eval_expr_number(p).ok())
@@ -466,13 +472,20 @@ fn translate_aggregation(
         }
         AggregationOp::Group => {
             // group() returns 1 for each unique label combination
-            PostStep::GroupCount { group_by }
+            PostStep::GroupCount { group_by: group_by.clone() }
         }
         AggregationOp::CountValues => {
             // count_values is complex — skip for now
-            PostStep::GroupCount { group_by }
+            PostStep::GroupCount { group_by: group_by.clone() }
         }
     };
+
+    // Add group_by labels to the label_fields so they get extracted from nodes
+    for gb in &group_by {
+        if !tq.label_fields.contains(gb) {
+            tq.label_fields.push(gb.clone());
+        }
+    }
 
     tq.post_steps.push(step);
     Ok(tq)
@@ -573,6 +586,12 @@ fn resolve_metric<'a>(metric_name: &str, registry: &'a MetricRegistry) -> Result
 /// Split a field key like "wakatime:entity" into ("wakatime", "entity").
 fn split_field_key(key: &str) -> Option<(&str, &str)> {
     key.split_once(':')
+}
+
+/// Convert a colon-separated field key like "wakatime:time" to PQL dot notation
+/// like "wakatime.time".
+fn field_key_to_pql_path(key: &str) -> String {
+    key.replace(':', ".")
 }
 
 /// Escape a string for use inside a PQL double-quoted string.
@@ -936,7 +955,7 @@ fn group_by_labels_filtered(
     groups
 }
 
-/// Generic sum aggregation.
+/// Generic sum aggregation (sorted descending by value).
 fn aggregate_group(
     points: &[DataPoint],
     group_by: &[String],
@@ -944,7 +963,7 @@ fn aggregate_group(
     init: f64,
 ) -> Vec<DataPoint> {
     let grouped = group_by_labels_filtered(points, group_by);
-    let mut result = Vec::new();
+    let mut result: Vec<DataPoint> = Vec::new();
     for (key, series) in grouped {
         let value = series.iter().fold(init, |acc, p| op(acc, p.value));
         result.push(DataPoint {
@@ -953,17 +972,19 @@ fn aggregate_group(
             labels: key,
         });
     }
+    // Sort descending by value for leaderboard-style display
+    result.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
     result
 }
 
-/// Min/max aggregation (avoids floating-point comparison issues).
+/// Min/max aggregation (sorted descending by value).
 fn aggregate_group_minmax(
     points: &[DataPoint],
     group_by: &[String],
     better: fn(f64, f64) -> bool,
 ) -> Result<Vec<DataPoint>, String> {
     let grouped = group_by_labels_filtered(points, group_by);
-    let mut result = Vec::new();
+    let mut result: Vec<DataPoint> = Vec::new();
     for (key, series) in grouped {
         if series.is_empty() { continue; }
         let best = series.iter()
@@ -976,6 +997,7 @@ fn aggregate_group_minmax(
             labels: key,
         });
     }
+    result.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
     Ok(result)
 }
 
@@ -1006,11 +1028,15 @@ fn datapoints_to_dataframe(
     }
     label_keys.sort();
 
+    // Sort points descending by value (leaderboard style)
+    let mut sorted_points: Vec<&DataPoint> = points.iter().collect();
+    sorted_points.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
+
     let mut columns = vec!["time".into(), "value".into()];
     columns.extend(label_keys.clone());
 
     let mut rows = Vec::new();
-    for point in points {
+    for point in sorted_points {
         let mut row = vec![
             json!(point.timestamp),
             json!(point.value),
@@ -1043,8 +1069,8 @@ mod tests {
         let expr = super::super::parser::parse(promql)
             .map_err(|e| e.to_string())?;
         let registry = test_registry();
-        // Use a fixed time range for tests
-        translate(&expr, &registry, 1719500000, 1719600000)
+        // Use fixed time range strings for tests
+        translate(&expr, &registry, "2026-07-01T00:00:00+00:00", "2026-07-04T00:00:00+00:00")
     }
 
     #[test]
@@ -1066,8 +1092,8 @@ mod tests {
     fn test_range_vector() {
         let tq = translate_str("wakatime_duration[5m]").unwrap();
         assert!(tq.pql.contains("HAS_FIELD"));
-        // Should have time range constraint
-        assert!(tq.pql.contains("wakatime:time"));
+        // Should have time range constraint (system.node_time is the default time field)
+        assert!(tq.pql.contains("system.node_time"));
     }
 
     #[test]

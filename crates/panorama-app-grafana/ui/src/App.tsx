@@ -34,13 +34,9 @@ interface GridPos { x: number; y: number; w: number; h: number }
 interface PanelQuery {
   ref_id: string
   data_source: string
-  group_by: string
-  aggregation: string
-  filter?: string
-  bucket?: string
+  promql?: string
   limit?: number
   hide?: boolean
-  promql?: string
 }
 
 interface Panel {
@@ -766,24 +762,13 @@ export default function GrafanaApp({ pluginId }: { pluginId: string }) {
 
 // ── Dashboard Builder / Editor ─────────────────────────────────────────────────
 
-const AGG_OPTIONS = [
+const PANEL_TYPES = [
   { value: 'leaderboard', label: 'Leaderboard' },
   { value: 'timeseries', label: 'Time Series' },
-  { value: 'sum', label: 'Sum' },
-  { value: 'count', label: 'Count' },
   { value: 'stat', label: 'Single Stat' },
   { value: 'piechart', label: 'Pie Chart' },
   { value: 'table', label: 'Table' },
   { value: 'heatmap', label: 'Heatmap' },
-]
-
-const GROUP_OPTIONS = [
-  { value: 'project', label: 'Project' },
-  { value: 'language', label: 'Language' },
-  { value: 'entity', label: 'File / Entity' },
-  { value: 'category', label: 'Category' },
-  { value: 'machine_name_id', label: 'Machine' },
-  { value: 'branch', label: 'Branch' },
 ]
 
 function DashboardBuilder({
@@ -803,8 +788,7 @@ function DashboardBuilder({
       queries: [{
         ref_id: 'A',
         data_source: WAKA_PLUGIN,
-        group_by: 'project',
-        aggregation: 'leaderboard',
+        promql: 'sum by (project) (wakatime_duration)',
         limit: 10,
       }],
     }
@@ -914,7 +898,7 @@ function DashboardBuilder({
                   <label className="text-muted" style={{ display: 'block', fontSize: 11 }}>Type</label>
                   <select value={panel.type}
                     onChange={e => handleUpdatePanel(panel.id, { type: e.target.value })}>
-                    {AGG_OPTIONS.map(o => (
+                    {PANEL_TYPES.map(o => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
@@ -936,32 +920,6 @@ function DashboardBuilder({
                         style={{ width: '100%', fontSize: 12, padding: '3px 6px' }} />
                     </div>
                     <div>
-                      <label className="text-muted" style={{ display: 'block', fontSize: 11 }}>Group By</label>
-                      <select value={q.group_by}
-                        onChange={e => {
-                          const queries = [...panel.queries]
-                          queries[qi] = { ...queries[qi], group_by: e.target.value }
-                          handleUpdatePanel(panel.id, { queries })
-                        }}>
-                        {GROUP_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-muted" style={{ display: 'block', fontSize: 11 }}>Aggregation</label>
-                      <select value={q.aggregation}
-                        onChange={e => {
-                          const queries = [...panel.queries]
-                          queries[qi] = { ...queries[qi], aggregation: e.target.value }
-                          handleUpdatePanel(panel.id, { queries })
-                          // Also update panel type to match aggregation
-                          if (['leaderboard', 'timeseries', 'stat', 'piechart', 'table', 'heatmap'].includes(e.target.value)) {
-                            handleUpdatePanel(panel.id, { type: e.target.value })
-                          }
-                        }}>
-                        {AGG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
                       <label className="text-muted" style={{ display: 'block', fontSize: 11 }}>Limit</label>
                       <input type="number" value={q.limit ?? 10}
                         onChange={e => {
@@ -973,33 +931,21 @@ function DashboardBuilder({
                     </div>
                   </div>
                   <div style={{ marginTop: 6 }}>
-                    <label className="text-muted" style={{ display: 'block', fontSize: 11 }}>Filter (key=value)</label>
-                    <input type="text" value={q.filter ?? ''} placeholder="e.g., language=Rust"
+                    <label className="text-muted" style={{ display: 'block', fontSize: 11 }}>
+                      PromQL Expression
+                    </label>
+                    <textarea
+                      value={q.promql ?? ''}
+                      placeholder={`wakatime_duration\nsum by (project) (wakatime_duration)\nrate(wakatime_duration[5m])\ntopk(10, sum by (language) (wakatime_duration))`}
+                      rows={4}
                       onChange={e => {
                         const queries = [...panel.queries]
-                        queries[qi] = { ...queries[qi], filter: e.target.value }
+                        queries[qi] = { ...queries[qi], promql: e.target.value }
                         handleUpdatePanel(panel.id, { queries })
                       }}
-                      style={{ width: '100%', fontSize: 12, padding: '3px 6px' }} />
+                      style={{ width: '100%', fontSize: 13, padding: '6px 8px', fontFamily: 'monospace', resize: 'vertical' }}
+                    />
                   </div>
-                  {q.aggregation === 'promql' && (
-                    <div style={{ marginTop: 6 }}>
-                      <label className="text-muted" style={{ display: 'block', fontSize: 11 }}>
-                        PromQL Expression
-                      </label>
-                      <textarea
-                        value={q.promql ?? ''}
-                        placeholder={`wakatime_duration{project="panorama"}\nrate(wakatime_duration[5m])\nsum by (language) (rate(wakatime_duration[1h]))`}
-                        rows={4}
-                        onChange={e => {
-                          const queries = [...panel.queries]
-                          queries[qi] = { ...queries[qi], promql: e.target.value }
-                          handleUpdatePanel(panel.id, { queries })
-                        }}
-                        style={{ width: '100%', fontSize: 13, padding: '6px 8px', fontFamily: 'monospace', resize: 'vertical' }}
-                      />
-                    </div>
-                  )}
                 </div>
               ))}
 
