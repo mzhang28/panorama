@@ -1,0 +1,17 @@
+[package]
+name = "panorama-fuzzers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+afl = "0.15"
+panorama-core = { path = "../crates/panorama-core" }
+panorama-app-grafana = { path = "../crates/panorama-app-grafana" }
+
+[[bin]]
+name = "fuzz_promql"
+path = "src/bin/fuzz_promql.rs"
+
+[[bin]]
+name = "fuzz_pql"
+path = "src/bin/fuzz_pql.rs"

@@ -1,0 +1,1 @@
+MATCH (n) -[:REF("parent_id")]-> (p) RETURN n, p

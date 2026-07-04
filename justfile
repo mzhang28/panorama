@@ -84,3 +84,18 @@ docker-logs:
 
 # Rebuild and restart
 docker-restart: docker-down docker-build docker-up
+
+# ── AFL++ Fuzzing ─────────────────────────────────────────────
+
+# Build AFL++ fuzzing Docker image
+fuzz-build:
+    docker build -t panorama-fuzz -f Dockerfile.fuzz .
+
+# Run AFL++ fuzzing on PromQL parser & translator
+fuzz-promql: fuzz-build
+    docker run -it --rm -v $(pwd)/fuzz/findings:/workspace/fuzz/findings panorama-fuzz promql
+
+# Run AFL++ fuzzing on PanoramaQL (PQL) parser
+fuzz-pql: fuzz-build
+    docker run -it --rm -v $(pwd)/fuzz/findings:/workspace/fuzz/findings panorama-fuzz pql
+

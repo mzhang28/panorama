@@ -1,0 +1,1 @@
+MATCH (n) IN space("s1") WHERE n.wakatime:project = "panorama" AND n.system:node_time > 1000 RETURN n

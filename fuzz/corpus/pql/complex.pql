@@ -1,0 +1,1 @@
+MATCH (n) IN space("my_space") CONFORMS TO schema("journal:block", ^1.0.0) WHERE n.journal:order >= 0.5 AND n.system:node_title LIKE "%test%" ORDER BY n.system:node_time DESC LIMIT 50 SKIP 10 RETURN n.id, n.journal:properties AS props
