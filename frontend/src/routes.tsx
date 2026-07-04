@@ -18,6 +18,8 @@ import { SchemaViewer } from './components/SchemaViewer'
 import { JournalApp } from './components/JournalApp'
 import { loadPluginComponent } from './api/plugin-loader'
 
+import { ThemeSwitcher } from './theme'
+
 // ── Root layout ───────────────────────────────────────────────────────────────
 
 function RootLayout() {
@@ -104,6 +106,8 @@ function RootLayout() {
             </p>
           )}
         </div>
+
+        <ThemeSwitcher />
       </aside>
 
       <main className="main-content">
