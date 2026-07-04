@@ -1,6 +1,6 @@
 # Panorama — Progress Report
 
-Last updated: 2026-07-03
+Last updated: 2026-07-04
 
 ## Where We Are
 
@@ -171,26 +171,32 @@ Each app below is assessed against what a real user would expect from such an ap
 
 ### 2.3 Grafana App
 
-**What a user expects:** Dashboard builder with panels, time-series queries, multiple chart types, drag-and-drop layout, PromQL-like expressions, template variables, alerting.
+**What a user expects:** Dashboard builder with panels, time-series queries, multiple chart types, drag-and-drop layout, PromQL expressions, template variables, alerting.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Save dashboard config | ✅ Done | POST /dashboards stores JSON config as a node |
-| List dashboards | ✅ Done | GET /dashboards |
-| Query endpoint with time range filter | ✅ Done | POST /query with from/to parameters, filters in-memory |
-| Group-by aggregation (count) | ✅ Done | Groups by any specified field, returns counts |
-| Sum duration aggregation | ✅ Done | Sums `wakatime:duration` across filtered nodes |
-| Leaderboard aggregation | ✅ Done | Groups by project, sorts by hours descending |
-| Key=value filter | ✅ Done | Simple `filter=key=value` parameter |
-| Time-series chart rendering | ❌ Missing | No frontend component exists |
-| PromQL expression support | ❌ Missing | DESIGN.md calls this out; not started |
-| "Hours per project in last week" queries | ❌ Missing | No relative time ranges ("last 7d"), only absolute from/to |
-| Multiple panel types (bar, line, stat, table) | ❌ Missing | |
-| Dashboard edit/delete | ❌ Missing | Only create + list |
-| Template variables | ❌ Missing | |
+| Save dashboard config | ✅ Done | POST /api/dashboards stores JSON config as a node |
+| List dashboards | ✅ Done | GET /api/dashboards |
+| Get dashboard by UID | ✅ Done | GET /api/dashboards/{uid} |
+| Update dashboard | ✅ Done | PUT /api/dashboards/{uid} with version bumping |
+| Delete dashboard | ✅ Done | DELETE /api/dashboards/{uid} |
+| Export/import dashboard JSON | ✅ Done | GET /api/dashboards/export/{uid}, POST /api/dashboards/import |
+| Duplicate dashboard | ✅ Done | POST /api/dashboards/{uid}/duplicate |
+| Home dashboard auto-creation | ✅ Done | GET /api/dashboards/home auto-creates a default on first access |
+| Folder support | ✅ Done | GET/POST /api/folders for organizing dashboards |
+| PromQL query engine | ✅ Done | Full recursive-descent parser + AST → PQL translator. Supports instant/range vectors, label matchers (= != =~ !~), all binary operators, aggregations (sum/avg/min/max/count by/without), functions (rate/irate/increase/delta/topk/bottomk/histogram_quantile/sort/absent), subqueries, offset, @ modifier |
+| Metric registry | ✅ Done | Configurable metric name → namespace/field mapping with WakaTime defaults |
+| PromQL validation endpoint | ✅ Done | POST /api/promql/validate returns PQL translation preview |
+| Query execution | ✅ Done | POST /api/ds/query accepts batch of PromQL panel queries, translates to PQL, executes via ctx.query(), applies post-processing (rate/increase/group-aggregation/sort/filter) |
+| Multiple panel types | ✅ Done | leaderboard, timeseries, stat, piechart, table, heatmap — all render in the React frontend |
+| Time range presets | ✅ Done | 15 presets from "Last 1 hour" to "This month", plus relative time parser (now-Nd/Nh/Nm/Ns) |
+| Dashboard editor UI | ✅ Done | Full React SPA via Module Federation with panel CRUD, PromQL textarea, grid position editor, panel type selector |
+| Inline SVG chart rendering | ✅ Done | All chart types render with inline SVG — no external chart library |
+| Template variables | ❌ Missing | Schema exists but not wired to query interpolation |
 | Alerting | ❌ Missing | |
+| Drag-and-drop layout | ❌ Missing | Grid positions are editable as numbers, no drag handles |
 
-**Integration tests:** 3 tests (count aggregation, leaderboard, save+list dashboards). The count and leaderboard tests create wakatime nodes first, then query them through the Grafana plugin. This is the most interesting cross-app test.
+**Integration tests:** 3 tests (PromQL count aggregation, PromQL leaderboard, save+list dashboards). The query tests create wakatime nodes first, then query them through the Grafana plugin via PromQL expressions (`count by (project) (wakatime_duration)`, `sum by (project) (wakatime_duration)`).
 
 ### 2.4 Files App
 
@@ -283,11 +289,12 @@ Each app below is assessed against what a real user would expect from such an ap
 
 These are issues that affect every app or the platform as a whole.
 
-### 3.1 No app has a real UI
+### 3.1 App UI status
 
-- **Journal** is the only app with a frontend component — a single `JournalApp.tsx` with create form and timeline. No editing, no paragraph view, no calendar.
+- **Journal** is the only app besides Grafana with a frontend component — a single `JournalApp.tsx` with create form and timeline. No editing, no paragraph view, no calendar.
+- **Grafana** has a full React SPA dashboard editor with PromQL query editor, panel CRUD, grid position controls, and inline SVG chart rendering (leaderboard, timeseries, stat, piechart, table, heatmap). Loaded via Module Federation.
 - **All other apps** declare `ui_components` pointing to `.js` bundle files that don't exist on disk. The frontend attempts Module Federation imports (`registerPluginRemote` / `loadPluginComponent`) that will 404.
-- The UI component model (Module Federation remotes) requires separate build tooling per app that isn't wired up. The build script `build-panoapp.sh` packages WASM but not UI bundles.
+- The UI component model (Module Federation remotes) requires separate build tooling per app. The build script `build-panoapp.sh` packages WASM but not UI bundles.
 
 ### 3.2 All apps are hardcoded to `space("default")`
 
@@ -299,7 +306,7 @@ Every app's query hardcodes `IN space("default")`. There's no mechanism for a us
 |-----|--------|------|--------|--------|
 | Journal | ✅ | ✅ | ✅ | ✅ (soft) |
 | Wakatime | ✅ | — | — | — |
-| Grafana (dashboards) | ✅ | ✅ | — | — |
+| Grafana (dashboards) | ✅ | ✅ | ✅ | ✅ |
 | Files | ✅ | ✅ | — | ✅ |
 | Beli | ✅ | ✅ | — | — |
 | Trips | ✅ | ✅ | — | — |
@@ -317,9 +324,9 @@ Several apps define `background_tasks()` (e.g., for syncing with external servic
 
 If an app's HTTP handler fails mid-operation (e.g., after creating a node but before creating its children), there's no rollback. The Journal app creates the entry node first, then creates paragraphs, then updates the entry with paragraph refs — if paragraph creation fails, the entry is left without refs. There's no cleanup.
 
-### 3.7 Cross-app data queries are purely convention-based
+### 3.7 Cross-app data queries are still convention-based
 
-The Grafana app hardcodes `wakatime:duration` and `wakatime:project` as field names. A Wakatime heartbeat node and a manually-created time-series node are indistinguishable to the Grafana query. There's no schema-based dispatch ("query all nodes conforming to schema X").
+The Grafana app now uses a PromQL metric registry that maps metric names (e.g., `wakatime_duration`) to namespace/field pairs (e.g., `wakatime:duration`). This is cleaner than the old hardcoded field names, but still convention-based — any node with the right fields matches. There's no schema-based dispatch ("query all nodes conforming to schema X").
 
 ---
 
