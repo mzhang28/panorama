@@ -11,7 +11,7 @@ for crate in journal wakatime grafana trips beli subsonic files; do
   UI_DIR="crates/panorama-app-${crate}/ui"
   if [ -f "$UI_DIR/package.json" ] && [ -f "$UI_DIR/vite.config.ts" ]; then
     echo "  Building UI for ${crate}..."
-    (cd "$UI_DIR" && npm ci --silent && npm run build)
+    (cd "$UI_DIR" && bun install --silent && bun run build)
   fi
 done
 

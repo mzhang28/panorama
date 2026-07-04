@@ -16,10 +16,7 @@ import { NodeViewer } from './components/NodeViewer'
 import { PluginPanel } from './components/PluginPanel'
 import { SchemaViewer } from './components/SchemaViewer'
 import { JournalApp } from './components/JournalApp'
-import {
-  registerPluginRemote,
-  loadPluginComponent,
-} from './api/plugin-loader'
+import { loadPluginComponent } from './api/plugin-loader'
 
 // ── Root layout ───────────────────────────────────────────────────────────────
 
@@ -189,12 +186,7 @@ function PluginAppView() {
     React.LazyExoticComponent<React.ComponentType<{ pluginId: string }>> | null
   >(null)
 
-  useEffect(() => {
-    registerPluginRemote(pluginId)
-    setPluginComponent(() => loadPluginComponent(pluginId))
-  }, [pluginId])
-
-  // Hardcoded Journal app (the full-featured host component)
+  // Journal uses the full-featured host component (not the plugin UI remote)
   if (pluginId === 'io.mzhang.panorama.journal') {
     return (
       <div>
@@ -206,7 +198,10 @@ function PluginAppView() {
     )
   }
 
-  // Dynamic Module Federation plugin
+  useEffect(() => {
+    setPluginComponent(() => loadPluginComponent(pluginId))
+  }, [pluginId])
+
   return (
     <div>
       <Link to="/plugins" style={{ marginBottom: 16, display: 'inline-block' }}>

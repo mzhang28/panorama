@@ -9,9 +9,7 @@ export default defineConfig({
     federation({
       name: 'io_mzhang_panorama_grafana',
       filename: 'remoteEntry.js',
-      exposes: {
-        './App': './src/App.tsx',
-      },
+      exposes: { './App': './src/App.tsx' },
       shared: {
         react: { singleton: true, requiredVersion: '^19.0.0' },
         'react-dom': { singleton: true, requiredVersion: '^19.0.0' },
@@ -19,12 +17,5 @@ export default defineConfig({
       },
     }),
   ],
-  build: {
-    target: 'es2022',
-    outDir: 'dist',
-  },
-  server: {
-    port: 5176,
-    cors: true,
-  },
+  build: { target: 'es2022' },
 })

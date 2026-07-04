@@ -1,0 +1,8 @@
+{
+  "name": "panorama",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "crates/panorama-app-*/ui"
+  ]
+}

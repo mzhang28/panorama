@@ -72,8 +72,8 @@ trap cleanup EXIT INT TERM
 # ── Build ────────────────────────────────────────────────────────────────────
 
 if $BUILD; then
-  echo "--- Building frontend ---"
-  (cd frontend && npm ci --silent && npm run build)
+  echo "--- Building frontend (dev mode — workspace imports) ---"
+  (cd frontend && bun install --silent && bun x vite build --mode development)
 
   echo ""
   echo "--- Building WASM plugins ---"
