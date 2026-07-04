@@ -400,7 +400,7 @@ test.describe('Wakatime Plugin UI', () => {
     await expect(page.locator('button:has-text("Send Heartbeat")')).toBeVisible();
   });
 
-  test('can send a heartbeat', async ({ page }) => {
+  test('can send a heartbeat and see stats panels', async ({ page }) => {
     await page.goto('/');
     await page.click('button:has-text("Coding Activity")');
     await page.waitForTimeout(1000);
@@ -409,7 +409,8 @@ test.describe('Wakatime Plugin UI', () => {
     await page.waitForTimeout(1500);
 
     // Should show the leaderboard section (even if empty initially)
-    await expect(page.locator('text=Project Leaderboard')).toBeVisible({ timeout: 5000 });
+    // New UI uses "Per Project" instead of "Project Leaderboard"
+    await expect(page.locator('text=Per Project')).toBeVisible({ timeout: 5000 });
   });
 
   test('heartbeat form is pre-populated with JSON', async ({ page }) => {
@@ -429,57 +430,57 @@ test.describe('Wakatime Plugin UI', () => {
 
 test.describe('Dashboards Plugin UI', () => {
 
-  test('opens dashboards and shows leaderboard table', async ({ page }) => {
+  test('opens dashboards and shows home dashboard with panels', async ({ page }) => {
     await page.goto('/');
     await page.click('button:has-text("Dashboards")');
-    await page.waitForTimeout(1000);
-    await expect(page.locator('h2')).toContainText('Dashboards', { timeout: 5000 });
-    await expect(page.locator('table')).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(2000);
+    // New dashboard UI shows the home dashboard with panel titles
+    await expect(page.locator('h2')).toBeVisible({ timeout: 5000 });
+    // Should show dashboard panels (at minimum Per Project)
+    await expect(page.locator('text=Per Project')).toBeVisible({ timeout: 5000 });
   });
 
-  test('has Group By and Aggregation dropdowns', async ({ page }) => {
+  test('has time range presets and refresh selector', async ({ page }) => {
     await page.goto('/');
     await page.click('button:has-text("Dashboards")');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
 
+    // Time range preset buttons — first 6 are shown by default
+    await expect(page.locator('button:has-text("Last 24h")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('button:has-text("Custom...")')).toBeVisible({ timeout: 3000 });
+    // Refresh interval select
     const selects = page.locator('select');
-    await expect(selects).toHaveCount(2);
+    await expect(selects.first()).toBeVisible({ timeout: 3000 });
   });
 
-  test('can switch aggregation to Count', async ({ page }) => {
+  test('shows panel grid with leaderboard and timeseries panels', async ({ page }) => {
     await page.goto('/');
     await page.click('button:has-text("Dashboards")');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
 
-    // Select "Count" from the aggregation dropdown
-    const aggSelect = page.locator('select').nth(1);
-    await aggSelect.selectOption('count');
-    await page.waitForTimeout(800);
-    // Verify the select value changed
-    await expect(aggSelect).toHaveValue('count');
+    // Should see coding activity panels
+    await expect(page.locator('text=Per Project')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('text=Per Language')).toBeVisible({ timeout: 3000 });
   });
 
-  test('can switch group by to Language', async ({ page }) => {
+  test('has Edit button to open dashboard builder', async ({ page }) => {
     await page.goto('/');
     await page.click('button:has-text("Dashboards")');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
 
-    const groupSelect = page.locator('select').first();
-    await groupSelect.selectOption('wakatime:language');
-    await page.waitForTimeout(800);
-    await expect(groupSelect).toHaveValue('wakatime:language');
+    const editBtn = page.locator('button:has-text("Edit")');
+    await expect(editBtn).toBeVisible({ timeout: 5000 });
   });
 
-  test('table has ranked entries with position numbers', async ({ page }) => {
+  test('can open builder modal to edit dashboard', async ({ page }) => {
     await page.goto('/');
     await page.click('button:has-text("Dashboards")');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
 
-    // Should see rank #1, #2, #3 indicators
-    await expect(page.locator('table')).toBeVisible({ timeout: 5000 });
-    const tableText = await page.locator('table').textContent();
-    // At minimum the table renders
-    expect(tableText).toBeTruthy();
+    await page.click('button:has-text("Edit")');
+    await page.waitForTimeout(1000);
+    // Builder modal should appear with panel editor
+    await expect(page.locator('text=Panels')).toBeVisible({ timeout: 5000 });
   });
 });
 

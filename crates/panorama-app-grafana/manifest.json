@@ -2,30 +2,69 @@
   "manifest_version": 1,
   "id": "io.mzhang.panorama.grafana",
   "name": "Dashboards",
-  "version": "0.1.0",
-  "description": "Grafana-like dashboards for time-series data visualization with leaderboard queries",
+  "version": "0.2.0",
+  "description": "Full dashboard system: leaderboards, time-series, stats, pie charts, tables, and heatmaps with variables, annotations, and Grafana-compatible query engine",
   "author": "Panorama",
-  "schemas": [{
-    "name": "Dashboard", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
-    "fields": [
-      {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Dashboard name", "computed": null},
-      {"name": "config", "namespace": "grafana", "required": true, "field_type": null, "default": null, "description": "Dashboard JSON configuration (panels, queries)", "computed": null}
-    ]
-  }],
+  "schemas": [
+    {
+      "name": "Dashboard",
+      "version": {"major": 2, "minor": 0},
+      "schema_mode": "Preferred",
+      "fields": [
+        {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Dashboard name", "computed": null},
+        {"name": "config", "namespace": "grafana", "required": true, "field_type": null, "default": null, "description": "Full dashboard JSON configuration (panels, variables, time, etc.)", "computed": null},
+        {"name": "uid", "namespace": "grafana", "required": true, "field_type": null, "default": null, "description": "Unique dashboard identifier (short hash)", "computed": null},
+        {"name": "tags", "namespace": "grafana", "required": false, "field_type": null, "default": null, "description": "Comma-separated tags for organization", "computed": null},
+        {"name": "folder_uid", "namespace": "grafana", "required": false, "field_type": null, "default": null, "description": "Folder this dashboard belongs to", "computed": null},
+        {"name": "version", "namespace": "grafana", "required": false, "field_type": null, "default": {"type": "Integer", "value": 1}, "description": "Dashboard revision version number", "computed": null}
+      ]
+    },
+    {
+      "name": "Folder",
+      "version": {"major": 1, "minor": 0},
+      "schema_mode": "Preferred",
+      "fields": [
+        {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Folder name", "computed": null},
+        {"name": "uid", "namespace": "grafana", "required": true, "field_type": null, "default": null, "description": "Unique folder identifier", "computed": null}
+      ]
+    }
+  ],
   "http_endpoints": [
-    {"method": "POST", "path": "/query", "description": "Execute a dashboard query (count, leaderboard, sum_duration)"},
-    {"method": "POST", "path": "/dashboards", "description": "Save a dashboard configuration"},
-    {"method": "GET", "path": "/dashboards", "description": "List saved dashboards"}
+    {"method": "GET", "path": "/api/dashboards", "description": "List all dashboards"},
+    {"method": "POST", "path": "/api/dashboards", "description": "Create a new dashboard"},
+    {"method": "GET", "path": "/api/dashboards/home", "description": "Get the home dashboard (auto-created if missing)"},
+    {"method": "GET", "path": "/api/dashboards/{uid}", "description": "Get a dashboard by UID"},
+    {"method": "PUT", "path": "/api/dashboards/{uid}", "description": "Update a dashboard"},
+    {"method": "DELETE", "path": "/api/dashboards/{uid}", "description": "Delete a dashboard"},
+    {"method": "POST", "path": "/api/ds/query", "description": "Execute a batch of panel queries (Grafana-compatible data frames)"},
+    {"method": "GET", "path": "/api/query/options", "description": "Get time range presets, aggregation options, and group-by options"},
+    {"method": "POST", "path": "/api/dashboards/import", "description": "Import a dashboard from JSON"},
+    {"method": "GET", "path": "/api/dashboards/export/{uid}", "description": "Export a dashboard as JSON"},
+    {"method": "POST", "path": "/api/dashboards/{uid}/duplicate", "description": "Duplicate a dashboard"},
+    {"method": "GET", "path": "/api/folders", "description": "List dashboard folders"},
+    {"method": "POST", "path": "/api/folders", "description": "Create a dashboard folder"},
+    {"method": "POST", "path": "/query", "description": "Execute a dashboard query (legacy)"},
+    {"method": "POST", "path": "/dashboards", "description": "Save a dashboard (legacy)"},
+    {"method": "GET", "path": "/dashboards", "description": "List saved dashboards (legacy)"}
   ],
   "ui_components": [
-    {"id": "grafana-main", "name": "Dashboard View", "mount_point": "MainPage", "bundle_path": "ui/grafana.js"}
+    {"id": "grafana-main", "name": "Dashboard View", "mount_point": "MainPage", "bundle_path": "ui/grafana.js"},
+    {"id": "grafana-dashboard", "name": "Dashboard Widget", "mount_point": "Dashboard", "bundle_path": "ui/grafana.js"}
   ],
   "capabilities": {
-    "version": 1, "reason": null, "network_hosts": [],
-    "field_read": ["*"], "field_write": ["grafana:*", "system:node_title"],
-    "write_own_nodes": true, "app_managed_nodes": false,
-    "file_read": false, "file_write": false, "execute": false,
-    "dns_requests": false, "object_storage_read": false, "object_storage_write": false
+    "version": 1,
+    "reason": null,
+    "network_hosts": [],
+    "field_read": ["*"],
+    "field_write": ["grafana:*", "system:node_title"],
+    "write_own_nodes": true,
+    "app_managed_nodes": false,
+    "file_read": false,
+    "file_write": false,
+    "execute": false,
+    "dns_requests": false,
+    "object_storage_read": false,
+    "object_storage_write": false
   },
   "wasm_module": "plugin.wasm",
   "background_tasks": [],

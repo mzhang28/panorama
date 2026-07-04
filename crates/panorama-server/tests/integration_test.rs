@@ -177,21 +177,26 @@ async fn test_grafana_query_count() {
     loader.load(gf_plugin.clone()).await.unwrap();
     let gf_ctx = loader.create_context("io.mzhang.panorama.grafana", gf_plugin.required_capabilities());
 
-    // Test count aggregation with group_by
+    // Test count aggregation with group_by (new API format)
     let req = HttpRequest {
         method: "POST".into(),
         path: "query".into(),
         query_params: Default::default(),
         headers: Default::default(),
         body: Some(serde_json::json!({
-            "group_by": "wakatime:project",
-            "aggregation": "count"
+            "queries": [{
+                "ref_id": "A",
+                "data_source": "io.mzhang.panorama.wakatime",
+                "group_by": "wakatime:project",
+                "aggregation": "count"
+            }],
+            "range": {"from": "now-30d", "to": "now"}
         }).to_string().into_bytes().into()),
     };
     let resp = gf_plugin.handle_http_request("query", req, &gf_ctx).await.unwrap();
     assert_eq!(resp.status, 200);
-    let result: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
-    assert!(result.is_array());
+    let result: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
+    assert!(!result.is_empty());
 }
 
 #[tokio::test]
@@ -227,17 +232,32 @@ async fn test_grafana_leaderboard() {
         query_params: Default::default(),
         headers: Default::default(),
         body: Some(serde_json::json!({
-            "group_by": "wakatime:project",
-            "aggregation": "leaderboard"
+            "queries": [{
+                "ref_id": "A",
+                "data_source": "io.mzhang.panorama.wakatime",
+                "group_by": "wakatime:project",
+                "aggregation": "leaderboard"
+            }],
+            "range": {"from": "now-30d", "to": "now"}
         }).to_string().into_bytes().into()),
     };
     let resp = gf_plugin.handle_http_request("query", req, &gf_ctx).await.unwrap();
     assert_eq!(resp.status, 200);
     let result: Vec<serde_json::Value> = serde_json::from_slice(&resp.body).unwrap();
 
-    // Should be sorted descending by hours
-    assert_eq!(result[0]["project"], "project-b");
-    assert!((result[0]["hours"].as_f64().unwrap() - 25.0).abs() < 0.01);
+    // Should return data frames with leaderboard results
+    assert!(!result.is_empty());
+    // DataFrame format: {name, columns: ["key","seconds","hours"], rows: [[key,secs,hours],...]}
+    let frame = &result[0];
+    assert_eq!(frame["name"], "A");
+    let rows = frame["rows"].as_array().unwrap();
+    assert!(!rows.is_empty());
+    // First row should be project-b with ~25 hours
+    let first_row = &rows[0];
+    let hours = first_row[2].as_f64().unwrap();
+    assert!((hours - 25.0).abs() < 0.01);
+    // First column is project name
+    assert_eq!(first_row[0], "project-b");
 }
 
 #[tokio::test]
@@ -247,7 +267,7 @@ async fn test_grafana_save_and_list_dashboards() {
     loader.load(plugin.clone()).await.unwrap();
     let ctx = loader.create_context("io.mzhang.panorama.grafana", plugin.required_capabilities());
 
-    // Create a dashboard
+    // Create a dashboard (new API format)
     let req = HttpRequest {
         method: "POST".into(),
         path: "dashboards".into(),
@@ -255,7 +275,18 @@ async fn test_grafana_save_and_list_dashboards() {
         headers: Default::default(),
         body: Some(serde_json::json!({
             "title": "My Coding Dashboard",
-            "panels": [{"type": "leaderboard", "query": {"group_by": "wakatime:project"}}]
+            "panels": [{
+                "id": 1,
+                "title": "Per Project",
+                "type": "leaderboard",
+                "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+                "queries": [{
+                    "ref_id": "A",
+                    "data_source": "io.mzhang.panorama.wakatime",
+                    "group_by": "wakatime:project",
+                    "aggregation": "leaderboard"
+                }]
+            }]
         }).to_string().into_bytes().into()),
     };
     let resp = plugin.handle_http_request("dashboards", req, &ctx).await.unwrap();
