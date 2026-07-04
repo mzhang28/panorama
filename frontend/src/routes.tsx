@@ -186,6 +186,10 @@ function PluginAppView() {
     React.LazyExoticComponent<React.ComponentType<{ pluginId: string }>> | null
   >(null)
 
+  useEffect(() => {
+    setPluginComponent(() => loadPluginComponent(pluginId))
+  }, [pluginId])
+
   // Journal uses the full-featured host component (not the plugin UI remote)
   if (pluginId === 'io.mzhang.panorama.journal') {
     return (
@@ -197,10 +201,6 @@ function PluginAppView() {
       </div>
     )
   }
-
-  useEffect(() => {
-    setPluginComponent(() => loadPluginComponent(pluginId))
-  }, [pluginId])
 
   return (
     <div>
