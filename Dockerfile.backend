@@ -30,6 +30,7 @@ WORKDIR /build
 # Copy Rust sources
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
+COPY fuzz/ fuzz/
 
 # Build WASM plugins
 RUN for app in journal wakatime grafana trips beli subsonic files; do \
