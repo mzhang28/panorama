@@ -4,5 +4,9 @@
   "workspaces": [
     "frontend",
     "crates/panorama-app-*/ui"
-  ]
+  ],
+  "devDependencies": {
+    "cmd-ts": "^0.15.0",
+    "jszip": "^3.10.1"
+  }
 }

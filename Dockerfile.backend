@@ -22,10 +22,14 @@ RUN for dir in crates/panorama-app-*/ui/; do \
 # ── Stage 2: Build WASM plugins + server ─────────────────────────────────────
 FROM rust:1-slim-bookworm AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+COPY --from=ui-builder /usr/local/bin/bun /usr/local/bin/bun
 RUN rustup target add wasm32-wasip1
 
 WORKDIR /build
+
+# Copy dependencies
+COPY package.json bun.lock ./
+RUN bun install
 
 # Copy Rust sources
 COPY Cargo.toml Cargo.lock ./
@@ -42,7 +46,7 @@ RUN cargo build --release -p panorama-server
 
 # Copy pre-built plugin UIs from ui-builder
 COPY --from=ui-builder /build/crates/ ./crates/
-COPY scripts/package-panoapp.py /tmp/package-panoapp.py
+COPY scripts/package-panoapp.ts /tmp/package-panoapp.ts
 
 # Package .panoapp files (manifest + WASM + UI)
 RUN mkdir -p /panoapp && \
@@ -53,7 +57,7 @@ RUN mkdir -p /panoapp && \
       ui_arg=""; \
       [ -f "$m" ] && [ -f "$w" ] || continue; \
       [ -d "$ui" ] && ui_arg="--ui-dir $ui"; \
-      python3 /tmp/package-panoapp.py "$m" "$w" /panoapp $ui_arg; \
+      bun /tmp/package-panoapp.ts "$m" "$w" /panoapp $ui_arg; \
     done
 
 # ── Stage 3: Runtime ─────────────────────────────────────────────────────────

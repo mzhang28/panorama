@@ -146,9 +146,9 @@ panorama/
 ├── scripts/
 │   ├── build-wasm.sh           # Compiles plugins to wasm32-wasip1
 │   ├── build-panoapp.sh        # Builds plugin UIs and packages .panoapp files
-│   ├── package-panoapp.py      # Python packager for .panoapp ZIP archives
+│   ├── package-panoapp.ts      # Bun packager for .panoapp ZIP archives
 │   ├── serve.sh                # Helper script to launch server with plugins
-│   └── e2e.py                  # Playwright E2E test runner
+│   └── e2e.ts                  # Playwright E2E test runner (Bun + cmd-ts)
 ├── dist/panoapp/               # Output directory for built .panoapp packages
 ├── justfile                    # Task runner commands (`just build`, `just test-e2e`, etc.)
 ├── INVARIANTS.md               # Core system invariants & validation rules
@@ -200,7 +200,7 @@ impl Plugin for MyPlugin {
 RUSTFLAGS="-C link-arg=--allow-undefined" cargo build --release -p my-plugin --target wasm32-wasip1
 
 # Package manifest, WASM binary, and frontend assets into .panoapp
-python3 scripts/package-panoapp.py manifest.json target/wasm32-wasip1/release/my_plugin.wasm dist/panoapp --ui-dir ui/dist
+bun scripts/package-panoapp.ts manifest.json target/wasm32-wasip1/release/my_plugin.wasm dist/panoapp --ui-dir ui/dist
 ```
 
 ### Running Tests

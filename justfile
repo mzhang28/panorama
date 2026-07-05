@@ -36,13 +36,13 @@ frontend: install-frontend
 test-setup: install-frontend
     cd frontend && npx playwright install chromium
 
-# Run isolated E2E tests against pre-built server & apps (pass arguments directly to e2e.py / playwright)
+# Run isolated E2E tests against pre-built server & apps (pass arguments directly to e2e.ts / playwright)
 test-e2e *args:
-    python3 scripts/e2e.py {{ args }}
+    bun scripts/e2e.ts {{ args }}
 
 # Alias for test-e2e (runs without building by default)
 test-e2e-quick *args:
-    python3 scripts/e2e.py {{ args }}
+    bun scripts/e2e.ts {{ args }}
 
 # Run Rust tests
 test-rust:

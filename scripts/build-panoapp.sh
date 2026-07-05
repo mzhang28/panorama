@@ -26,7 +26,7 @@ for crate in journal wakatime grafana trips beli subsonic files; do
   UI_ARG=""
   [ -d "$UI_DIST" ] && UI_ARG="--ui-dir $UI_DIST"
 
-  python3 scripts/package-panoapp.py \
+  bun scripts/package-panoapp.ts \
     "$MANIFEST" \
     "$WASM" \
     "dist/panoapp" \
