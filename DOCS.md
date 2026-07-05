@@ -144,6 +144,7 @@ panorama/
 │   ├── HOOK_DESIGN.md          # Hooks and event system specification
 │   └── QUERY_DESIGN.md         # Panorama Query Language specification
 ├── scripts/
+│   ├── instance.ts             # Spawns isolated server instance on random port
 │   ├── package-panoapp.ts      # Bun packager for .panoapp ZIP archives
 │   ├── serve.sh                # Helper script to launch server with plugins
 │   └── e2e.ts                  # Playwright E2E test runner (Bun + cmd-ts)

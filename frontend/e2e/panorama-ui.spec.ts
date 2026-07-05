@@ -2,7 +2,7 @@
 // ZERO direct API calls. Everything goes through the browser UI:
 // clicking buttons, filling forms, reading rendered text, etc.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Panorama Core UI', () => {
 

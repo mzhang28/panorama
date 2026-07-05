@@ -21,15 +21,15 @@ if (!process.env.E2E_WORKERS) {
   }
 }
 
-const e2eWorkers = process.env.E2E_WORKERS ? parseInt(process.env.E2E_WORKERS, 10) : 1;
+const e2eWorkers = process.env.E2E_WORKERS ? parseInt(process.env.E2E_WORKERS, 10) : undefined;
 
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
   expect: { timeout: 10_000 },
-  fullyParallel: false,
+  fullyParallel: true,
   retries: 0,
-  workers: 1,
+  workers: e2eWorkers,
   reporter: 'list',
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
