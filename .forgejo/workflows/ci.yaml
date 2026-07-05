@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "rewrite/from-2026-07-03" ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ "rewrite/from-2026-07-03" ]
 
 jobs:
   ci:
