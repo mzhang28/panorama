@@ -84,5 +84,8 @@ jobs:
       - name: Run Rust unit & integration tests
         run: cargo test --workspace --release
 
-      - name: Run Playwright E2E tests (Nx builds dependencies automatically)
+      - name: Build panoapps & server
+        run: just build
+
+      - name: Run Playwright E2E tests
         run: just test-e2e
