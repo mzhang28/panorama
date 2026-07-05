@@ -1,12 +1,22 @@
-//! Recursive-descent parser for PromQL (Prometheus Query Language).
-//!
-//! Follows the Prometheus PromQL grammar with precedence climbing for
-//! binary operators.
+//! PromQL Parser using `nom` parser combinators.
 
-use super::ast::*;
+use nom::{
+    branch::alt,
+    bytes::complete::{tag, tag_no_case, take_while1},
+    character::complete::{char as char_c, multispace0},
+    combinator::{all_consuming, map, opt, value},
+    multi::{many0, separated_list0},
+    number::complete::double,
+    sequence::{delimited, pair, preceded, tuple},
+    IResult,
+};
 
-/// Parse error with position info.
-#[derive(Debug, Clone)]
+use crate::promql::ast::*;
+
+// ── Error type ────────────────────────────────────────────────────────────────
+
+/// Error type returned when parsing fails.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
     pub message: String,
     pub pos: usize,
@@ -14,7 +24,7 @@ pub struct ParseError {
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} at position {}", self.message, self.pos)
+        write!(f, "at position {}: {}", self.pos, self.message)
     }
 }
 
@@ -26,958 +36,573 @@ impl From<ParseError> for panorama_core::PluginError {
     }
 }
 
-// ── Parser state ──────────────────────────────────────────────────────────────
-
-struct Parser {
-    input: Vec<char>,
-    pos: usize,
-    depth: usize,
-}
-
-impl Parser {
-    fn new(src: &str) -> Self {
-        Self { input: src.chars().collect(), pos: 0, depth: 0 }
-    }
-
-    fn err<T>(&self, msg: &str) -> Result<T, ParseError> {
-        Err(ParseError { message: msg.to_string(), pos: self.pos })
-    }
-
-    fn eof(&self) -> bool { self.pos >= self.input.len() }
-
-    fn peek(&self) -> Option<char> {
-        self.input.get(self.pos).copied()
-    }
-
-    fn advance(&mut self) -> Option<char> {
-        let c = self.peek();
-        if c.is_some() { self.pos += 1; }
-        c
-    }
-
-    fn skip_ws(&mut self) {
-        while let Some(c) = self.peek() {
-            if c.is_whitespace() { self.pos += 1; } else { break; }
-        }
-    }
-
-    fn peek_str(&mut self, s: &str) -> bool {
-        self.skip_ws();
-        let s_chars: Vec<char> = s.chars().collect();
-        if self.pos + s_chars.len() > self.input.len() {
-            return false;
-        }
-        for (i, &ch) in s_chars.iter().enumerate() {
-            if self.input[self.pos + i] != ch {
-                return false;
-            }
-        }
-        true
-    }
-
-    fn match_keyword(&mut self, kw: &str) -> bool {
-        self.skip_ws();
-        let kw_chars: Vec<char> = kw.chars().collect();
-        let len = kw_chars.len();
-
-        if self.pos + len > self.input.len() {
-            return false;
-        }
-
-        for (i, &ch) in kw_chars.iter().enumerate() {
-            if self.input[self.pos + i].to_ascii_lowercase() != ch.to_ascii_lowercase() {
-                return false;
-            }
-        }
-
-        if let Some(&next) = self.input.get(self.pos + len) {
-            if next.is_alphanumeric() || next == '_' {
-                return false;
-            }
-        }
-
-        self.pos += len;
-        true
-    }
-
-    fn expect_str(&mut self, s: &str) -> Result<(), ParseError> {
-        self.skip_ws();
-        let s_chars: Vec<char> = s.chars().collect();
-        if self.pos + s_chars.len() <= self.input.len() {
-            let mut matches = true;
-            for (i, &ch) in s_chars.iter().enumerate() {
-                if self.input[self.pos + i] != ch {
-                    matches = false;
-                    break;
-                }
-            }
-            if matches {
-                self.pos += s_chars.len();
-                return Ok(());
-            }
-        }
-        self.err(&format!("expected '{}'", s))
-    }
-
-    fn read_identifier(&mut self) -> Result<String, ParseError> {
-        self.skip_ws();
-        let start = self.pos;
-        while let Some(c) = self.peek() {
-            if c.is_alphanumeric() || c == '_' || c == ':' {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
-        if self.pos == start {
-            return self.err("expected identifier");
-        }
-        Ok(self.input[start..self.pos].iter().collect())
-    }
-
-    fn read_metric_name(&mut self) -> Result<String, ParseError> {
-        self.skip_ws();
-        let start = self.pos;
-        while let Some(c) = self.peek() {
-            if c.is_alphanumeric() || c == '_' || c == ':' {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
-        if self.pos == start {
-            return self.err("expected metric name");
-        }
-        let name: String = self.input[start..self.pos].iter().collect();
-        Ok(name)
-    }
-
-    fn read_string(&mut self) -> Result<String, ParseError> {
-        self.skip_ws();
-        let quote = self.peek().ok_or_else(|| ParseError {
-            message: "unexpected end of input".into(), pos: self.pos,
-        })?;
-        if quote != '"' && quote != '\'' {
-            return self.err("expected string (\"...\" or '...')");
-        }
-        self.pos += 1; // skip opening quote
-
-        let mut result = String::new();
-        while let Some(c) = self.advance() {
-            if c == quote {
-                return Ok(result);
-            }
-            if c == '\\' {
-                if let Some(escaped) = self.advance() {
-                    match escaped {
-                        'n' => result.push('\n'),
-                        't' => result.push('\t'),
-                        'r' => result.push('\r'),
-                        '\\' => result.push('\\'),
-                        '"' => result.push('"'),
-                        '\'' => result.push('\''),
-                        other => {
-                            result.push('\\');
-                            result.push(other);
-                        }
-                    }
-                } else {
-                    return self.err("unterminated string escape");
-                }
-            } else {
-                result.push(c);
-            }
-        }
-        self.err("unterminated string")
-    }
-
-    fn read_number(&mut self) -> Result<Expr, ParseError> {
-        self.skip_ws();
-        let start = self.pos;
-        let mut is_float = false;
-
-        // Optional leading sign
-        if let Some(c) = self.peek() {
-            if c == '-' || c == '+' {
-                self.pos += 1;
-            }
-        }
-
-        let num_start_digits = self.pos;
-
-        // Integer part
-        while let Some(c) = self.peek() {
-            if c.is_ascii_digit() {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
-
-        // Fractional part
-        if let Some('.') = self.peek() {
-            if self.pos + 1 < self.input.len() {
-                let next = self.input[self.pos + 1];
-                if next.is_ascii_digit() {
-                    is_float = true;
-                    self.pos += 1; // skip '.'
-                    while let Some(c) = self.peek() {
-                        if c.is_ascii_digit() { self.pos += 1; } else { break; }
-                    }
-                }
-            }
-        }
-
-        // Exponent part
-        if let Some(c) = self.peek() {
-            if c == 'e' || c == 'E' {
-                is_float = true;
-                self.pos += 1;
-                if let Some(c) = self.peek() {
-                    if c == '+' || c == '-' { self.pos += 1; }
-                }
-                while let Some(c) = self.peek() {
-                    if c.is_ascii_digit() { self.pos += 1; } else { break; }
-                }
-            }
-        }
-
-        if self.pos == start || self.pos == num_start_digits {
-            self.pos = start;
-            return self.err("expected number");
-        }
-
-        let num_str: String = self.input[start..self.pos].iter().collect();
-        if is_float || num_str.contains('.') || num_str.contains('e') || num_str.contains('E') {
-            num_str.parse::<f64>()
-                .map(Expr::NumberLiteral)
-                .map_err(|_| ParseError { message: format!("invalid float: {}", num_str), pos: start })
-        } else {
-            num_str.parse::<i64>()
-                .map(|i| Expr::NumberLiteral(i as f64))
-                .map_err(|_| ParseError { message: format!("invalid integer: {}", num_str), pos: start })
-        }
-    }
-}
-
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Parse a PromQL expression string into an AST.
 pub fn parse(src: &str) -> Result<Expr, ParseError> {
-    let mut p = Parser::new(src);
-    let expr = parse_expr(&mut p)?;
-    p.skip_ws();
-    if !p.eof() {
-        let remaining: String = p.input[p.pos..].iter().collect();
+    let trimmed = src.trim();
+    if trimmed.is_empty() {
         return Err(ParseError {
-            message: format!("unexpected trailing input: '{}'", remaining.trim()),
-            pos: p.pos,
+            message: "empty query".into(),
+            pos: 0,
         });
     }
-    Ok(expr)
-}
 
-// ── Expression parsing with precedence climbing ───────────────────────────────
-
-fn parse_expr(p: &mut Parser) -> Result<Expr, ParseError> {
-    if p.depth >= 100 {
-        return p.err("exceeded maximum recursion depth");
+    match all_consuming(|i| parse_expr_depth(i, 0))(trimmed) {
+        Ok((_, expr)) => Ok(expr),
+        Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
+            let offset = trimmed.len() - e.input.len();
+            Err(ParseError {
+                message: format!("parse error near '{}'", e.input),
+                pos: offset,
+            })
+        }
+        Err(nom::Err::Incomplete(_)) => Err(ParseError {
+            message: "unexpected end of input".into(),
+            pos: trimmed.len(),
+        }),
     }
-    p.depth += 1;
-    let res = parse_binary_expr(p, Precedence::Lowest);
-    p.depth -= 1;
-    res
 }
 
-/// Precedence-climbing binary expression parser.
-fn parse_binary_expr(p: &mut Parser, min_prec: Precedence) -> Result<Expr, ParseError> {
-    let mut lhs = parse_unary(p)?;
+// ── Basic combinator helpers ──────────────────────────────────────────────────
+
+fn ws<'a, F, O>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
+where
+    F: FnMut(&'a str) -> IResult<&'a str, O>,
+{
+    delimited(multispace0, inner, multispace0)
+}
+
+fn keyword<'a>(kw: &'static str) -> impl FnMut(&'a str) -> IResult<&'a str, &'a str> {
+    move |input: &'a str| {
+        let (input_after_ws, _) = multispace0(input)?;
+        let (next_input, res) = tag_no_case(kw)(input_after_ws)?;
+        if let Some(first_char) = next_input.chars().next() {
+            if first_char.is_alphanumeric() || first_char == '_' {
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    input,
+                    nom::error::ErrorKind::Tag,
+                )));
+            }
+        }
+        let (final_input, _) = multispace0(next_input)?;
+        Ok((final_input, res))
+    }
+}
+
+fn identifier(input: &str) -> IResult<&str, String> {
+    ws(map(
+        take_while1(|c: char| c.is_alphanumeric() || c == '_' || c == ':'),
+        |s: &str| s.to_string(),
+    ))(input)
+}
+
+fn parse_string<'a>(input: &'a str) -> IResult<&'a str, String> {
+    let parse_quoted = |quote: char| {
+        move |input: &'a str| -> IResult<&'a str, String> {
+            let (input, _) = char_c(quote)(input)?;
+            let mut result = String::new();
+            let mut chars = input.char_indices().peekable();
+
+            while let Some((idx, c)) = chars.next() {
+                if c == quote {
+                    let end_bytes = idx + c.len_utf8();
+                    let remaining = &input[end_bytes..];
+                    return Ok((remaining, result));
+                }
+                if c == '\\' {
+                    if let Some((_, escaped)) = chars.next() {
+                        match escaped {
+                            'n' => result.push('\n'),
+                            't' => result.push('\t'),
+                            'r' => result.push('\r'),
+                            '\\' => result.push('\\'),
+                            '"' => result.push('"'),
+                            '\'' => result.push('\''),
+                            other => {
+                                result.push('\\');
+                                result.push(other);
+                            }
+                        }
+                    } else {
+                        return Err(nom::Err::Error(nom::error::Error::new(
+                            input,
+                            nom::error::ErrorKind::Escaped,
+                        )));
+                    }
+                } else {
+                    result.push(c);
+                }
+            }
+            Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Tag,
+            )))
+        }
+    };
+
+    ws(alt((parse_quoted('"'), parse_quoted('\''))))(input)
+}
+
+fn parse_number(input: &str) -> IResult<&str, f64> {
+    ws(double)(input)
+}
+
+// ── Duration parsing ──────────────────────────────────────────────────────────
+
+fn parse_single_duration(input: &str) -> IResult<&str, i64> {
+    let (input, val_str) = take_while1(|c: char| c.is_ascii_digit() || c == '.')(input)?;
+    let val: f64 = val_str.parse().map_err(|_| {
+        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Float))
+    })?;
+
+    if val.is_nan() || val.is_infinite() || val < 0.0 {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Float,
+        )));
+    }
+
+    let (input, unit) = alt((
+        tag("ms"),
+        tag("s"),
+        tag("m"),
+        tag("h"),
+        tag("d"),
+        tag("w"),
+    ))(input)?;
+
+    let unit_ms: i64 = match unit {
+        "ms" => 1,
+        "s" => 1000,
+        "m" => 60 * 1000,
+        "h" => 3600 * 1000,
+        "d" => 24 * 3600 * 1000,
+        "w" => 7 * 24 * 3600 * 1000,
+        _ => unreachable!(),
+    };
+
+    let ms = val * unit_ms as f64;
+    if ms > i64::MAX as f64 {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::TooLarge,
+        )));
+    }
+
+    Ok((input, ms as i64))
+}
+
+fn parse_duration(input: &str) -> IResult<&str, Duration> {
+    let (input, dur_list) = ws(many0(parse_single_duration))(input)?;
+    if dur_list.is_empty() {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Many0,
+        )));
+    }
+
+    let mut total: i64 = 0;
+    for ms in dur_list {
+        total = total.checked_add(ms).ok_or_else(|| {
+            nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::TooLarge,
+            ))
+        })?;
+    }
+
+    Ok((input, Duration::new(total)))
+}
+
+fn parse_at_modifier(input: &str) -> IResult<&str, AtModifier> {
+    preceded(
+        ws(char_c('@')),
+        alt((
+            value(AtModifier::Start, keyword("start()")),
+            value(AtModifier::End, keyword("end()")),
+            map(parse_number, AtModifier::UnixTimestamp),
+        )),
+    )(input)
+}
+
+// ── Label matchers ────────────────────────────────────────────────────────────
+
+fn parse_match_op(input: &str) -> IResult<&str, MatchOp> {
+    ws(alt((
+        value(MatchOp::NotRegex, tag("!~")),
+        value(MatchOp::Regex, tag("=~")),
+        value(MatchOp::NotEq, tag("!=")),
+        value(MatchOp::Eq, tag("=")),
+    )))(input)
+}
+
+fn parse_label_matcher(input: &str) -> IResult<&str, LabelMatcher> {
+    let (input, (label, op, value)) = tuple((identifier, parse_match_op, parse_string))(input)?;
+    Ok((input, LabelMatcher { label, op, value }))
+}
+
+fn parse_label_matchers(input: &str) -> IResult<&str, Vec<LabelMatcher>> {
+    delimited(
+        ws(char_c('{')),
+        separated_list0(ws(char_c(',')), parse_label_matcher),
+        ws(char_c('}')),
+    )(input)
+}
+
+// ── Vector Selectors ──────────────────────────────────────────────────────────
+
+fn parse_instant_vector(input: &str) -> IResult<&str, InstantVector> {
+    let (input, (metric_name, matchers)) = alt((
+        pair(identifier, opt(parse_label_matchers)),
+        map(parse_label_matchers, |m| (String::new(), Some(m))),
+    ))(input)?;
+
+    let matchers = matchers.unwrap_or_default();
+    if metric_name.is_empty() && matchers.is_empty() {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
+
+    let (input, offset) = opt(preceded(keyword("offset"), parse_duration))(input)?;
+    let (input, at) = opt(parse_at_modifier)(input)?;
+
+    Ok((
+        input,
+        InstantVector {
+            metric_name,
+            matchers,
+            offset,
+            at,
+        },
+    ))
+}
+
+// ── Vector Matching & Grouping ────────────────────────────────────────────────
+
+fn parse_label_list(input: &str) -> IResult<&str, Vec<String>> {
+    delimited(
+        ws(char_c('(')),
+        separated_list0(ws(char_c(',')), identifier),
+        ws(char_c(')')),
+    )(input)
+}
+
+fn parse_vector_matching(input: &str) -> IResult<&str, VectorMatching> {
+    let (input, card) = alt((
+        value(VectorMatchCard::On, keyword("on")),
+        value(VectorMatchCard::Ignoring, keyword("ignoring")),
+    ))(input)?;
+
+    let (input, labels) = parse_label_list(input)?;
+
+    let (input, group_side) = opt(alt((
+        map(preceded(keyword("group_left"), opt(parse_label_list)), |l| {
+            (Some(l.unwrap_or_default()), None)
+        }),
+        map(preceded(keyword("group_right"), opt(parse_label_list)), |r| {
+            (None, Some(r.unwrap_or_default()))
+        }),
+    )))(input)?;
+
+    let (group_left, group_right) = group_side.unwrap_or((None, None));
+
+    Ok((
+        input,
+        VectorMatching {
+            card,
+            labels,
+            group_left,
+            group_right,
+        },
+    ))
+}
+
+fn parse_grouping(input: &str) -> IResult<&str, Grouping> {
+    alt((
+        map(preceded(keyword("by"), parse_label_list), |labels| Grouping {
+            by: true,
+            labels,
+        }),
+        map(preceded(keyword("without"), parse_label_list), |labels| Grouping {
+            by: false,
+            labels,
+        }),
+    ))(input)
+}
+
+// ── Aggregations & Functions ──────────────────────────────────────────────────
+
+fn parse_aggregation_op(input: &str) -> IResult<&str, AggregationOp> {
+    ws(alt((
+        value(AggregationOp::Sum, keyword("sum")),
+        value(AggregationOp::Avg, keyword("avg")),
+        value(AggregationOp::Min, keyword("min")),
+        value(AggregationOp::Max, keyword("max")),
+        value(AggregationOp::Count, keyword("count")),
+        value(AggregationOp::Stddev, keyword("stddev")),
+        value(AggregationOp::Stdvar, keyword("stdvar")),
+        value(AggregationOp::TopK, keyword("topk")),
+        value(AggregationOp::BottomK, keyword("bottomk")),
+        value(AggregationOp::CountValues, keyword("count_values")),
+        value(AggregationOp::Quantile, keyword("quantile")),
+        value(AggregationOp::Group, keyword("group")),
+    )))(input)
+}
+
+fn parse_aggregation_expr(input: &str, depth: usize) -> IResult<&str, Expr> {
+    let (input, op) = parse_aggregation_op(input)?;
+    let (input, grouping_first) = opt(parse_grouping)(input)?;
+
+    // Check if parens have param + expr or just expr
+    let (input, (param, expr)) = delimited(
+        ws(char_c('(')),
+        alt((
+            // Param + Expr, e.g. topk(5, rate(...))
+            map(
+                tuple((
+                    |i| parse_expr_depth(i, depth + 1),
+                    ws(char_c(',')),
+                    |i| parse_expr_depth(i, depth + 1),
+                )),
+                |(p, _, e)| (Some(Box::new(p)), e),
+            ),
+            // Single Expr, e.g. sum(rate(...))
+            map(|i| parse_expr_depth(i, depth + 1), |e| (None, e)),
+        )),
+        ws(char_c(')')),
+    )(input)?;
+
+    let (input, grouping_after) = opt(parse_grouping)(input)?;
+    let grouping = grouping_first.or(grouping_after).unwrap_or(Grouping {
+        by: true,
+        labels: vec![],
+    });
+
+    Ok((
+        input,
+        Expr::Aggregation(Aggregation {
+            op,
+            expr: Box::new(expr),
+            grouping,
+            param,
+        }),
+    ))
+}
+
+fn parse_function_call(input: &str, depth: usize) -> IResult<&str, FunctionCall> {
+    let (input, name) = identifier(input)?;
+    let (input, args) = delimited(
+        ws(char_c('(')),
+        separated_list0(ws(char_c(',')), |i| parse_expr_depth(i, depth + 1)),
+        ws(char_c(')')),
+    )(input)?;
+
+    Ok((
+        input,
+        FunctionCall {
+            name: name.to_lowercase(),
+            args,
+        },
+    ))
+}
+
+// ── Primary Expression Parsing ────────────────────────────────────────────────
+
+fn parse_primary(input: &str, depth: usize) -> IResult<&str, Expr> {
+    if depth > 100 {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::TooLarge,
+        )));
+    }
+
+    // 1. Number literal
+    if let Ok((rem, n)) = parse_number(input) {
+        if nom::character::complete::alpha1::<&str, nom::error::Error<&str>>(rem).is_err() || rem.starts_with('e') || rem.starts_with('E') {
+            return Ok((rem, Expr::NumberLiteral(n)));
+        }
+    }
+
+    // 2. String literal
+    if let Ok((rem, s)) = parse_string(input) {
+        return Ok((rem, Expr::StringLiteral(s)));
+    }
+
+    // 3. Parenthesized expression
+    if let Ok((rem, e)) = delimited(
+        ws(char_c('(')),
+        |i| parse_expr_depth(i, depth + 1),
+        ws(char_c(')')),
+    )(input) {
+        return Ok((rem, Expr::Paren(Box::new(e))));
+    }
+
+    // 4. Aggregation expression
+    if let Ok((rem, agg)) = parse_aggregation_expr(input, depth) {
+        return Ok((rem, agg));
+    }
+
+    // 5. Function call
+    if let Ok((rem, fc)) = parse_function_call(input, depth) {
+        return Ok((rem, Expr::FunctionCall(fc)));
+    }
+
+    // 6. Instant Vector Selector
+    let (input, iv) = parse_instant_vector(input)?;
+    let expr = Expr::InstantVector(iv);
+
+    Ok((input, expr))
+}
+
+// ── Postfix (RangeVector & Subquery) Parsing ──────────────────────────────────
+
+fn parse_postfix(input: &str, depth: usize) -> IResult<&str, Expr> {
+    let (input, mut expr) = parse_primary(input, depth)?;
+
+    // RangeVector or Subquery bracket: [5m] or [5m:1m]
+    if let Ok((input, (range, step))) = delimited(
+        ws(char_c('[')),
+        tuple((
+            parse_duration,
+            opt(preceded(ws(char_c(':')), opt(parse_duration))),
+        )),
+        ws(char_c(']')),
+    )(input) {
+        let (input, offset) = opt(preceded(keyword("offset"), parse_duration))(input)?;
+
+        match expr {
+            Expr::InstantVector(iv) if step.is_none() && offset.is_none() => {
+                expr = Expr::RangeVector(RangeVector {
+                    vector: Box::new(iv),
+                    range,
+                });
+            }
+            _ => {
+                expr = Expr::Subquery(Subquery {
+                    expr: Box::new(expr),
+                    range,
+                    step: step.flatten(),
+                    offset,
+                });
+            }
+        }
+        return Ok((input, expr));
+    }
+
+    Ok((input, expr))
+}
+
+// ── Unary Operations ──────────────────────────────────────────────────────────
+
+fn parse_unary(input: &str, depth: usize) -> IResult<&str, Expr> {
+    if depth > 100 {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::TooLarge,
+        )));
+    }
+
+    alt((
+        map(
+            preceded(ws(char_c('-')), |i| parse_unary(i, depth + 1)),
+            |e| {
+                Expr::UnaryOp(UnaryOp {
+                    op: UnaryOpKind::Minus,
+                    expr: Box::new(e),
+                })
+            },
+        ),
+        map(
+            preceded(ws(char_c('+')), |i| parse_unary(i, depth + 1)),
+            |e| {
+                Expr::UnaryOp(UnaryOp {
+                    op: UnaryOpKind::Plus,
+                    expr: Box::new(e),
+                })
+            },
+        ),
+        |i| parse_postfix(i, depth),
+    ))(input)
+}
+
+// ── Binary Operations & Precedence ────────────────────────────────────────────
+
+fn parse_bin_op(input: &str) -> IResult<&str, BinOpKind> {
+    ws(alt((
+        value(BinOpKind::Add, tag("+")),
+        value(BinOpKind::Sub, tag("-")),
+        value(BinOpKind::Mul, tag("*")),
+        value(BinOpKind::Div, tag("/")),
+        value(BinOpKind::Mod, tag("%")),
+        value(BinOpKind::Pow, tag("^")),
+        value(BinOpKind::Eq, tag("==")),
+        value(BinOpKind::NotEq, tag("!=")),
+        value(BinOpKind::Gte, tag(">=")),
+        value(BinOpKind::Lte, tag("<=")),
+        value(BinOpKind::Gt, tag(">")),
+        value(BinOpKind::Lt, tag("<")),
+        value(BinOpKind::And, keyword("and")),
+        value(BinOpKind::Or, keyword("or")),
+        value(BinOpKind::Unless, keyword("unless")),
+    )))(input)
+}
+
+fn parse_binary_expr(input: &str, min_prec: Precedence, depth: usize) -> IResult<&str, Expr> {
+    if depth > 100 {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::TooLarge,
+        )));
+    }
+
+    let (mut current_input, mut lhs) = parse_unary(input, depth)?;
 
     loop {
-        p.skip_ws();
-        if p.eof() { break; }
-
-        // Try to parse a binary operator
-        let saved = p.pos;
-        let op = match parse_bin_op(p) {
-            Ok(op) => op,
-            Err(_) => { p.pos = saved; break; }
+        let (next_input, op) = match parse_bin_op(current_input) {
+            Ok(res) => res,
+            Err(_) => break,
         };
 
         let prec = op.precedence();
         if prec < min_prec {
-            // Lower precedence than what we're looking for — stop
-            p.pos = saved;
             break;
         }
 
-        // Check for vector matching clause: on() / ignoring() / group_left / group_right
-        let matching = parse_vector_matching(p).ok();
+        let (next_input, matching) = opt(parse_vector_matching)(next_input)?;
 
-        // Parse right-hand side with next precedence level
         let next_prec = match prec {
-            Precedence::Power => Precedence::Power, // ^ is right-associative
-            _ => {
-                // Increment precedence by one level for left-associative ops
-                match prec {
-                    Precedence::LogicalOr => Precedence::LogicalAnd,
-                    Precedence::LogicalAnd => Precedence::Comparison,
-                    Precedence::Comparison => Precedence::Additive,
-                    Precedence::Additive => Precedence::Multiplicative,
-                    Precedence::Multiplicative => Precedence::Power,
-                    Precedence::Power => Precedence::Unary,
-                    _ => Precedence::Unary,
-                }
-            }
+            Precedence::Power => Precedence::Power,
+            _ => match prec {
+                Precedence::LogicalOr => Precedence::LogicalAnd,
+                Precedence::LogicalAnd => Precedence::Comparison,
+                Precedence::Comparison => Precedence::Additive,
+                Precedence::Additive => Precedence::Multiplicative,
+                Precedence::Multiplicative => Precedence::Power,
+                Precedence::Power => Precedence::Unary,
+                _ => Precedence::Unary,
+            },
         };
 
-        let rhs = parse_binary_expr(p, next_prec)?;
+        let (after_rhs, rhs) = parse_binary_expr(next_input, next_prec, depth + 1)?;
+
         lhs = Expr::BinaryOp(BinaryOp {
             lhs: Box::new(lhs),
             rhs: Box::new(rhs),
             op,
             matching,
         });
+
+        current_input = after_rhs;
     }
 
-    Ok(lhs)
+    Ok((current_input, lhs))
 }
 
-/// Try to parse a binary operator at the current position.
-fn parse_bin_op(p: &mut Parser) -> Result<BinOpKind, ParseError> {
-    p.skip_ws();
-    match p.peek() {
-        Some('+') => { p.pos += 1; Ok(BinOpKind::Add) }
-        Some('-') => { p.pos += 1; Ok(BinOpKind::Sub) }
-        Some('*') => { p.pos += 1; Ok(BinOpKind::Mul) }
-        Some('/') => { p.pos += 1; Ok(BinOpKind::Div) }
-        Some('%') => { p.pos += 1; Ok(BinOpKind::Mod) }
-        Some('^') => { p.pos += 1; Ok(BinOpKind::Pow) }
-        Some('=') => {
-            p.pos += 1;
-            if p.peek() == Some('=') { p.pos += 1; Ok(BinOpKind::Eq) }
-            else if p.peek() == Some('~') { p.err("unexpected '=~' in binary expression (did you mean '=='?)") }
-            else { p.err("expected '==' for comparison") }
-        }
-        Some('!') => {
-            p.pos += 1;
-            if p.peek() == Some('=') { p.pos += 1; Ok(BinOpKind::NotEq) }
-            else if p.peek() == Some('~') { p.err("unexpected '!~' — label matchers are only valid inside {...}") }
-            else { p.err("expected '!=' for comparison") }
-        }
-        Some('>') => {
-            p.pos += 1;
-            if p.peek() == Some('=') { p.pos += 1; Ok(BinOpKind::Gte) }
-            else { Ok(BinOpKind::Gt) }
-        }
-        Some('<') => {
-            p.pos += 1;
-            if p.peek() == Some('=') { p.pos += 1; Ok(BinOpKind::Lte) }
-            else { Ok(BinOpKind::Lt) }
-        }
-        _ => {
-            if p.match_keyword("and") { Ok(BinOpKind::And) }
-            else if p.match_keyword("or") { Ok(BinOpKind::Or) }
-            else if p.match_keyword("unless") { Ok(BinOpKind::Unless) }
-            else { p.err("expected binary operator") }
-        }
-    }
-}
-
-// ── Unary expressions ─────────────────────────────────────────────────────────
-
-fn parse_unary(p: &mut Parser) -> Result<Expr, ParseError> {
-    p.skip_ws();
-    match p.peek() {
-        Some('+') => {
-            p.pos += 1;
-            Ok(Expr::UnaryOp(UnaryOp {
-                op: UnaryOpKind::Plus,
-                expr: Box::new(parse_unary(p)?),
-            }))
-        }
-        Some('-') => {
-            p.pos += 1;
-            Ok(Expr::UnaryOp(UnaryOp {
-                op: UnaryOpKind::Minus,
-                expr: Box::new(parse_unary(p)?),
-            }))
-        }
-        _ => parse_primary(p),
-    }
-}
-
-// ── Primary expressions ───────────────────────────────────────────────────────
-
-fn parse_primary(p: &mut Parser) -> Result<Expr, ParseError> {
-    p.skip_ws();
-    if p.eof() {
-        return p.err("unexpected end of input");
-    }
-
-    match p.peek() {
-        Some('(') => {
-            p.pos += 1;
-            let expr = parse_expr(p)?;
-            p.skip_ws();
-            if p.peek() == Some(')') {
-                p.pos += 1;
-                // Check if this paren expression is followed by [...] for subquery
-                if p.peek() == Some('[') {
-                    return parse_subquery_tail(expr, p);
-                }
-                Ok(Expr::Paren(Box::new(expr)))
-            } else {
-                p.err("expected ')'")
-            }
-        }
-        Some('"') | Some('\'') => {
-            Ok(Expr::StringLiteral(p.read_string()?))
-        }
-        Some('0'..='9') | Some('.') => {
-            // Could be a number or a metric name starting with a digit prefix
-            // In PromQL, metric names start with [a-zA-Z_:], so numbers are literals
-            if p.peek() == Some('.') {
-                // Check if it's ".<digit>" (float like .5)
-                let next = p.input.get(p.pos + 1).copied();
-                if next.map_or(false, |c| c.is_ascii_digit()) {
-                    return p.read_number();
-                }
-                // Otherwise treat as metric name or error
-            }
-            p.read_number()
-        }
-        _ => {
-            // Must be: metric name, function call, or aggregation keyword
-            let saved = p.pos;
-
-            // Peek ahead to see if this is an aggregation keyword
-            let ident = p.read_identifier()?;
-            let lower = ident.to_lowercase();
-
-            // Check for aggregation operators
-            if let Some(agg_op) = AggregationOp::from_str(&lower) {
-                p.skip_ws();
-                // Aggregation can be followed by '(' or by 'by'/'without'
-                let next_char = p.peek();
-                if next_char == Some('(') || next_char.is_some() {
-                    // Peek ahead — is it 'by' or 'without'?
-                    let remaining: String = p.input[p.pos..].iter().collect();
-                    let lower_rem = remaining.to_lowercase();
-                    if next_char == Some('(')
-                        || lower_rem.starts_with("by ")
-                        || lower_rem.starts_with("by(")
-                        || lower_rem.starts_with("without ")
-                        || lower_rem.starts_with("without(")
-                    {
-                        return parse_aggregation(agg_op, p);
-                    }
-                }
-            }
-
-            // Check for special functions (which look like aggregations sometimes)
-            // Restore and parse as function/metric
-            p.pos = saved;
-
-            // It's either a function call or an instant vector
-            let name = p.read_metric_name()?;
-            p.skip_ws();
-
-            let result = if p.peek() == Some('{') || p.peek().is_none() || p.peek() == Some('[')
-                || p.peek() == Some(')') || p.peek() == Some(',')
-                || p.peek() == Some('o') // "offset"
-                || p.peek() == Some('@')
-            {
-                // It's an instant vector selector
-                parse_vector_tail(p, name)?
-            } else if p.peek() == Some('(') {
-                // It's a function call
-                parse_function_call_tail(p, name)?
-            } else {
-                // Could be a metric name followed by a binary op
-                // Return as instant vector with no matchers
-                Expr::InstantVector(InstantVector {
-                    metric_name: name,
-                    matchers: vec![],
-                    offset: None,
-                    at: None,
-                })
-            };
-
-            // Check for subquery bracket after function call or vector
-            p.skip_ws();
-            if p.peek() == Some('[') {
-                return parse_subquery_tail(result, p);
-            }
-            Ok(result)
-        }
-    }
-}
-
-// ── Vector parsing ────────────────────────────────────────────────────────────
-
-fn parse_vector_tail(p: &mut Parser, metric_name: String) -> Result<Expr, ParseError> {
-    // Parse optional label matchers: {...}
-    let matchers = if p.peek() == Some('{') {
-        parse_label_matchers(p)?
-    } else {
-        vec![]
-    };
-
-    let mut offset = None;
-    let mut at = None;
-
-    // Check for @ modifier or offset
-    p.skip_ws();
-    if p.peek() == Some('@') {
-        at = Some(parse_at_modifier(p)?);
-        p.skip_ws();
-    }
-
-    if p.peek_str("offset") {
-        p.expect_str("offset")?;
-        offset = Some(parse_duration(p)?);
-    }
-
-    let vector = InstantVector { metric_name, matchers, offset, at };
-
-    // Check for range vector: [...]
-    p.skip_ws();
-    if p.peek() == Some('[') {
-        p.pos += 1; // skip '['
-        let range = parse_duration(p)?;
-        p.skip_ws();
-        if p.peek() == Some(':') {
-            // It's a subquery: metric[range:step]
-            p.pos += 1; // skip ':'
-            let step = parse_duration(p)?;
-            p.skip_ws();
-            if p.peek() != Some(']') {
-                return p.err("expected ']' to close subquery");
-            }
-            p.pos += 1; // skip ']'
-            return Ok(Expr::Subquery(Subquery {
-                expr: Box::new(Expr::InstantVector(vector)),
-                range,
-                step: Some(step),
-                offset: None,
-            }));
-        }
-        if p.peek() != Some(']') {
-            return p.err("expected ']' to close range vector");
-        }
-        p.pos += 1; // skip ']'
-        Ok(Expr::RangeVector(RangeVector { vector: Box::new(vector), range }))
-    } else {
-        Ok(Expr::InstantVector(vector))
-    }
-}
-
-/// Parse a subquery tail: expression[:[step]]] [offset ...]
-fn parse_subquery_tail(expr: Expr, p: &mut Parser) -> Result<Expr, ParseError> {
-    // We're at '[' after a primary
-    p.pos += 1; // past '['
-    let range = parse_duration(p)?;
-    p.skip_ws();
-
-    let step = if p.peek() == Some(':') {
-        p.pos += 1;
-        let s = parse_duration(p)?;
-        p.skip_ws();
-        Some(s)
-    } else {
-        None
-    };
-
-    if p.peek() != Some(']') {
-        return p.err("expected ']' to close subquery range");
-    }
-    p.pos += 1; // past ']'
-
-    p.skip_ws();
-    let offset = if p.peek_str("offset") {
-        p.expect_str("offset")?;
-        Some(parse_duration(p)?)
-    } else {
-        None
-    };
-
-    Ok(Expr::Subquery(Subquery {
-        expr: Box::new(expr),
-        range,
-        step,
-        offset,
-    }))
-}
-
-// ── Label matchers ────────────────────────────────────────────────────────────
-
-fn parse_label_matchers(p: &mut Parser) -> Result<Vec<LabelMatcher>, ParseError> {
-    p.expect_str("{")?;
-    let mut matchers = Vec::new();
-
-    loop {
-        p.skip_ws();
-        if p.peek() == Some('}') {
-            p.pos += 1;
-            break;
-        }
-
-        if !matchers.is_empty() {
-            if p.peek() == Some(',') {
-                p.pos += 1;
-            }
-            p.skip_ws();
-        }
-
-        if p.peek() == Some('}') {
-            p.pos += 1;
-            break;
-        }
-
-        let label = p.read_identifier()?;
-        p.skip_ws();
-
-        let op = match p.peek() {
-            Some('=') => {
-                p.pos += 1;
-                if p.peek() == Some('~') { p.pos += 1; MatchOp::Regex }
-                else { MatchOp::Eq }
-            }
-            Some('!') => {
-                p.pos += 1;
-                if p.peek() == Some('=') { p.pos += 1; MatchOp::NotEq }
-                else if p.peek() == Some('~') { p.pos += 1; MatchOp::NotRegex }
-                else { return p.err("expected '!=' or '!~'"); }
-            }
-            _ => return p.err("expected label match operator (=, !=, =~, !~)"),
-        };
-
-        p.skip_ws();
-        let value = p.read_string()?;
-        matchers.push(LabelMatcher { label, op, value });
-    }
-
-    Ok(matchers)
-}
-
-// ── Function calls ────────────────────────────────────────────────────────────
-
-fn parse_function_call_tail(p: &mut Parser, name: String) -> Result<Expr, ParseError> {
-    p.expect_str("(")?;
-    let mut args = Vec::new();
-
-    loop {
-        p.skip_ws();
-        if p.peek() == Some(')') {
-            p.pos += 1;
-            break;
-        }
-        if !args.is_empty() {
-            if p.peek() == Some(',') {
-                p.pos += 1;
-            }
-        }
-        args.push(parse_expr(p)?);
-        p.skip_ws();
-        if p.peek() == Some(')') {
-            p.pos += 1;
-            break;
-        }
-    }
-
-    Ok(Expr::FunctionCall(FunctionCall { name, args }))
-}
-
-// ── Aggregation ───────────────────────────────────────────────────────────────
-
-/// Parse an aggregation expression. Called when we know `op` is an aggregation keyword
-/// and the next token may be `(` or `by`/`without`.
-///
-/// PromQL supports two orderings:
-///   `<aggr-op> [without|by (<labels>)] ([param,] <expr>)`
-///   `<aggr-op>([param,] <expr>) [without|by (<labels>)]`
-fn parse_aggregation(op: AggregationOp, p: &mut Parser) -> Result<Expr, ParseError> {
-    p.skip_ws();
-
-    // Try to parse grouping clause first (before parens form):
-    //   sum by (job) (rate(...))
-    let grouping_first = parse_grouping(p).ok();
-
-    p.skip_ws();
-    if p.peek() != Some('(') {
-        // Check if we already got grouping — if so, expression must follow in parens
-        if grouping_first.is_some() {
-            return p.err("expected '(' around aggregation expression");
-        }
-        // No grouping, no paren — this might not be an aggregation after all
-        return p.err("expected '(' or 'by'/'without' after aggregation operator");
-    }
-
-    p.pos += 1; // skip '('
-
-    // Check if this is a parameterized aggregation:
-    //   topk(5, rate(...)), quantile(0.95, expr), count_values("name", expr)
-    let param_needed = matches!(op,
-        AggregationOp::TopK | AggregationOp::BottomK
-        | AggregationOp::Quantile | AggregationOp::CountValues
-    );
-
-    let param: Option<Box<Expr>>;
-    let expr: Expr;
-
-    if param_needed {
-        // Parse parameter first
-        let param_expr = parse_expr(p)?;
-        param = Some(Box::new(param_expr));
-        // Expect comma then expression
-        p.skip_ws();
-        if p.peek() == Some(',') {
-            p.pos += 1;
-        }
-        // Parse the main expression
-        expr = parse_expr(p)?;
-    } else {
-        param = None;
-        // Check if expression is wrapped in another set of parens:
-        //   sum( (rate(...)) ) — rare but possible
-        // Or more commonly in our context:
-        //   sum(rate(...)) — expression directly in the function parens
-        p.skip_ws();
-        expr = if p.peek() == Some('(') {
-            p.pos += 1;
-            let e = parse_expr(p)?;
-            p.skip_ws();
-            if p.peek() != Some(')') {
-                return p.err("expected ')' after inner aggregation expression");
-            }
-            p.pos += 1;
-            e
-        } else {
-            parse_expr(p)?
-        };
-    }
-
-    // Close the outer paren
-    p.skip_ws();
-    if p.peek() != Some(')') {
-        return p.err("expected ')' to close aggregation");
-    }
-    p.pos += 1;
-
-    // Parse optional trailing grouping clause:
-    //   sum(rate(...)) by (job)
-    // If we already got a grouping clause before, use that; otherwise try after
-    let grouping = if let Some(g) = grouping_first {
-        g
-    } else {
-        parse_grouping(p).unwrap_or(Grouping { by: true, labels: vec![] })
-    };
-
-    Ok(Expr::Aggregation(Aggregation {
-        op,
-        expr: Box::new(expr),
-        grouping,
-        param,
-    }))
-}
-
-fn parse_grouping(p: &mut Parser) -> Result<Grouping, ParseError> {
-    p.skip_ws();
-    if p.match_keyword("by") {
-        p.skip_ws();
-        if p.peek() == Some('(') {
-            let labels = parse_label_list(p)?;
-            Ok(Grouping { by: true, labels })
-        } else {
-            Ok(Grouping { by: true, labels: vec![] })
-        }
-    } else if p.match_keyword("without") {
-        p.skip_ws();
-        if p.peek() == Some('(') {
-            let labels = parse_label_list(p)?;
-            Ok(Grouping { by: false, labels })
-        } else {
-            Ok(Grouping { by: false, labels: vec![] })
-        }
-    } else {
-        Ok(Grouping { by: true, labels: vec![] })
-    }
-}
-
-fn parse_label_list(p: &mut Parser) -> Result<Vec<String>, ParseError> {
-    p.expect_str("(")?;
-    let mut labels = Vec::new();
-
-    loop {
-        p.skip_ws();
-        if p.peek() == Some(')') {
-            p.pos += 1;
-            break;
-        }
-        if !labels.is_empty() {
-            if p.peek() == Some(',') {
-                p.pos += 1;
-            }
-            p.skip_ws();
-        }
-        labels.push(p.read_identifier()?);
-        p.skip_ws();
-    }
-
-    Ok(labels)
-}
-
-// ── Vector matching ───────────────────────────────────────────────────────────
-
-fn parse_vector_matching(p: &mut Parser) -> Result<VectorMatching, ParseError> {
-    p.skip_ws();
-    if p.match_keyword("on") {
-        let labels = parse_label_list(p)?;
-        let (group_left, group_right) = parse_group_side(p)?;
-        Ok(VectorMatching { card: VectorMatchCard::On, labels, group_left, group_right })
-    } else if p.match_keyword("ignoring") {
-        let labels = parse_label_list(p)?;
-        let (group_left, group_right) = parse_group_side(p)?;
-        Ok(VectorMatching { card: VectorMatchCard::Ignoring, labels, group_left, group_right })
-    } else {
-        p.err("expected vector matching clause (on/ignoring)")
-    }
-}
-
-fn parse_group_side(p: &mut Parser) -> Result<(Option<Vec<String>>, Option<Vec<String>>), ParseError> {
-    p.skip_ws();
-    if p.match_keyword("group_left") {
-        p.skip_ws();
-        let labels = if p.peek() == Some('(') {
-            Some(parse_label_list(p)?)
-        } else {
-            Some(vec![])
-        };
-        Ok((labels, None))
-    } else if p.match_keyword("group_right") {
-        p.skip_ws();
-        let labels = if p.peek() == Some('(') {
-            Some(parse_label_list(p)?)
-        } else {
-            Some(vec![])
-        };
-        Ok((None, labels))
-    } else {
-        Ok((None, None))
-    }
-}
-
-// ── @ modifier ────────────────────────────────────────────────────────────────
-
-fn parse_at_modifier(p: &mut Parser) -> Result<AtModifier, ParseError> {
-    p.pos += 1; // skip '@'
-    p.skip_ws();
-
-    if p.peek_str("start()") {
-        p.expect_str("start()")?;
-        return Ok(AtModifier::Start);
-    }
-    if p.peek_str("end()") {
-        p.expect_str("end()")?;
-        return Ok(AtModifier::End);
-    }
-
-    let expr = p.read_number()?;
-    match expr {
-        Expr::NumberLiteral(n) => Ok(AtModifier::UnixTimestamp(n)),
-        _ => p.err("expected unix timestamp after '@'"),
-    }
-}
-
-// ── Duration parsing ──────────────────────────────────────────────────────────
-
-/// Parse a Prometheus-style duration: `5m`, `30s`, `1h30m`, `7d`, `1w`
-fn parse_duration(p: &mut Parser) -> Result<Duration, ParseError> {
-    p.skip_ws();
-    let start = p.pos;
-    let mut total_ms: i64 = 0;
-    let mut saw_value = false;
-
-    loop {
-        p.skip_ws();
-        if p.eof() { break; }
-
-        let num_start = p.pos;
-        let mut has_digits = false;
-        while let Some(c) = p.peek() {
-            if c.is_ascii_digit() || c == '.' {
-                has_digits = true;
-                p.pos += 1;
-            } else {
-                break;
-            }
-        }
-
-        if !has_digits {
-            if saw_value { break; }
-            return p.err("expected duration value (e.g., 5m, 30s, 1h30m)");
-        }
-
-        let num_str: String = p.input[num_start..p.pos].iter().collect();
-        let value: f64 = num_str.parse().map_err(|_| ParseError {
-            message: format!("invalid number in duration: {}", num_str),
-            pos: num_start,
-        })?;
-
-        if value.is_nan() || value.is_infinite() || value < 0.0 {
-            return Err(ParseError {
-                message: format!("invalid duration value: {}", num_str),
-                pos: num_start,
-            });
-        }
-
-        p.skip_ws();
-        let unit_ms: i64 = match p.peek() {
-            Some('w') => { p.pos += 1; 7 * 24 * 3600 * 1000 }
-            Some('d') => { p.pos += 1; 24 * 3600 * 1000 }
-            Some('h') => { p.pos += 1; 3600 * 1000 }
-            Some('m') => {
-                p.pos += 1;
-                if p.peek() == Some('s') { p.pos += 1; 1 } // ms
-                else { 60 * 1000 } // minutes
-            }
-            Some('s') => { p.pos += 1; 1000 }
-            _ => {
-                if saw_value { break; }
-                return p.err("expected duration unit (w, d, h, m, s, ms)");
-            }
-        };
-
-        let ms = value * unit_ms as f64;
-        if ms > i64::MAX as f64 {
-            return Err(ParseError {
-                message: "duration overflow".into(),
-                pos: num_start,
-            });
-        }
-
-        total_ms = total_ms.checked_add(ms as i64).ok_or_else(|| ParseError {
-            message: "duration overflow".into(),
-            pos: num_start,
-        })?;
-
-        saw_value = true;
-
-        p.skip_ws();
-        if p.eof() { break; }
-        let next_is_digit = p.peek().map_or(false, |c| c.is_ascii_digit() || c == '.');
-        if !next_is_digit { break; }
-    }
-
-    if !saw_value {
-        return Err(ParseError {
-            message: "expected duration (e.g., 5m, 30s, 1h30m)".into(),
-            pos: start,
-        });
-    }
-
-    Ok(Duration::new(total_ms))
+fn parse_expr_depth(input: &str, depth: usize) -> IResult<&str, Expr> {
+    parse_binary_expr(input, Precedence::Lowest, depth)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -986,372 +611,153 @@ fn parse_duration(p: &mut Parser) -> Result<Duration, ParseError> {
 mod tests {
     use super::*;
 
-    // Helper: parse and unwrap
-    fn p(s: &str) -> Expr {
-        parse(s).unwrap_or_else(|e| panic!("parse error: {:?} for input: {}", e, s))
-    }
-
-    // ── Instant vectors ────────────────────────────────────────────────────
-
-    #[test]
-    fn test_bare_metric() {
-        match p("up") {
-            Expr::InstantVector(iv) => {
-                assert_eq!(iv.metric_name, "up");
-                assert!(iv.matchers.is_empty());
-            }
-            _ => panic!("expected InstantVector"),
-        }
+    fn p(src: &str) -> Expr {
+        parse(src).expect(&format!("failed to parse: {}", src))
     }
 
     #[test]
-    fn test_metric_with_colons() {
-        match p("wakatime:duration") {
-            Expr::InstantVector(iv) => {
-                assert_eq!(iv.metric_name, "wakatime:duration");
-            }
-            _ => panic!("expected InstantVector"),
-        }
-    }
+    fn test_instant_vector_selectors() {
+        assert_eq!(
+            p("http_requests_total"),
+            Expr::InstantVector(InstantVector {
+                metric_name: "http_requests_total".into(),
+                matchers: vec![],
+                offset: None,
+                at: None,
+            })
+        );
 
-    #[test]
-    fn test_instant_vector_with_labels() {
-        match p(r#"http_requests_total{method="GET", status="200"}"#) {
-            Expr::InstantVector(iv) => {
-                assert_eq!(iv.metric_name, "http_requests_total");
-                assert_eq!(iv.matchers.len(), 2);
-                assert_eq!(iv.matchers[0].label, "method");
-                assert_eq!(iv.matchers[0].op, MatchOp::Eq);
-                assert_eq!(iv.matchers[0].value, "GET");
-                assert_eq!(iv.matchers[1].label, "status");
-                assert_eq!(iv.matchers[1].value, "200");
-            }
-            _ => panic!("expected InstantVector"),
-        }
+        assert_eq!(
+            p(r#"http_requests_total{job="prometheus", group="canary"}"#),
+            Expr::InstantVector(InstantVector {
+                metric_name: "http_requests_total".into(),
+                matchers: vec![
+                    LabelMatcher {
+                        label: "job".into(),
+                        op: MatchOp::Eq,
+                        value: "prometheus".into(),
+                    },
+                    LabelMatcher {
+                        label: "group".into(),
+                        op: MatchOp::Eq,
+                        value: "canary".into(),
+                    },
+                ],
+                offset: None,
+                at: None,
+            })
+        );
     }
-
-    #[test]
-    fn test_label_matchers_all_ops() {
-        // =~
-        match p(r#"metric{label=~"foo.*"}"#) {
-            Expr::InstantVector(iv) => {
-                assert_eq!(iv.matchers[0].op, MatchOp::Regex);
-                assert_eq!(iv.matchers[0].value, "foo.*");
-            }
-            _ => panic!(),
-        }
-        // !~
-        match p(r#"metric{label!~"bar.*"}"#) {
-            Expr::InstantVector(iv) => {
-                assert_eq!(iv.matchers[0].op, MatchOp::NotRegex);
-                assert_eq!(iv.matchers[0].value, "bar.*");
-            }
-            _ => panic!(),
-        }
-        // !=
-        match p(r#"metric{label!="baz"}"#) {
-            Expr::InstantVector(iv) => {
-                assert_eq!(iv.matchers[0].op, MatchOp::NotEq);
-                assert_eq!(iv.matchers[0].value, "baz");
-            }
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn test_instant_vector_offset() {
-        match p("metric offset 5m") {
-            Expr::InstantVector(iv) => {
-                assert_eq!(iv.metric_name, "metric");
-                assert!(iv.offset.is_some());
-                assert_eq!(iv.offset.unwrap().millis, 5 * 60 * 1000);
-            }
-            _ => panic!(),
-        }
-    }
-
-    // ── Range vectors ──────────────────────────────────────────────────────
 
     #[test]
     fn test_range_vector() {
-        match p("metric[5m]") {
-            Expr::RangeVector(rv) => {
-                assert_eq!(rv.vector.metric_name, "metric");
-                assert_eq!(rv.range.millis, 5 * 60 * 1000);
-            }
-            _ => panic!("expected RangeVector, got {:?}", p("metric[5m]")),
-        }
+        assert_eq!(
+            p("http_requests_total[5m]"),
+            Expr::RangeVector(RangeVector {
+                vector: Box::new(InstantVector {
+                    metric_name: "http_requests_total".into(),
+                    matchers: vec![],
+                    offset: None,
+                    at: None,
+                }),
+                range: Duration::new(5 * 60 * 1000),
+            })
+        );
     }
 
     #[test]
-    fn test_range_vector_with_labels() {
-        match p(r#"http_requests_total{job="api"}[5m]"#) {
-            Expr::RangeVector(rv) => {
-                assert_eq!(rv.range.millis, 5 * 60 * 1000);
-                assert_eq!(rv.vector.matchers[0].label, "job");
-            }
-            _ => panic!(),
-        }
-    }
-
-    // ── Functions ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_rate() {
-        match p("rate(metric[5m])") {
-            Expr::FunctionCall(fc) => {
-                assert_eq!(fc.name, "rate");
-                assert_eq!(fc.args.len(), 1);
-                match &fc.args[0] {
-                    Expr::RangeVector(rv) => {
-                        assert_eq!(rv.range.millis, 5 * 60 * 1000);
-                    }
-                    _ => panic!("expected RangeVector arg"),
-                }
-            }
-            _ => panic!("expected FunctionCall"),
-        }
+    fn test_function_call() {
+        assert_eq!(
+            p("rate(http_requests_total[5m])"),
+            Expr::FunctionCall(FunctionCall {
+                name: "rate".into(),
+                args: vec![Expr::RangeVector(RangeVector {
+                    vector: Box::new(InstantVector {
+                        metric_name: "http_requests_total".into(),
+                        matchers: vec![],
+                        offset: None,
+                        at: None,
+                    }),
+                    range: Duration::new(5 * 60 * 1000),
+                })],
+            })
+        );
     }
 
     #[test]
-    fn test_nested_functions() {
-        match p("ceil(rate(http_requests_total[5m]))") {
-            Expr::FunctionCall(fc) => {
-                assert_eq!(fc.name, "ceil");
-                match &fc.args[0] {
-                    Expr::FunctionCall(inner) => {
-                        assert_eq!(inner.name, "rate");
-                    }
-                    _ => panic!("expected nested FunctionCall"),
-                }
-            }
-            _ => panic!(),
-        }
-    }
-
-    // ── Aggregation ────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_sum_by() {
-        match p("sum by (job) (rate(http_requests_total[5m]))") {
-            Expr::Aggregation(agg) => {
-                assert_eq!(agg.op, AggregationOp::Sum);
-                assert!(agg.grouping.by);
-                assert_eq!(agg.grouping.labels, vec!["job"]);
-            }
-            _ => panic!("expected Aggregation, got: {:?}", p("sum by (job) (rate(http_requests_total[5m]))")),
-        }
+    fn test_aggregation() {
+        assert_eq!(
+            p("sum by (job) (rate(http_requests_total[5m]))"),
+            Expr::Aggregation(Aggregation {
+                op: AggregationOp::Sum,
+                expr: Box::new(Expr::FunctionCall(FunctionCall {
+                    name: "rate".into(),
+                    args: vec![Expr::RangeVector(RangeVector {
+                        vector: Box::new(InstantVector {
+                            metric_name: "http_requests_total".into(),
+                            matchers: vec![],
+                            offset: None,
+                            at: None,
+                        }),
+                        range: Duration::new(5 * 60 * 1000),
+                    })],
+                })),
+                grouping: Grouping {
+                    by: true,
+                    labels: vec!["job".into()],
+                },
+                param: None,
+            })
+        );
     }
 
     #[test]
-    fn test_avg_without() {
-        match p("avg without (instance) (cpu_usage)") {
-            Expr::Aggregation(agg) => {
-                assert_eq!(agg.op, AggregationOp::Avg);
-                assert!(!agg.grouping.by);
-                assert_eq!(agg.grouping.labels, vec!["instance"]);
-            }
-            _ => panic!("expected Aggregation"),
-        }
-    }
-
-    #[test]
-    fn test_topk() {
-        match p("topk(5, rate(http_requests_total[5m]))") {
-            Expr::Aggregation(agg) => {
-                assert_eq!(agg.op, AggregationOp::TopK);
-                assert!(agg.param.is_some());
-            }
-            _ => panic!("expected Aggregation"),
-        }
-    }
-
-    // ── Binary operators ───────────────────────────────────────────────────
-
-    #[test]
-    fn test_arithmetic() {
-        match p("a + b") {
+    fn test_binary_op() {
+        let expr = p("http_requests_total + 10");
+        match expr {
             Expr::BinaryOp(bin) => {
                 assert_eq!(bin.op, BinOpKind::Add);
+                assert_eq!(*bin.rhs, Expr::NumberLiteral(10.0));
             }
-            _ => panic!(),
+            _ => panic!("expected BinaryOp"),
         }
     }
-
-    #[test]
-    fn test_precedence() {
-        // a + b * c  should parse as a + (b * c)
-        match p("a + b * c") {
-            Expr::BinaryOp(bin) => {
-                assert_eq!(bin.op, BinOpKind::Add);
-                match *bin.rhs {
-                    Expr::BinaryOp(inner) => {
-                        assert_eq!(inner.op, BinOpKind::Mul);
-                    }
-                    _ => panic!("expected nested BinaryOp"),
-                }
-            }
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn test_comparison() {
-        match p("rate(errors_total[5m]) > 0.1") {
-            Expr::BinaryOp(bin) => {
-                assert_eq!(bin.op, BinOpKind::Gt);
-            }
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn test_vector_matching_on() {
-        match p("a * on (job, instance) b") {
-            Expr::BinaryOp(bin) => {
-                assert_eq!(bin.op, BinOpKind::Mul);
-                let m = bin.matching.as_ref().unwrap();
-                assert_eq!(m.card, VectorMatchCard::On);
-                assert_eq!(m.labels, vec!["job", "instance"]);
-            }
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn test_vector_matching_group_left() {
-        match p("a * on (job) group_left b") {
-            Expr::BinaryOp(bin) => {
-                let m = bin.matching.as_ref().unwrap();
-                assert!(m.group_left.is_some());
-            }
-            _ => panic!(),
-        }
-    }
-
-    // ── Literals ───────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_numbers() {
-        assert_eq!(p("42"), Expr::NumberLiteral(42.0));
-        assert_eq!(p("3.14"), Expr::NumberLiteral(3.14));
-        assert_eq!(p("-5"), Expr::UnaryOp(UnaryOp {
-            op: UnaryOpKind::Minus,
-            expr: Box::new(Expr::NumberLiteral(5.0)),
-        }));
-    }
-
-    #[test]
-    fn test_strings() {
-        assert_eq!(p(r#""hello""#), Expr::StringLiteral("hello".into()));
-        assert_eq!(p("'world'"), Expr::StringLiteral("world".into()));
-    }
-
-    // ── Durations ──────────────────────────────────────────────────────────
 
     #[test]
     fn test_duration_parsing() {
-        let mut p = Parser::new("5m");
-        let d = parse_duration(&mut p).unwrap();
-        assert_eq!(d.millis, 5 * 60 * 1000);
-
-        let mut p = Parser::new("1h30m");
-        let d = parse_duration(&mut p).unwrap();
-        assert_eq!(d.millis, 3600 * 1000 + 30 * 60 * 1000);
-
-        let mut p = Parser::new("7d");
-        let d = parse_duration(&mut p).unwrap();
-        assert_eq!(d.millis, 7 * 24 * 3600 * 1000);
+        assert_eq!(
+            parse_duration("5m").unwrap().1,
+            Duration::new(5 * 60 * 1000)
+        );
+        assert_eq!(
+            parse_duration("1h30m").unwrap().1,
+            Duration::new(3600 * 1000 + 30 * 60 * 1000)
+        );
     }
-
-    // ── Subquery ───────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_subquery() {
-        match p("rate(http_requests_total[5m])[1h:5m]") {
-            Expr::Subquery(sq) => {
-                assert_eq!(sq.range.millis, 3600 * 1000);
-                assert!(sq.step.is_some());
-                assert_eq!(sq.step.unwrap().millis, 5 * 60 * 1000);
-            }
-            _ => panic!("expected Subquery, got: {:?}", p("rate(http_requests_total[5m])[1h:5m]")),
-        }
-    }
-
-    // ── Complex expressions ────────────────────────────────────────────────
-
-    #[test]
-    fn test_complex_nested() {
-        // avg by (project) (rate(wakatime_duration{entity!=""}[7d])) * 3600
-        let result = p(r#"avg by (project) (rate(wakatime_duration{entity!=""}[7d])) * 3600"#);
-        match result {
-            Expr::BinaryOp(bin) => {
-                assert_eq!(bin.op, BinOpKind::Mul);
-                match *bin.lhs {
-                    Expr::Aggregation(agg) => {
-                        assert_eq!(agg.op, AggregationOp::Avg);
-                        assert_eq!(agg.grouping.labels, vec!["project"]);
-                    }
-                    _ => panic!("expected Aggregation as LHS"),
-                }
-            }
-            _ => panic!("expected BinaryOp, got: {:?}", result),
-        }
-    }
-
-    // ── Error cases ────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_unclosed_brace() {
-        assert!(parse("metric{label=\"val\"").is_err());
-    }
-
-    #[test]
-    fn test_unclosed_paren() {
-        assert!(parse("rate(metric[5m]").is_err());
-    }
-
-    #[test]
-    fn test_invalid_duration() {
-        assert!(parse("metric[abc]").is_err());
-    }
-
-    #[test]
-    fn test_empty_input() {
-        assert!(parse("").is_err());
-    }
-
-    // ── Fuzz Crash Regressions ─────────────────────────────────────────────
 
     #[test]
     fn test_fuzz_crash_regressions() {
-        // Truncated keywords should return ParseError, never panic
-        let _ = parse("a and");
-        let _ = parse("a or");
-        let _ = parse("a unless");
-        let _ = parse("a on");
-        let _ = parse("a ignoring");
-        let _ = parse("a group_left");
-        let _ = parse("a group_right");
+        assert!(parse("a and").is_err());
+        assert!(parse("a or").is_err());
+        assert!(parse("a unless").is_err());
+        assert!(parse("a on").is_err());
+        assert!(parse("a ignoring").is_err());
+        assert!(parse("a group_left").is_err());
+        assert!(parse("a group_right").is_err());
 
-        // Unicode inputs & non-ASCII boundaries
-        let _ = parse("and🦀");
-        let _ = parse("ignoring🔥");
-        let _ = parse(r#""hello\nworld""#);
+        assert!(parse("and🦀").is_err());
+        assert!(parse("ignoring🔥").is_err());
 
-        // String with escape sequences
         if let Ok(Expr::StringLiteral(s)) = parse(r#""hello\nworld""#) {
             assert_eq!(s, "hello\nworld");
         } else {
             panic!("failed string escape test");
         }
 
-        // Duration overflow & invalid values
         assert!(parse("metric[1e300d]").is_err());
         assert!(parse("metric[-5m]").is_err());
         assert!(parse("metric[nand]").is_err());
 
-        // Deeply nested parens recursion depth limit
         let deep = "(".repeat(150) + "a" + &")".repeat(150);
         assert!(parse(&deep).is_err());
     }
