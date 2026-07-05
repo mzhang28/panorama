@@ -64,16 +64,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-build-artifacts-
 
-      - name: Type check Rust & Frontend
-        run: |
-          cargo check --workspace
-          cd frontend && bun x tsc --noEmit
-
-      - name: Run Rust unit & integration tests
-        run: cargo test --workspace
-
       - name: Build everything (frontend, WASM plugins, server & .panoapps)
         run: just build
+
+      - name: Run Rust unit & integration tests
+        run: cargo test --workspace --release
 
       - name: Run Playwright E2E tests
         run: just test-e2e
