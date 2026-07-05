@@ -34,9 +34,17 @@ jobs:
           targets: wasm32-wasip1
 
       - name: Cache Rust build artifacts & cargo dependencies
-        uses: https://github.com/Swatinem/rust-cache@v2
+        uses: actions/cache@v4
         with:
-          cache-on-failure: true
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Cache Playwright browsers
         id: playwright-cache
