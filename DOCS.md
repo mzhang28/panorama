@@ -26,55 +26,53 @@ and a modern web frontend.
 - Arbitrary fields (keyed by `namespace:field_name`)
 - Optional schema conformance (preferred or required)
 - System timestamps (created_at, updated_at)
-- Space membership
+- Space membership (`space_id`)
 
 **Schemas** define groups of fields with requirements. Schemas are themselves nodes,
 making the type system self-hosted. Schemas can be:
 - **Preferred**: Nodes can fall out of schema (warnings raised)
-- **Required**: Nodes must always conform (verified on write)
+- **Required**: Nodes must always conform (verified on write transaction gate)
 
 **Fields** are namespaced key-value pairs attached to nodes. The namespace system:
-- `system:` — Built-in fields (node_title, node_time, created_at, etc.)
+- `system:` — Built-in fields (`node_title`, `node_time`, `node_start_time`, `node_end_time`, `created_at`, etc.)
 - `user:` — User-created fields
-- `<app-namespace>:` — App-specific fields (e.g., `journal:`, `wakatime:`)
+- `<app-namespace>:` — App-specific fields (e.g., `journal:`, `wakatime:`, `grafana:`, `trips:`, `beli:`, `subsonic:`, `files:`)
 
-**Spaces** handle multi-user permissions at the space level (similar to Anytype's model).
-All nodes in a space share the same permissions. Cross-space sharing requires replication.
+**Spaces** handle multi-user permissions at the space level. All nodes in a space share the same `space_id` permissions boundary.
 
-**Object Storage** provides S3-like blob storage for large files. Nodes reference blobs
-via ObjectRef fields rather than storing large data inline.
+**Object Storage** provides S3-like blob storage for large files. Nodes reference blobs via ObjectRef fields rather than storing large data inline.
 
 ### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    Panorama Frontend                     │
-│              (Vite + React + Tanstack)                   │
+│              (Vite + React + TanStack)                   │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │
 │  │ Node     │  │ Schema   │  │ Plugin UI            │  │
-│  │ Viewer   │  │ Viewer   │  │ (dynamic components) │  │
+│  │ Viewer   │  │ Viewer   │  │ (Module Federation)  │  │
 │  └──────────┘  └──────────┘  └──────────────────────┘  │
 └──────────────────────┬──────────────────────────────────┘
                        │ HTTP (REST + plugin subpaths)
 ┌──────────────────────┴──────────────────────────────────┐
 │                   Panorama Server (Rust)                 │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │
-│  │ REST API │  │ Plugin   │  │ WASM Runtime         │  │
-│  │ /api/*   │  │ Loader   │  │ (wasmtime subprocess)│  │
+│  │ REST API │  │ Plugin   │  │ Embedded Wasmtime    │  │
+│  │ /api/*   │  │ Loader   │  │ WASI preview1 Engine │  │
 │  └──────────┘  └──────────┘  └──────────────────────┘  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │
 │  │ Node     │  │ Schema   │  │ Object Storage       │  │
-│  │ Storage  │  │ Registry │  │ (SQLite + files)     │  │
+│  │ Storage  │  │ Registry │  │ (SQLite + Files)     │  │
 │  └──────────┘  └──────────┘  └──────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
 
-1. **Write**: Client → REST API → Node Storage → SQLite database
-2. **Read**: Client → REST API → Node Storage → SQL query → JSON response
-3. **Plugin Request**: Client → `/plugin/{id}/*` → Plugin Loader → WASM Runtime → Response
-4. **Object Upload**: Client → Object Storage API → File on disk
+1. **Write**: Client → REST API → Node Storage → SQLite database (`nodes/panorama.db`)
+2. **Read**: Client → REST API → Node Storage → SQL query (CTE + JSON extracts) → JSON response
+3. **Plugin Request**: Client → `/plugin/{id}/*` → Plugin Loader → Wasmtime embedded engine → WASI stdin/stdout & host functions → Response
+4. **Object Upload**: Client → Object Storage API → File on disk (`data/objects/`)
 
 ---
 
@@ -85,70 +83,40 @@ via ObjectRef fields rather than storing large data inline.
 ```bash
 # Prerequisites
 # - Rust 1.80+
-# - Node.js 20+
-# - wasmtime CLI (for WASM plugin support)
-
-# Install wasmtime
-cargo install wasmtime-cli
+# - Node.js 20+ / Bun
 
 # Clone and build
 git clone <repo-url> panorama
 cd panorama
 
-# Build the server
-cargo build --release -p panorama-server
+# Build everything using `just` (frontend, WASM plugins, server, and .panoapp packages)
+just build
 
-# Install frontend dependencies
-cd frontend && npm install && cd ..
-
-# Start the server
-PANORAMA_DATA_DIR=./data PANORAMA_LISTEN=127.0.0.1:3000 \
-  cargo run --release -p panorama-server
-
-# In another terminal, start the frontend
-cd frontend && npm run dev
+# Or start the server with pre-packaged plugins
+just serve
 ```
 
-Visit `http://localhost:5173` to access the Panorama UI.
+Visit `http://localhost:5173` (dev) or server port `http://localhost:3000` to access the Panorama UI.
 
 ### Installing Apps (.panoapp files)
 
-Panorama apps are distributed as `.panoapp` files — single ZIP archives containing
-a manifest, WASM module, and UI assets.
+Panorama apps are distributed as `.panoapp` files — single ZIP archives containing a manifest, WASM module (`plugin.wasm`), and frontend UI assets (`ui/`).
 
-1. Download or build a `.panoapp` file (e.g., `io.mzhang.panorama.journal.panoapp`)
+1. Build or download a `.panoapp` file (e.g. `dist/panoapp/io.mzhang.panorama.journal.panoapp`)
 2. Place it in the plugins directory: `data/plugins/`
-3. Restart the server — the app is automatically loaded
+3. Start or restart the server — the app is automatically discovered and loaded
 
 ```bash
-# Example: install all example apps
-cp dist/panoapp/*.panoapp data/plugins/
-cargo run --release -p panorama-server
+# Package all example apps and run server
+just serve
 ```
 
 ### Using the Web UI
 
-**Nodes View**: Browse, create, edit, and delete nodes. Each node shows its fields,
-schemas, and metadata. Click a node to see its full detail and edit fields inline.
-
-**Schemas View**: Browse registered schemas from the system and installed plugins.
-Each schema shows its fields, requirements, and version.
-
-**Plugins View**: Browse installed plugins, view their HTTP endpoints, test endpoints
-interactively, and see their UI components.
-
-**Sidebar**: Quick navigation between views and installed apps. The "Installed Apps"
-section lists all loaded plugins.
-
-### Managing Data
-
-Nodes can be created through:
-- The web UI (Nodes → New Node)
-- The REST API (`POST /api/nodes`)
-- Plugin endpoints (e.g., `POST /plugin/io.mzhang.panorama.journal/entries`)
-
-Fields are set as namespaced key-value pairs. Untyped fields default to String.
-Use the schema system for type enforcement.
+- **Nodes View**: Browse, create, edit, and delete nodes. Each node displays its fields, schemas, and metadata.
+- **Schemas View**: Browse registered schemas from system and installed plugins with field definitions and requirements.
+- **Plugins View**: Browse loaded plugins, inspect endpoints, test endpoints interactively, and view app interfaces.
+- **Sidebar**: Quick navigation between core views and installed apps.
 
 ---
 
@@ -159,55 +127,38 @@ Use the schema system for type enforcement.
 ```
 panorama/
 ├── crates/
-│   ├── panorama-core/          # Core types + Plugin API trait (public third-party API)
-│   ├── panorama-server/        # Platform server (depends on core)
-│   ├── panorama-app-journal/   # Journal app (depends ONLY on core)
-│   ├── panorama-app-wakatime/  # Wakatime app (depends ONLY on core)
-│   ├── panorama-app-grafana/   # Dashboard app (depends ONLY on core)
-│   ├── panorama-app-trips/     # Trip planner app (depends ONLY on core)
-│   ├── panorama-app-beli/      # Restaurant rating app (depends ONLY on core)
-│   ├── panorama-app-subsonic/  # Music streaming app (depends ONLY on core)
-│   └── panorama-app-files/     # File manager app (depends ONLY on core)
-├── frontend/                   # Vite + React + TanStack frontend (Module Federation host)
-│   ├── src/
-│   │   ├── api/client.ts       # API client for backend communication
-│   │   ├── api/plugin-loader.tsx  # Dynamic Module Federation remote loading
-│   │   └── components/         # Core React components (NodeViewer, SchemaViewer, PluginPanel)
-│   ├── e2e/                    # Playwright E2E tests
-│   └── vite.config.ts          # Module Federation host config
+│   ├── panorama-core/          # Core types, query parser/AST, Plugin trait & PluginContext
+│   ├── panorama-server/        # Axum web server, SQLite storage, query compiler, Wasmtime runtime
+│   ├── panorama-app-journal/   # Journal app plugin (WASM / native)
+│   ├── panorama-app-wakatime/  # Wakatime activity app plugin
+│   ├── panorama-app-grafana/   # Dashboard & query engine app plugin
+│   ├── panorama-app-trips/     # Trip planner app plugin
+│   ├── panorama-app-beli/      # Restaurant partial-ordering app plugin
+│   ├── panorama-app-subsonic/  # Music streaming app plugin
+│   ├── panorama-app-files/     # File manager app plugin
+│   └── wasm-types/             # WASM shared type definitions
+├── frontend/                   # React + TanStack + Module Federation frontend
+├── design/
+│   ├── DESIGN.md               # Architecture design document
+│   ├── HOOK_DESIGN.md          # Hooks and event system specification
+│   └── QUERY_DESIGN.md         # Panorama Query Language specification
 ├── scripts/
-│   ├── build-panoapp.sh        # Build plugin UIs + .panoapp packages
-│   ├── e2e-harness.sh          # Isolated E2E test harness (builds everything, spawns temp server)
-│   └── package-panoapp.py      # .panoapp ZIP packager
-├── dist/panoapp/               # Built .panoapp packages
-├── QUERY_DESIGN.md             # Panorama Query Language v0 specification
-├── DESIGN.md                   # Original design document
-└── DOCS.md                     # This documentation
+│   ├── build-wasm.sh           # Compiles plugins to wasm32-wasip1
+│   ├── build-panoapp.sh        # Builds plugin UIs and packages .panoapp files
+│   ├── package-panoapp.py      # Python packager for .panoapp ZIP archives
+│   ├── serve.sh                # Helper script to launch server with plugins
+│   └── e2e.py                  # Playwright E2E test runner
+├── dist/panoapp/               # Output directory for built .panoapp packages
+├── justfile                    # Task runner commands (`just build`, `just test-e2e`, etc.)
+├── INVARIANTS.md               # Core system invariants & validation rules
+└── DOCS.md                     # Documentation
 ```
 
 ### Building a Third-Party Plugin
 
-Plugins use ONLY the public API defined in `panorama-core`. They must NOT depend on
-`panorama-server` or any platform internals.
+Plugins depend ONLY on `panorama-core`. They do NOT depend on `panorama-server` or internal server modules.
 
-#### Step 1: Create the plugin crate
-
-```toml
-# Cargo.toml
-[package]
-name = "my-panorama-plugin"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-panorama-core = { git = "https://..." }
-async-trait = "0.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-uuid = { version = "1", features = ["v4", "serde"] }
-```
-
-#### Step 2: Implement the Plugin trait
+#### Step 1: Implement the Plugin trait
 
 ```rust
 use async_trait::async_trait;
@@ -236,211 +187,111 @@ impl Plugin for MyPlugin {
         request: HttpRequest,
         ctx: &dyn PluginContext,
     ) -> Result<HttpResponse, PluginError> {
-        // Your plugin logic here
-        // Use ctx.create_node(), ctx.get_node(), ctx.query_nodes(), etc.
+        // Plugin logic using ctx methods
     }
 }
 ```
 
-#### Step 3: Package as .panoapp
-
-Create a `manifest.json` and compile your WASM module:
+#### Step 2: Build WASM Target & Package as .panoapp
 
 ```bash
-# Create manifest (use gen-manifest.py as a template)
-# Compile WASM
-cargo build --target wasm32-wasip1 --release
-# Package
-python3 -c "
-import zipfile
-with zipfile.ZipFile('my-plugin.panoapp', 'w') as zf:
-    zf.write('manifest.json')
-    zf.write('target/wasm32-wasip1/release/my-plugin.wasm', 'plugin.wasm')
-"
+# Build WASM module for wasm32-wasip1 target
+RUSTFLAGS="-C link-arg=--allow-undefined" cargo build --release -p my-plugin --target wasm32-wasip1
+
+# Package manifest, WASM binary, and frontend assets into .panoapp
+python3 scripts/package-panoapp.py manifest.json target/wasm32-wasip1/release/my_plugin.wasm dist/panoapp --ui-dir ui/dist
 ```
-
-#### Step 4: Install and test
-
-Copy the `.panoapp` to the server's plugins directory and restart.
 
 ### PluginContext API
 
-The `PluginContext` is the ONLY way plugins interact with the platform:
+The `PluginContext` is the official interface provided to plugins:
 
 | Method | Description |
 |--------|-------------|
-| `create_node(node) -> Node` | Create a new node |
-| `get_node(id) -> Option<Node>` | Get a node by ID |
+| `create_nodes(nodes) -> Vec<Node>` | Create multiple nodes in batch |
+| `create_node(node) -> Node` | Create a single node |
+| `get_node(id) -> Option<Node>` | Get a node by UUID |
 | `update_node(id, fields) -> Node` | Update a node's fields |
 | `delete_node(id)` | Delete a node |
-| `query_nodes(query) -> Vec<Node>` | Query nodes with filters |
+| `query(query_string) -> Vec<Value>` | Execute a query in Panorama Query Language |
 | `register_schema(schema) -> Schema` | Register a schema |
-| `get_schema(id) -> Option<Schema>` | Get a schema |
-| `put_object(bucket, key, data, mime) -> ObjectRef` | Store an object |
+| `get_schema(id) -> Option<Schema>` | Get a schema by ID |
+| `put_object(bucket, key, data, mime) -> ObjectRef` | Store an object in object storage |
 | `get_object(bucket, key) -> Option<ObjectData>` | Retrieve an object |
 | `delete_object(bucket, key)` | Delete an object |
-| `list_objects(bucket, prefix) -> Vec<ObjectRef>` | List objects |
-| `plugin_id() -> &str` | Get the plugin's ID |
-| `base_path() -> String` | Get the plugin's HTTP base path |
-| `query(query_string) -> Vec<Value>` | Execute a query in the Panorama Query Language |
-| `log(level, message)` | Log through the platform |
+| `list_objects(bucket, prefix) -> Vec<ObjectRef>` | List objects in a bucket |
+| `plugin_id() -> &str` | Get the plugin's registered ID |
 
-See `QUERY_DESIGN.md` for the full query language specification.
+See `design/QUERY_DESIGN.md` for full PQL specification.
 
 ### Capability System
 
-Plugins must declare required capabilities. Users grant them during installation.
-Major version bumps are required for capability changes.
-
 | Capability | Description |
 |-----------|-------------|
-| `network_hosts` | Hosts the plugin can contact |
-| `field_read` | Fields the plugin can read (`*` for all) |
-| `field_write` | Fields the plugin can write |
-| `write_own_nodes` | Can write to nodes it created |
-| `app_managed_nodes` | Can have user-immutable nodes |
-| `object_storage_read` | Can read from object storage |
-| `object_storage_write` | Can write to object storage |
-| `file_read` / `file_write` | Filesystem access |
-| `execute` | Can execute external programs |
+| `network_hosts` | Whitelisted hosts the plugin can contact |
+| `field_read` | Namespaced fields readable by plugin (`*` for all) |
+| `field_write` | Namespaced fields writeable by plugin |
+| `write_own_nodes` | Permission to write nodes created by plugin |
+| `app_managed_nodes` | Permission for app-managed nodes |
+| `object_storage_read` | Permission to read object storage |
+| `object_storage_write` | Permission to write object storage |
+| `file_read` / `file_write` | Filesystem access permission |
+| `execute` | External process execution permission |
 
 ### Running Tests
 
 ```bash
-# Rust unit/integration tests
-cargo test --workspace
+# Run all Playwright E2E tests against an isolated server harness
+just test-e2e
 
-# Isolated E2E tests (handles build, temp server, cleanup automatically)
-bash scripts/e2e-harness.sh
+# Run Rust workspace unit/integration tests
+just test-rust
 
-# E2E with pre-built artifacts (faster iteration)
-bash scripts/e2e-harness.sh --no-build
-
-# Filter specific tests
-bash scripts/e2e-harness.sh -g "Journal"
+# Type check workspace
+just check
 ```
 
 ---
 
 ## .panoapp Format Specification
 
-A `.panoapp` file is a ZIP archive with the `.panoapp` extension containing:
+A `.panoapp` file is a standard ZIP archive containing:
 
 ```
 my-app.panoapp
-├── manifest.json        # Required: plugin metadata
-├── plugin.wasm          # Optional: WASM module for backend handlers
-└── ui/                  # Optional: frontend UI assets
+├── manifest.json        # Plugin metadata, schemas, endpoints, capabilities
+├── plugin.wasm          # WASM module (target: wasm32-wasip1)
+└── ui/                  # Web UI static assets
     ├── app.js
     ├── app.css
     └── index.html
 ```
 
-### manifest.json Schema
-
-```json
-{
-  "manifest_version": 1,
-  "id": "com.example.myapp",
-  "name": "My App",
-  "version": "0.1.0",
-  "description": "Description of the app",
-  "author": "Author Name",
-  "homepage": "https://example.com",
-  "icon": "ui/icon.png",
-  "min_platform_version": "0.1.0",
-  "schemas": [
-    {
-      "name": "MySchema",
-      "version": {"major": 1, "minor": 0},
-      "schema_mode": "Preferred",
-      "fields": [
-        {
-          "name": "field_name",
-          "namespace": "myapp",
-          "required": false,
-          "field_type": null,
-          "default": null,
-          "description": "Description",
-          "computed": null
-        }
-      ]
-    }
-  ],
-  "http_endpoints": [
-    {
-      "method": "POST",
-      "path": "/my-endpoint",
-      "description": "What this endpoint does"
-    }
-  ],
-  "ui_components": [
-    {
-      "id": "main-view",
-      "name": "Main View",
-      "mount_point": "MainPage",
-      "bundle_path": "ui/app.js"
-    }
-  ],
-  "capabilities": {
-    "version": 1,
-    "network_hosts": [],
-    "field_read": ["myapp:*"],
-    "field_write": ["myapp:*"],
-    "write_own_nodes": true,
-    "app_managed_nodes": false,
-    "object_storage_read": false,
-    "object_storage_write": false,
-    "file_read": false,
-    "file_write": false,
-    "execute": false,
-    "dns_requests": false
-  },
-  "wasm_module": "plugin.wasm",
-  "background_tasks": [],
-  "env_vars": {}
-}
-```
-
 ### WASM Module Interface
 
-The WASM module is compiled to `wasm32-wasip1` and communicates via WASI:
+The WASM module is compiled for `wasm32-wasip1` and executed via embedded Wasmtime in `panorama-server`:
 
-1. The server creates a temp directory with `input.json`
-2. Runs: `wasmtime run --dir=<workdir> plugin.wasm -- input.json output.json`
-3. The WASM module reads `input.json`, processes, writes `output.json`
-
-**input.json**:
+1. Request payload is passed via standard input (`stdin`) as JSON:
 ```json
 {
-  "endpoint": "my-endpoint",
+  "endpoint": "/path",
   "request": {
     "method": "POST",
-    "path": "/my-endpoint",
     "query_params": {},
     "headers": {},
     "body": "..."
-  },
-  "nodes": [
-    {
-      "id": "uuid",
-      "fields": {"namespace:field": {"type": "String", "value": "..."}},
-      "created_at": "2024-...",
-      "updated_at": "2024-..."
-    }
-  ]
+  }
 }
 ```
 
-**output.json**:
+2. Storage and context calls execute synchronously via imported host functions in the `"env"` module (`host_ctx_create_nodes`, `host_ctx_get_node`, `host_ctx_update_node`, `host_ctx_delete_node`, `host_ctx_query`, `host_ctx_log`).
+
+3. WASM handler writes response JSON to standard output (`stdout`):
 ```json
 {
   "status": 200,
   "headers": {"Content-Type": "application/json"},
-  "body": {"result": "ok"},
-  "effects": [
-    {"type": "create_node", "fields": {"system:node_title": {"type": "String", "value": "Hello"}}}
-  ]
+  "body": {"result": "ok"}
 }
 ```
 
@@ -448,49 +299,42 @@ The WASM module is compiled to `wasm32-wasip1` and communicates via WASI:
 
 ## Example Apps
 
-Panorama ships with seven example apps demonstrating the plugin API:
+Panorama includes seven example app plugins:
 
 ### 1. Journal (`io.mzhang.panorama.journal`)
 Daily markdown journal with block-level references.
 - **Endpoints**: `POST /entries`, `GET /entries`, `GET /entries/{id}`
-- **Schema**: `journal/JournalEntry`
-- **Key feature**: Entries stored as nodes with markdown content
+- **Schema**: `JournalEntry` (`journal/JournalEntry`)
 
-### 2. Wakatime (`io.mzhang.panorama.wakatime`)
-Receives heartbeats from Wakatime-compatible clients.
-- **Endpoints**: `POST /heartbeat`, `POST /heartbeats`
-- **Schema**: `wakatime/Heartbeat`
-- **Key feature**: Time-series data via system:node_time field
+### 2. Coding Activity / WakaTime (`io.mzhang.panorama.wakatime`)
+WakaTime-compatible heartbeat and activity stats tracker.
+- **Endpoints**: `POST /users/current/heartbeats`, `POST /users/current/heartbeats.bulk`, `GET /users/current/durations`, `GET /stats`, `POST /heartbeat`, `POST /heartbeats`, `GET /summaries`
+- **Schemas**: `Heartbeat`, `Duration`, `DailySummary`
 
 ### 3. Dashboards (`io.mzhang.panorama.grafana`)
-Grafana-like dashboards for time-series visualization.
-- **Endpoints**: `POST /query`, `POST /dashboards`, `GET /dashboards`
-- **Schema**: `grafana/Dashboard`
-- **Key feature**: Leaderboard queries with group-by and aggregation
+Leaderboard and time-series visualization system.
+- **Endpoints**: `GET /api/dashboards`, `POST /api/dashboards`, `POST /api/ds/query`, `GET /api/query/options`, `POST /api/dashboards/import`, `/api/folders`
+- **Schemas**: `Dashboard`, `Folder`
 
 ### 4. Trip Planner (`io.mzhang.panorama.trips`)
-Plan trips with events, calendar view, and map view.
+Trip planner with calendar and geolocation map views.
 - **Endpoints**: `POST /trips`, `GET /trips`, `POST /events`, `GET /events`, `GET /events/map`
-- **Schemas**: `trips/Trip`, `trips/Event`
-- **Key feature**: Geolocation fields for map visualization
+- **Schemas**: `Trip`, `Event`
 
-### 5. Beli (`io.mzhang.panorama.beli`)
-Restaurant ratings with PARTIAL ORDERING (pairwise comparisons).
+### 5. Restaurant Rankings / Beli (`io.mzhang.panorama.beli`)
+Restaurant partial ordering rankings via pairwise comparisons.
 - **Endpoints**: `POST /restaurants`, `GET /restaurants`, `POST /compare`, `GET /rankings`
-- **Schemas**: `beli/Restaurant`, `beli/Comparison`
-- **Key feature**: Topological sort ranking (not 5-star ratings)
+- **Schemas**: `Restaurant`, `Comparison`
 
-### 6. Subsonic Music (`io.mzhang.panorama.subsonic`)
-Subsonic-compatible music streaming.
-- **Endpoints**: `GET /rest/ping`, `GET /rest/getArtists`, `GET /rest/stream`, `POST /upload`
-- **Schemas**: `subsonic/Artist`, `subsonic/Album`, `subsonic/Track`
-- **Key feature**: Object storage for audio files, Subsonic API compatibility
+### 6. Music Library / Subsonic (`io.mzhang.panorama.subsonic`)
+Subsonic-compatible music streaming with object storage for audio.
+- **Endpoints**: `GET /rest/ping`, `GET /rest/getArtists`, `GET /rest/getAlbumList2`, `GET /rest/stream`, `POST /upload`
+- **Schemas**: `Artist`, `Album`, `Track`
 
 ### 7. File Manager (`io.mzhang.panorama.files`)
-File uploads with resumable transfer support.
-- **Endpoints**: `POST /upload`, `GET /files`, `GET /files/{id}`, `DELETE /files/{id}`
-- **Schema**: `files/File`
-- **Key feature**: Resumable uploads via chunked transfer
+File browser with resumable chunked upload support.
+- **Endpoints**: `POST /upload`, `POST /upload/initiate`, `GET /files`, `GET /files/{id}`, `DELETE /files/{id}`
+- **Schema**: `File`
 
 ---
 
@@ -501,18 +345,18 @@ File uploads with resumable transfer support.
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/nodes` | Create a node |
-| `GET` | `/api/nodes/{id}` | Get a node |
-| `PUT` | `/api/nodes/{id}` | Update a node |
-| `DELETE` | `/api/nodes/{id}` | Delete a node |
-| `GET` | `/api/nodes` | Query nodes (?limit=, ?sort_by=, ?filter.ns:field=) |
-| `POST` | `/api/query` | Execute a Panorama Query Language query |
+| `GET` | `/api/nodes` | Query nodes (`?limit=`, `?sort_by=`, filter params) |
+| `GET` | `/api/nodes/{id}` | Get node by UUID |
+| `PUT` | `/api/nodes/{id}` | Update node fields |
+| `DELETE` | `/api/nodes/{id}` | Delete node |
+| `POST` | `/api/query` | Execute PQL query |
 
 ### Schemas
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/schemas` | List all schemas |
-| `GET` | `/api/schemas/{id}` | Get a schema |
+| `GET` | `/api/schemas/{id}` | Get schema details |
 
 ### Plugins
 
@@ -520,19 +364,21 @@ File uploads with resumable transfer support.
 |--------|------|-------------|
 | `GET` | `/api/plugins` | List loaded plugins |
 | `GET` | `/api/plugins/{id}` | Get plugin details |
-| `*` | `/plugin/{id}/*` | Plugin endpoint dispatch |
+| `GET` | `/api/plugins/{id}/static` | List plugin UI static files |
+| `GET` | `/plugin/{id}/ui/{*path}` | Serve plugin UI assets |
+| `*` | `/plugin/{id}/{*path}` | Dispatch HTTP request to plugin |
 
 ### Object Storage
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `PUT` | `/api/objects/{bucket}/{key}` | Upload an object |
-| `GET` | `/api/objects/{bucket}/{key}` | Download an object |
-| `DELETE` | `/api/objects/{bucket}/{key}` | Delete an object |
-| `GET` | `/api/objects/{bucket}` | List objects (?prefix=) |
-| `POST` | `/api/uploads` | Initiate resumable upload |
-| `POST` | `/api/uploads/{id}/chunks` | Upload a chunk |
-| `POST` | `/api/uploads/{id}/complete` | Complete resumable upload |
+| `PUT` | `/api/objects/{bucket}/{key}` | Upload object blob |
+| `GET` | `/api/objects/{bucket}/{key}` | Download object blob |
+| `DELETE` | `/api/objects/{bucket}/{key}` | Delete object blob |
+| `GET` | `/api/objects/{bucket}` | List objects in bucket |
+| `POST` | `/api/uploads` | Initiate resumable upload session |
+| `POST` | `/api/uploads/{id}/chunks` | Upload chunk |
+| `POST` | `/api/uploads/{id}/complete` | Finalize resumable upload |
 
 ---
 
@@ -542,31 +388,24 @@ File uploads with resumable transfer support.
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `PANORAMA_DATA_DIR` | `./data` | Data storage directory |
-| `PANORAMA_LISTEN` | `127.0.0.1:3000` | Server listen address |
+| `PANORAMA_DATA_DIR` | `./data` | Root directory for data storage |
+| `PANORAMA_LISTEN` | `127.0.0.1:3000` | Server bind address and port |
 
 ### Data Storage
 
 Data is stored under `$PANORAMA_DATA_DIR/`:
-- `panorama.db` — SQLite database (nodes, fields as JSON blobs, WAL mode)
-- `objects/` — Object storage buckets and files
-- `plugins/` — Loaded .panoapp packages
+- `nodes/panorama.db` — SQLite database (nodes table + 6 meta tables: `namespaces`, `schema_tables`, `managed_indexes`, `field_presence`, `node_schema_conformance`, `field_stats`)
+- `objects/` — Object storage files grouped by bucket
+- `plugins/` — Installed `.panoapp` packages
 
 ### Performance
 
-Panorama stores nodes in SQLite with JSON field blobs and WAL mode. Queries use
-`json_extract` for field-level filtering with parameterized statements. The query
-language compiler emits CTE-based SQL and a prepared statement cache (LRU, 256
-entries) avoids re-compilation for hot queries. This works well for personal-scale
-data (tens of thousands of nodes).
+Nodes are stored in SQLite with JSON field blobs and WAL mode enabled. The query engine uses `json_extract` with CTEs and maintains a prepared statement cache (LRU, 256 entries).
 
 ### Security
 
-- v0.x does NOT implement authentication or end-to-end encryption
-- Run behind a reverse proxy (nginx, Caddy) for TLS
-- Do not expose directly to the public internet
-- Plugins are sandboxed via WASM (wasmtime) but trust is ultimately at the user's discretion
-- Always review plugin capabilities before installing
+- Sandboxed WASM execution via embedded Wasmtime with capability grants.
+- Run behind a TLS reverse proxy (e.g. nginx or Caddy) for production deployments.
 
 ### Backup
 
@@ -574,15 +413,3 @@ Back up the `$PANORAMA_DATA_DIR` directory:
 ```bash
 tar -czf panorama-backup-$(date +%Y%m%d).tar.gz ./data/
 ```
-
-### Troubleshooting
-
-**Server won't start**: Check that the data directory is writable and port is available.
-**Plugin not loading**: Verify the .panoapp file is valid ZIP with manifest.json.
-**WASM execution fails**: Ensure wasmtime CLI is installed (`wasmtime --version`).
-**Frontend can't connect**: Check that the Vite proxy is configured for `/api` and `/plugin`.
-
----
-
-Generated with [Claude Code](https://claude.ai/code)
-via [Happy](https://happy.engineering)
