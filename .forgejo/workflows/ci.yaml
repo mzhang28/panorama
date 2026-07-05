@@ -15,8 +15,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # - name: Install just
-      #   uses: https://github.com/extractions/setup-just@v4
       - uses: https://github.com/taiki-e/install-action@just
 
       - name: Setup Bun
@@ -26,16 +24,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock', '**/package-lock.json') }}
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
           restore-keys: |
             ${{ runner.os }}-bun-
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'frontend/package-lock.json'
 
       - name: Setup Rust toolchain
         uses: https://github.com/dtolnay/rust-toolchain@stable
@@ -52,15 +43,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
 
       - name: Install Playwright Browsers & System Dependencies
         run: |
           cd frontend
-          npm ci || npm install
-          npx playwright install-deps chromium
+          bun install
+          bun x playwright install-deps chromium
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" != "true" ]; then
-            npx playwright install chromium
+            bun x playwright install chromium
           fi
 
       - name: Cache WASM and Build Artifacts
@@ -76,7 +67,7 @@ jobs:
       - name: Type check Rust & Frontend
         run: |
           cargo check --workspace
-          cd frontend && npx tsc --noEmit
+          cd frontend && bun x tsc --noEmit
 
       - name: Run Rust unit & integration tests
         run: cargo test --workspace

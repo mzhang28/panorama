@@ -173,8 +173,8 @@ const app = command({
         PLAYWRIGHT_BASE_URL: `http://127.0.0.1:${serverPort}`,
       };
 
-      const playwrightCmdArgs = ['playwright', 'test', '--project=chromium', ...playwrightArgs];
-      const testResult = spawnSync('npx', playwrightCmdArgs, {
+      const playwrightCmdArgs = ['x', 'playwright', 'test', '--project=chromium', ...playwrightArgs];
+      const testResult = spawnSync('bun', playwrightCmdArgs, {
         cwd: path.join(repoRoot, 'frontend'),
         stdio: 'inherit',
         env: playwrightEnv,

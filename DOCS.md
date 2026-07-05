@@ -84,7 +84,7 @@ making the type system self-hosted. Schemas can be:
 ```bash
 # Prerequisites
 # - Rust 1.80+
-# - Node.js 20+ / Bun
+# - Bun 1.1+
 
 # Clone and build
 git clone <repo-url> panorama

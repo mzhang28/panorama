@@ -26,15 +26,15 @@ serve: build-panoapps
 
 # Install frontend dependencies
 install-frontend:
-    cd frontend && npm install
+    cd frontend && bun install
 
 # Start the frontend dev server (open http://localhost:5173)
 frontend: install-frontend
-    cd frontend && npm run dev
+    cd frontend && bun run dev
 
 # Install Playwright browsers (one-time)
 test-setup: install-frontend
-    cd frontend && npx playwright install chromium
+    cd frontend && bun x playwright install chromium
 
 # Run isolated E2E tests against pre-built server & apps (pass arguments directly to e2e.ts / playwright)
 test-e2e *args:
@@ -56,7 +56,7 @@ profile-tests:
 # Type-check everything
 check:
     cargo check --workspace
-    cd frontend && npx tsc --noEmit
+    cd frontend && bun x tsc --noEmit
 
 # Clean build artifacts
 clean:
