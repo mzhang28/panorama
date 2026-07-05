@@ -1,0 +1,48 @@
+{
+  "name": "panorama-server",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cargo build -p panorama-server"
+      },
+      "configurations": {
+        "development": {
+          "command": "cargo build -p panorama-server"
+        },
+        "release": {
+          "command": "cargo build --release -p panorama-server"
+        }
+      },
+      "defaultConfiguration": "development",
+      "dependsOn": [
+        "panorama-frontend:build"
+      ],
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/Cargo.toml",
+        "{workspaceRoot}/crates/panorama-core/src/**/*",
+        "{workspaceRoot}/Cargo.lock",
+        "{workspaceRoot}/frontend/dist/**/*"
+      ],
+      "outputs": [
+        "{workspaceRoot}/target/debug/panorama-server",
+        "{workspaceRoot}/target/release/panorama-server"
+      ],
+      "cache": true
+    },
+    "check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cargo check -p panorama-server"
+      },
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/Cargo.toml",
+        "{workspaceRoot}/crates/panorama-core/src/**/*",
+        "{workspaceRoot}/Cargo.lock"
+      ],
+      "cache": true
+    }
+  }
+}

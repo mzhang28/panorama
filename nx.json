@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "analytics": false,
+  "targetDefaults": {
+    "build": {
+      "cache": true,
+      "inputs": ["default", "^default"],
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "check": {
+      "cache": true,
+      "inputs": ["default", "^default"]
+    }
+  },
+  "namedInputs": {
+    "default": [
+      "{projectRoot}/src/**/*",
+      "{projectRoot}/vite.config.ts",
+      "{projectRoot}/package.json",
+      "{projectRoot}/index.html",
+      "{projectRoot}/tsconfig.json"
+    ]
+  }
+}

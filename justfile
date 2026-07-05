@@ -4,25 +4,39 @@
 default:
     @just --list
 
-# Build WASM plugin modules (wasm32-wasip1)
+# Build WASM plugin modules in debug mode
 build-wasm:
-    bash scripts/build-wasm.sh
+    bun x nx run-many -t build-wasm -c development
 
-# Package .panoapp files (builds plugin UIs + WASM + zips)
+# Build WASM plugin modules in release mode
+build-wasm-release:
+    bun x nx run-many -t build-wasm -c release
+
+# Package .panoapp files in debug mode (builds plugin UIs + WASM + zips)
 build-panoapps:
-    bash scripts/build-panoapp.sh
+    bun x nx run-many -t package-panoapp -c development
 
-# Build everything (frontend, WASM plugins, server, and .panoapp packages)
+# Package .panoapp files in release mode
+build-panoapps-release:
+    bun x nx run-many -t package-panoapp -c release
+
+# Build everything in debug mode (fastest for development)
 build:
-    cd frontend && bun install --silent && bun x vite build --mode development
-    bash scripts/build-wasm.sh
-    cargo build --release -p panorama-server
-    bash scripts/build-panoapp.sh
+    bun x nx run-many -t package-panoapp -c development
+    bun x nx build panorama-server -c development
 
-# Build + start the server (loads .panoapp from data/plugins/)
-serve: build-panoapps
-    cargo build --release -p panorama-server
-    bash scripts/serve.sh
+# Build everything in release mode (production binaries)
+build-release:
+    bun x nx run-many -t package-panoapp -c release
+    bun x nx build panorama-server -c release
+
+# Build + start the server in debug mode
+serve: build
+    bash scripts/serve.sh debug
+
+# Build + start the server in release mode
+serve-release: build-release
+    bash scripts/serve.sh release
 
 # Install frontend dependencies
 install-frontend:
@@ -38,7 +52,7 @@ test-setup: install-frontend
 
 # Run isolated E2E tests against pre-built server & apps (pass arguments directly to e2e.ts / playwright)
 test-e2e *args:
-    bun scripts/e2e.ts {{ args }}
+    bun x nx run e2e:test -- {{ args }}
 
 # Alias for test-e2e (runs without building by default)
 test-e2e-quick *args:
@@ -53,15 +67,15 @@ profile-tests:
     RUSTFLAGS="-C force-frame-pointers=yes" cargo test --profile release-with-debuginfo -p panorama-server --test integration_test --no-run
     bash scripts/profile-tests.sh
 
-# Type-check everything
+# Type-check everything (Rust workspace + TS projects)
 check:
     cargo check --workspace
-    cd frontend && bun x tsc --noEmit
+    bun x nx run-many -t check
 
 # Clean build artifacts
 clean:
     cargo clean
-    rm -rf dist data frontend/dist
+    rm -rf dist data frontend/dist .nx
     @echo "Cleaned."
 
 # ── Docker ───────────────────────────────────────────────────

@@ -17,6 +17,7 @@
     "@module-federation/vite": "^1.16.0"
   },
   "scripts": {
-    "build": "vite build"
+    "build": "vite build",
+    "check": "tsc --noEmit"
   }
 }

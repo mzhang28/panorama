@@ -1,0 +1,62 @@
+{
+  "name": "panorama-app-grafana",
+  "targets": {
+    "build-wasm": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-grafana --target wasm32-wasip1"
+      },
+      "configurations": {
+        "development": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-grafana --target wasm32-wasip1"
+        },
+        "release": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build --release -p panorama-app-grafana --target wasm32-wasip1"
+        }
+      },
+      "defaultConfiguration": "development",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/Cargo.toml",
+        "{workspaceRoot}/crates/panorama-core/src/**/*",
+        "{workspaceRoot}/crates/wasm-types/src/**/*",
+        "{workspaceRoot}/Cargo.lock"
+      ],
+      "outputs": [
+        "{workspaceRoot}/target/wasm32-wasip1/debug/grafana.wasm",
+        "{workspaceRoot}/target/wasm32-wasip1/release/grafana.wasm"
+      ],
+      "cache": true
+    },
+    "package-panoapp": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun scripts/package-panoapp.ts crates/panorama-app-grafana/manifest.json target/wasm32-wasip1/debug/grafana.wasm dist/panoapp --ui-dir crates/panorama-app-grafana/ui/dist"
+      },
+      "configurations": {
+        "development": {
+          "command": "bun scripts/package-panoapp.ts crates/panorama-app-grafana/manifest.json target/wasm32-wasip1/debug/grafana.wasm dist/panoapp --ui-dir crates/panorama-app-grafana/ui/dist"
+        },
+        "release": {
+          "command": "bun scripts/package-panoapp.ts crates/panorama-app-grafana/manifest.json target/wasm32-wasip1/release/grafana.wasm dist/panoapp --ui-dir crates/panorama-app-grafana/ui/dist"
+        }
+      },
+      "defaultConfiguration": "development",
+      "dependsOn": [
+        "build-wasm",
+        "panorama-plugin-grafana-ui:build"
+      ],
+      "inputs": [
+        "{projectRoot}/manifest.json",
+        "{workspaceRoot}/scripts/package-panoapp.ts",
+        "{workspaceRoot}/target/wasm32-wasip1/debug/grafana.wasm",
+        "{workspaceRoot}/target/wasm32-wasip1/release/grafana.wasm",
+        "{projectRoot}/ui/dist/**/*"
+      ],
+      "outputs": [
+        "{workspaceRoot}/dist/panoapp/grafana.panoapp"
+      ],
+      "cache": true
+    }
+  }
+}

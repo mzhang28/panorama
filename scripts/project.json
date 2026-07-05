@@ -1,0 +1,25 @@
+{
+  "name": "e2e",
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun scripts/e2e.ts"
+      },
+      "dependsOn": [
+        "panorama-server:build",
+        "panorama-app-beli:package-panoapp",
+        "panorama-app-files:package-panoapp",
+        "panorama-app-grafana:package-panoapp",
+        "panorama-app-journal:package-panoapp",
+        "panorama-app-subsonic:package-panoapp",
+        "panorama-app-trips:package-panoapp",
+        "panorama-app-wakatime:package-panoapp"
+      ],
+      "inputs": [
+        "{workspaceRoot}/frontend/e2e/**/*",
+        "{workspaceRoot}/scripts/e2e.ts"
+      ]
+    }
+  }
+}

@@ -82,11 +82,32 @@ const app = command({
     const repoRoot = path.resolve(import.meta.dir, '..');
     process.chdir(repoRoot);
 
+    // Load .env if present
+    const envPath = path.join(repoRoot, '.env');
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+          const idx = trimmed.indexOf('=');
+          const key = trimmed.slice(0, idx).trim();
+          const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, '');
+          if (key && !(key in process.env)) {
+            process.env[key] = val;
+          }
+        }
+      }
+    }
+
     const serverPort = args.port ?? (await findFreePort());
     const playwrightArgs = args.playwrightArgs;
+    const e2eWorkers = process.env.E2E_WORKERS;
 
     console.log('=== Panorama E2E Harness ===');
     console.log(`  server   : 127.0.0.1:${serverPort}`);
+    if (e2eWorkers) {
+      console.log(`  workers  : ${e2eWorkers}`);
+    }
     if (playwrightArgs.length > 0) {
       console.log(`  playwright args: ${playwrightArgs.join(' ')}`);
     }
@@ -101,18 +122,11 @@ const app = command({
 
     try {
       if (args.build) {
-        console.log('--- Building frontend (dev mode — workspace imports) ---');
-        runCommand('bun', ['install', '--silent'], path.join(repoRoot, 'frontend'));
-        runCommand('bun', ['x', 'vite', 'build', '--mode', 'development'], path.join(repoRoot, 'frontend'));
+        console.log('--- Packaging .panoapp files via Nx ---');
+        runCommand('bun', ['x', 'nx', 'run-many', '-t', 'package-panoapp'], repoRoot);
 
-        console.log('\n--- Building WASM plugins ---');
-        runCommand('bash', ['scripts/build-wasm.sh'], repoRoot);
-
-        console.log('\n--- Building server (embeds frontend via rust-embed) ---');
-        runCommand('cargo', ['build', '--release', '-p', 'panorama-server'], repoRoot);
-
-        console.log('\n--- Building plugin UIs + packaging .panoapp files ---');
-        runCommand('bash', ['scripts/build-panoapp.sh'], repoRoot);
+        console.log('\n--- Building server via Nx ---');
+        runCommand('bun', ['x', 'nx', 'build', 'panorama-server'], repoRoot);
         console.log('');
       }
 
@@ -134,10 +148,13 @@ const app = command({
       console.log(`  Copied ${panoappFiles.length} .panoapp files`);
       console.log('');
 
-      // Check server binary exists
-      const serverBin = path.join(repoRoot, 'target', 'release', 'panorama-server');
+      // Check server binary exists (check debug or release)
+      const debugBin = path.join(repoRoot, 'target', 'debug', 'panorama-server');
+      const releaseBin = path.join(repoRoot, 'target', 'release', 'panorama-server');
+      const serverBin = fs.existsSync(debugBin) ? debugBin : releaseBin;
+
       if (!fs.existsSync(serverBin)) {
-        console.error(`  ✗ Server binary not found at ${serverBin} — build first (e.g. \`just build\`) or pass --build`);
+        console.error(`  ✗ Server binary not found at ${debugBin} or ${releaseBin} — build first (e.g. \`just build\`) or pass --build`);
         process.exit(1);
       }
 
@@ -173,7 +190,13 @@ const app = command({
         PLAYWRIGHT_BASE_URL: `http://127.0.0.1:${serverPort}`,
       };
 
-      const playwrightCmdArgs = ['x', 'playwright', 'test', '--project=chromium', ...playwrightArgs];
+      const hasWorkersArg = playwrightArgs.some((arg) => arg.includes('--workers') || arg.startsWith('-j'));
+      const extraPlaywrightArgs: string[] = [];
+      if (e2eWorkers && !hasWorkersArg) {
+        extraPlaywrightArgs.push(`--workers=${e2eWorkers}`);
+      }
+
+      const playwrightCmdArgs = ['x', 'playwright', 'test', '--project=chromium', '--fully-parallel', ...extraPlaywrightArgs, ...playwrightArgs];
       const testResult = spawnSync('bun', playwrightCmdArgs, {
         cwd: path.join(repoRoot, 'frontend'),
         stdio: 'inherit',

@@ -1,0 +1,62 @@
+{
+  "name": "panorama-app-subsonic",
+  "targets": {
+    "build-wasm": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-subsonic --target wasm32-wasip1"
+      },
+      "configurations": {
+        "development": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-subsonic --target wasm32-wasip1"
+        },
+        "release": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build --release -p panorama-app-subsonic --target wasm32-wasip1"
+        }
+      },
+      "defaultConfiguration": "development",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/Cargo.toml",
+        "{workspaceRoot}/crates/panorama-core/src/**/*",
+        "{workspaceRoot}/crates/wasm-types/src/**/*",
+        "{workspaceRoot}/Cargo.lock"
+      ],
+      "outputs": [
+        "{workspaceRoot}/target/wasm32-wasip1/debug/subsonic.wasm",
+        "{workspaceRoot}/target/wasm32-wasip1/release/subsonic.wasm"
+      ],
+      "cache": true
+    },
+    "package-panoapp": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun scripts/package-panoapp.ts crates/panorama-app-subsonic/manifest.json target/wasm32-wasip1/debug/subsonic.wasm dist/panoapp --ui-dir crates/panorama-app-subsonic/ui/dist"
+      },
+      "configurations": {
+        "development": {
+          "command": "bun scripts/package-panoapp.ts crates/panorama-app-subsonic/manifest.json target/wasm32-wasip1/debug/subsonic.wasm dist/panoapp --ui-dir crates/panorama-app-subsonic/ui/dist"
+        },
+        "release": {
+          "command": "bun scripts/package-panoapp.ts crates/panorama-app-subsonic/manifest.json target/wasm32-wasip1/release/subsonic.wasm dist/panoapp --ui-dir crates/panorama-app-subsonic/ui/dist"
+        }
+      },
+      "defaultConfiguration": "development",
+      "dependsOn": [
+        "build-wasm",
+        "panorama-plugin-subsonic-ui:build"
+      ],
+      "inputs": [
+        "{projectRoot}/manifest.json",
+        "{workspaceRoot}/scripts/package-panoapp.ts",
+        "{workspaceRoot}/target/wasm32-wasip1/debug/subsonic.wasm",
+        "{workspaceRoot}/target/wasm32-wasip1/release/subsonic.wasm",
+        "{projectRoot}/ui/dist/**/*"
+      ],
+      "outputs": [
+        "{workspaceRoot}/dist/panoapp/subsonic.panoapp"
+      ],
+      "cache": true
+    }
+  }
+}
