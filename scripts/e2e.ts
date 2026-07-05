@@ -196,7 +196,7 @@ const app = command({
         extraPlaywrightArgs.push(`--workers=${e2eWorkers}`);
       }
 
-      const playwrightCmdArgs = ['x', 'playwright', 'test', '--project=chromium', '--fully-parallel', ...extraPlaywrightArgs, ...playwrightArgs];
+      const playwrightCmdArgs = ['x', 'playwright', 'test', '--project=chromium', ...extraPlaywrightArgs, ...playwrightArgs];
       const testResult = spawnSync('bun', playwrightCmdArgs, {
         cwd: path.join(repoRoot, 'frontend'),
         stdio: 'inherit',
