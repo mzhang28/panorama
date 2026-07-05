@@ -21,15 +21,26 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock', '**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install Python dependencies
         run: pip install click
@@ -39,14 +50,36 @@ jobs:
         with:
           targets: wasm32-wasip1
 
-      - name: Cache Rust build artifacts
+      - name: Cache Rust build artifacts & cargo dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
 
       - name: Install Playwright Browsers & System Dependencies
         run: |
           cd frontend
-          npm install
-          npx playwright install --with-deps chromium
+          npm ci || npm install
+          npx playwright install-deps chromium
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" != "true" ]; then
+            npx playwright install chromium
+          fi
+
+      - name: Cache WASM and Build Artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/wasm32-wasip1
+            dist
+          key: ${{ runner.os }}-build-artifacts-${{ hashFiles('crates/**/src/**', 'crates/**/Cargo.toml', 'frontend/src/**') }}
+          restore-keys: |
+            ${{ runner.os }}-build-artifacts-
 
       - name: Type check Rust & Frontend
         run: |
