@@ -17,7 +17,7 @@ jobs:
 
       # - name: Install just
       #   uses: https://github.com/extractions/setup-just@v4
-      - uses: taiki-e/install-action@just
+      - uses: https://github.com/taiki-e/install-action@just
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
