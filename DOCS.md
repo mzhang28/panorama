@@ -9,11 +9,12 @@ and a modern web frontend.
 1. [System Design](#system-design)
 2. [User Guide](#user-guide)
 3. [Developer Guide](#developer-guide)
-4. [Plugin API Reference](#plugin-api-reference)
-5. [.panoapp Format Specification](#panoapp-format-specification)
-6. [Example Apps](#example-apps)
-7. [API Reference](#api-reference)
-8. [Operations Guide](#operations-guide)
+4. [Panorama Query Language (PQL)](#panorama-query-language-pql)
+5. [Plugin API Reference](#plugin-api-reference)
+6. [.panoapp Format Specification](#panoapp-format-specification)
+7. [Example Apps](#example-apps)
+8. [API Reference](#api-reference)
+9. [Operations Guide](#operations-guide)
 
 ---
 
@@ -22,10 +23,10 @@ and a modern web frontend.
 ### Core Concepts
 
 **Nodes** are the fundamental data unit. Every piece of data in Panorama is a node with:
-- A unique UUID
+- A unique UUID (`id`)
 - Arbitrary fields (keyed by `namespace:field_name`)
 - Optional schema conformance (preferred or required)
-- System timestamps (created_at, updated_at)
+- System timestamps (`created_at`, `updated_at`)
 - Space membership (`space_id`)
 
 **Schemas** define groups of fields with requirements. Schemas are themselves nodes,
@@ -202,42 +203,6 @@ RUSTFLAGS="-C link-arg=--allow-undefined" cargo build --release -p my-plugin --t
 python3 scripts/package-panoapp.py manifest.json target/wasm32-wasip1/release/my_plugin.wasm dist/panoapp --ui-dir ui/dist
 ```
 
-### PluginContext API
-
-The `PluginContext` is the official interface provided to plugins:
-
-| Method | Description |
-|--------|-------------|
-| `create_nodes(nodes) -> Vec<Node>` | Create multiple nodes in batch |
-| `create_node(node) -> Node` | Create a single node |
-| `get_node(id) -> Option<Node>` | Get a node by UUID |
-| `update_node(id, fields) -> Node` | Update a node's fields |
-| `delete_node(id)` | Delete a node |
-| `query(query_string) -> Vec<Value>` | Execute a query in Panorama Query Language |
-| `register_schema(schema) -> Schema` | Register a schema |
-| `get_schema(id) -> Option<Schema>` | Get a schema by ID |
-| `put_object(bucket, key, data, mime) -> ObjectRef` | Store an object in object storage |
-| `get_object(bucket, key) -> Option<ObjectData>` | Retrieve an object |
-| `delete_object(bucket, key)` | Delete an object |
-| `list_objects(bucket, prefix) -> Vec<ObjectRef>` | List objects in a bucket |
-| `plugin_id() -> &str` | Get the plugin's registered ID |
-
-See `design/QUERY_DESIGN.md` for full PQL specification.
-
-### Capability System
-
-| Capability | Description |
-|-----------|-------------|
-| `network_hosts` | Whitelisted hosts the plugin can contact |
-| `field_read` | Namespaced fields readable by plugin (`*` for all) |
-| `field_write` | Namespaced fields writeable by plugin |
-| `write_own_nodes` | Permission to write nodes created by plugin |
-| `app_managed_nodes` | Permission for app-managed nodes |
-| `object_storage_read` | Permission to read object storage |
-| `object_storage_write` | Permission to write object storage |
-| `file_read` / `file_write` | Filesystem access permission |
-| `execute` | External process execution permission |
-
 ### Running Tests
 
 ```bash
@@ -250,6 +215,117 @@ just test-rust
 # Type check workspace
 just check
 ```
+
+---
+
+## Panorama Query Language (PQL)
+
+Panorama features a specialized Cypher-flavored query language (PQL v0) designed to query nodes, enforce space isolation boundaries, check field presence, and traverse reference graphs.
+
+### Surface Syntax & Examples
+
+#### 1. Basic Match & Space Isolation
+Every `MATCH` clause **requires** an explicit `IN space(...)` specifier for mandatory tenant data isolation:
+```cypher
+MATCH (n) IN space("default")
+RETURN n
+```
+
+#### 2. Schema Conformance Filtering
+Filter nodes that conform to a specific schema (with optional version constraints):
+```cypher
+MATCH (n) IN space("default")
+WHERE n CONFORMS TO schema("journal/JournalEntry")
+RETURN n
+```
+
+#### 3. Namespaced Field Access & Predicates
+Fields are accessed via `n."namespace".field_name` or `n.system.field_name`:
+```cypher
+MATCH (n) IN space("default")
+WHERE n CONFORMS TO schema("wakatime/Heartbeat")
+  AND n."wakatime".project = "panorama"
+  AND n.system.node_time >= "2026-01-01T00:00:00Z"
+RETURN n."wakatime".entity, n.system.node_time
+```
+
+#### 4. Field Presence Inspection
+Check whether a specific field exists on a node using `HAS_FIELD`:
+```cypher
+MATCH (n) IN space("default")
+WHERE HAS_FIELD(n, "journal", "content")
+RETURN n
+```
+
+#### 5. Reference Graph Traversal
+Traverse relationships between nodes using bounded reference hops:
+```cypher
+MATCH (a)-[:REF("attendee")]->(b) IN space("default")
+WHERE a CONFORMS TO schema("trips/Event")
+RETURN a.system.node_title, b.system.node_title
+LIMIT 50
+```
+
+#### 6. Ordering, Limits, & Unindexed SCAN Opt-in
+```cypher
+MATCH (n) IN space("default")
+WHERE SCAN(n."journal".content LIKE "%important%")
+ORDER BY n.system.created_at DESC
+LIMIT 20
+SKIP 0
+```
+*Note: Predicates on non-indexed fields require an explicit `SCAN(...)` wrapper to prevent accidental unindexed database scans.*
+
+### Query Execution Engine & Architecture
+
+PQL queries execute via a **Two-Phase Compilation Engine**:
+1. **Phase 1 (Meta Lookup)**:
+   - Resolves space names to `space_id` UUIDs.
+   - Looks up meta tables (`field_presence`, `node_schema_conformance`, `namespaces`, `managed_indexes`).
+2. **Phase 2 (SQL Generation & Prepared Statement Cache)**:
+   - Compiles AST into a single optimized SQLite query with Common Table Expressions (CTEs).
+   - Joins directly against `field_presence` and `node_schema_conformance` tables instead of parsing raw JSON strings at query time.
+   - Prepared statements are cached in an LRU cache (256 entries) for maximum performance.
+
+---
+
+## Plugin API Reference
+
+The `PluginContext` trait is the primary interface provided by `panorama-core` to plugins.
+
+### Context Method Reference
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `create_nodes` | `async fn create_nodes(&self, nodes: Vec<Node>) -> Result<Vec<Node>, PluginError>` | Create multiple nodes in a single atomic storage operation |
+| `create_node` | `async fn create_node(&self, node: Node) -> Result<Node, PluginError>` | Create a single node (convenience wrapper over `create_nodes`) |
+| `get_node` | `async fn get_node(&self, id: Uuid) -> Result<Option<Node>, PluginError>` | Fetch a node by UUID |
+| `update_node` | `async fn update_node(&self, id: Uuid, fields: HashMap<String, FieldValue>) -> Result<Node, PluginError>` | Update namespaced fields on an existing node |
+| `delete_node` | `async fn delete_node(&self, id: Uuid) -> Result<(), PluginError>` | Permanently delete a node |
+| `query` | `async fn query(&self, query_string: &str) -> Result<Vec<serde_json::Value>, PluginError>` | Execute a PQL query string and return matching rows/nodes |
+| `register_schema` | `async fn register_schema(&self, schema: Schema) -> Result<Schema, PluginError>` | Register a custom schema in the platform registry |
+| `get_schema` | `async fn get_schema(&self, id: Uuid) -> Result<Option<Schema>, PluginError>` | Retrieve a schema definition by ID |
+| `put_object` | `async fn put_object(&self, bucket: &str, key: &str, data: Bytes, mime_type: &str) -> Result<ObjectRef, PluginError>` | Store a binary file blob in object storage |
+| `get_object` | `async fn get_object(&self, bucket: &str, key: &str) -> Result<Option<ObjectData>, PluginError>` | Retrieve a binary file blob from object storage |
+| `delete_object` | `async fn delete_object(&self, bucket: &str, key: &str) -> Result<(), PluginError>` | Delete a binary object from storage |
+| `list_objects` | `async fn list_objects(&self, bucket: &str, prefix: Option<&str>) -> Result<Vec<ObjectRef>, PluginError>` | List object references in a bucket |
+| `plugin_id` | `fn plugin_id(&self) -> &str` | Return the unique identifier string of the calling plugin |
+
+### Capability System
+
+Plugins declare capabilities in `manifest.json`. The platform runtime checks these permissions before performing host operations:
+
+| Capability Field | Description |
+|-----------------|-------------|
+| `network_hosts` | Whitelisted remote domain names or hostnames for HTTP requests |
+| `field_read` | Namespaced fields readable by plugin (e.g. `["journal:*", "system:*"]` or `["*"]`) |
+| `field_write` | Namespaced fields writeable by plugin (e.g. `["wakatime:*", "system:node_time"]`) |
+| `write_own_nodes` | Boolean granting permission to modify nodes created by the plugin |
+| `app_managed_nodes` | Boolean granting permission for app-managed immutable nodes |
+| `object_storage_read` | Boolean permission to read from object storage buckets |
+| `object_storage_write` | Boolean permission to write to object storage buckets |
+| `file_read` / `file_write` | Boolean permissions for local filesystem operations |
+| `execute` | Boolean permission to execute external system processes |
 
 ---
 
@@ -340,45 +416,158 @@ File browser with resumable chunked upload support.
 
 ## API Reference
 
-### Node CRUD
+### Node Management REST API
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/nodes` | Create a node |
-| `GET` | `/api/nodes` | Query nodes (`?limit=`, `?sort_by=`, filter params) |
-| `GET` | `/api/nodes/{id}` | Get node by UUID |
-| `PUT` | `/api/nodes/{id}` | Update node fields |
-| `DELETE` | `/api/nodes/{id}` | Delete node |
-| `POST` | `/api/query` | Execute PQL query |
+#### `POST /api/nodes` — Create Node
+Create a new node in storage. Enforces required schema validations.
 
-### Schemas
+**Request Body**:
+```json
+{
+  "space_id": "00000000-0000-0000-0000-000000000000",
+  "fields": {
+    "system:node_title": { "type": "String", "value": "My Entry" },
+    "journal:content": { "type": "String", "value": "# Hello World" }
+  },
+  "schemas": [
+    {
+      "schema_node_id": "11111111-1111-1111-1111-111111111111",
+      "version": { "major": 1, "minor": 0 }
+    }
+  ]
+}
+```
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/schemas` | List all schemas |
-| `GET` | `/api/schemas/{id}` | Get schema details |
+**Response (200 OK)**:
+```json
+{
+  "id": "e43b1234-5678-4abc-8def-901234567890",
+  "space_id": "00000000-0000-0000-0000-000000000000",
+  "fields": {
+    "system:node_title": { "type": "String", "value": "My Entry" },
+    "journal:content": { "type": "String", "value": "# Hello World" }
+  },
+  "preferred_schemas": [
+    {
+      "schema_node_id": "11111111-1111-1111-1111-111111111111",
+      "version": { "major": 1, "minor": 0 }
+    }
+  ],
+  "created_at": "2026-07-05T01:00:00Z",
+  "updated_at": "2026-07-05T01:00:00Z"
+}
+```
 
-### Plugins
+#### `GET /api/nodes` — Query / List Nodes
+**Query Parameters**:
+- `limit` (number, default: 100)
+- `sort_by` (string, e.g. `created_at` or `updated_at`)
+- `filter.<namespace>:<field_name>` (string, filter nodes matching field value)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/plugins` | List loaded plugins |
-| `GET` | `/api/plugins/{id}` | Get plugin details |
-| `GET` | `/api/plugins/{id}/static` | List plugin UI static files |
-| `GET` | `/plugin/{id}/ui/{*path}` | Serve plugin UI assets |
-| `*` | `/plugin/{id}/{*path}` | Dispatch HTTP request to plugin |
+**Response (200 OK)**: JSON array of `Node` objects.
 
-### Object Storage
+#### `GET /api/nodes/{id}` — Get Node
+**Response (200 OK)**: `Node` JSON object. If not found, returns `404 NOT_FOUND`.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `PUT` | `/api/objects/{bucket}/{key}` | Upload object blob |
-| `GET` | `/api/objects/{bucket}/{key}` | Download object blob |
-| `DELETE` | `/api/objects/{bucket}/{key}` | Delete object blob |
-| `GET` | `/api/objects/{bucket}` | List objects in bucket |
-| `POST` | `/api/uploads` | Initiate resumable upload session |
-| `POST` | `/api/uploads/{id}/chunks` | Upload chunk |
-| `POST` | `/api/uploads/{id}/complete` | Finalize resumable upload |
+#### `PUT /api/nodes/{id}` — Update Node
+Update fields or attach additional schemas to an existing node.
+
+**Request Body**:
+```json
+{
+  "fields": {
+    "system:node_title": { "type": "String", "value": "Updated Title" }
+  }
+}
+```
+
+#### `DELETE /api/nodes/{id}` — Delete Node
+Delete node by UUID. Returns `200 OK`.
+
+---
+
+### PQL Query REST API
+
+#### `POST /api/query` — Execute PQL Query
+Executes a surface PQL query against the database.
+
+**Request Body**:
+```json
+{
+  "query": "MATCH (n) IN space(\"default\") WHERE n CONFORMS TO schema(\"journal/JournalEntry\") RETURN n LIMIT 10"
+}
+```
+
+**Response (200 OK)**: JSON array of query result rows or node objects.
+
+---
+
+### Schemas REST API
+
+#### `GET /api/schemas` — List Schemas
+Returns all registered system and plugin schema definitions.
+
+#### `GET /api/schemas/{id}` — Get Schema
+Returns details for a specific schema UUID.
+
+---
+
+### Plugins REST API
+
+#### `GET /api/plugins` — List Plugins
+Lists all installed plugins along with their endpoints, schemas, and UI component definitions.
+
+#### `GET /api/plugins/{id}` — Get Plugin Details
+Returns details for a specific plugin ID.
+
+#### `GET /api/plugins/{id}/static` — List Plugin UI Assets
+Returns array of static UI asset file paths inside the `.panoapp` bundle.
+
+#### `GET /plugin/{plugin_id}/ui/{*path}` — Serve Plugin UI Asset
+Serves raw frontend static asset files (JavaScript, CSS, HTML, images).
+
+#### `* /plugin/{plugin_id}/{*path}` — Plugin Endpoint Dispatch
+Forwards HTTP request directly to the specified plugin handler (supports `GET`, `POST`, `PUT`, `DELETE`, `PATCH`).
+
+---
+
+### Object Storage REST API
+
+#### `PUT /api/objects/{bucket}/{key}` — Upload Object
+Uploads raw binary payload into specified bucket and key.
+
+#### `GET /api/objects/{bucket}/{key}` — Download Object
+Downloads binary blob content with `Content-Type` header.
+
+#### `DELETE /api/objects/{bucket}/{key}` — Delete Object
+Removes binary file from object storage.
+
+#### `GET /api/objects/{bucket}` — List Objects
+Lists objects in a bucket. Query param `?prefix=` filters by key prefix.
+
+#### Resumable Chunked Uploads
+
+1. **Initiate Session**: `POST /api/uploads`
+   ```json
+   {
+     "bucket": "media",
+     "key": "audio.mp3",
+     "mime_type": "audio/mpeg",
+     "total_size": 10485760
+   }
+   ```
+   *Response*: `{ "upload_id": "session-uuid" }`
+
+2. **Upload Chunks**: `POST /api/uploads/{upload_id}/chunks`
+   ```json
+   {
+     "chunk_index": 0,
+     "data": "<base64_encoded_chunk_data>"
+   }
+   ```
+
+3. **Complete Upload**: `POST /api/uploads/{upload_id}/complete`
+   Assembles all uploaded chunks into the final object storage file.
 
 ---
 
