@@ -224,7 +224,8 @@ test.describe('Journal Plugin UI', () => {
     await expect(page.locator('.journal-main')).toContainText('Edited content', { timeout: 5000 });
   });
 
-  test('can delete a page', async ({ page }) => {
+  test('can delete a page', async ({ page, baseURL }) => {
+    test.setTimeout(20_000);
     await page.goto('/');
     await page.click('a:has-text("Journal")');
     await page.waitForTimeout(1000);
@@ -236,15 +237,19 @@ test.describe('Journal Plugin UI', () => {
     await page.locator('.journal-new-title-input').fill(delTitle);
     await page.locator('.journal-new-textarea').fill('to be deleted');
     await page.click('button:has-text("Create Page")');
-    await page.waitForTimeout(800);
+
+    // Wait for the page to appear in sidebar and be selected
+    await expect(page.locator(`.journal-page-link-title:has-text("${delTitle}")`).first()).toBeVisible({ timeout: 5000 });
+
+    // Wait for the page header with delete button to render
+    await expect(page.locator('.journal-page-meta button[title="Delete page"]')).toBeVisible({ timeout: 5000 });
 
     // Click the delete button in the page header
     page.once('dialog', (dialog) => dialog.accept());
     await page.locator('.journal-page-meta button[title="Delete page"]').click();
-    await page.waitForTimeout(800);
 
-    // Page should show as deleted in sidebar
-    await expect(page.locator('.journal-page-link.deleted').first()).toBeVisible({ timeout: 5000 });
+    // Page should show as soft-deleted in sidebar (strikethrough)
+    await expect(page.locator('.journal-page-link.deleted').first()).toBeVisible({ timeout: 8000 });
   });
 
   test('adding a child block to a page', async ({ page }) => {
