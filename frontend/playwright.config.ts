@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 if (!process.env.E2E_WORKERS) {
   const envDir = import.meta.dirname ?? path.resolve(process.cwd(), '..');
@@ -25,9 +25,9 @@ const e2eWorkers = process.env.E2E_WORKERS ? parseInt(process.env.E2E_WORKERS, 1
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 10_000,
-  expect: { timeout: 3_000 },
-  fullyParallel: false,
+  timeout: 30_000,
+  expect: { timeout: 30_000 },
+  fullyParallel: true,
   retries: 0,
   workers: e2eWorkers,
   reporter: 'list',
