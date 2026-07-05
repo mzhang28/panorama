@@ -7,18 +7,19 @@
         "command": "bun scripts/e2e.ts"
       },
       "dependsOn": [
-        "panorama-server:build",
-        "panorama-app-beli:package-panoapp",
-        "panorama-app-files:package-panoapp",
-        "panorama-app-grafana:package-panoapp",
-        "panorama-app-journal:package-panoapp",
-        "panorama-app-subsonic:package-panoapp",
-        "panorama-app-trips:package-panoapp",
-        "panorama-app-wakatime:package-panoapp"
+        "panorama-server:build:release",
+        "panorama-app-beli:package-panoapp:release",
+        "panorama-app-files:package-panoapp:release",
+        "panorama-app-grafana:package-panoapp:release",
+        "panorama-app-journal:package-panoapp:release",
+        "panorama-app-subsonic:package-panoapp:release",
+        "panorama-app-trips:package-panoapp:release",
+        "panorama-app-wakatime:package-panoapp:release"
       ],
       "inputs": [
         "{workspaceRoot}/frontend/e2e/**/*",
-        "{workspaceRoot}/scripts/e2e.ts"
+        "{workspaceRoot}/scripts/e2e.ts",
+        "{workspaceRoot}/scripts/instance.ts"
       ]
     }
   }

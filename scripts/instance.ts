@@ -11,6 +11,10 @@ import { createServer } from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface ServerInstance {
   port: number;
@@ -36,7 +40,7 @@ export async function findFreePort(): Promise<number> {
   });
 }
 
-export async function waitForUrl(url: string, attempts = 60, interval = 100, desc = 'server'): Promise<boolean> {
+export async function waitForUrl(url: string, attempts = 150, interval = 100, desc = 'server'): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
     try {
       const res = await fetch(url, { headers: { 'User-Agent': 'E2E-Instance' } });
@@ -53,7 +57,7 @@ export async function waitForUrl(url: string, attempts = 60, interval = 100, des
 }
 
 export async function spawnInstance(customRepoRoot?: string): Promise<ServerInstance> {
-  const repoRoot = customRepoRoot ?? path.resolve(import.meta.dir, '..');
+  const repoRoot = customRepoRoot ?? path.resolve(__dirname, '..');
   const serverPort = await findFreePort();
 
   // Create temporary data directory
@@ -71,9 +75,9 @@ export async function spawnInstance(customRepoRoot?: string): Promise<ServerInst
   }
 
   // Check server binary exists (debug or release)
-  const debugBin = path.join(repoRoot, 'target', 'debug', 'panorama-server');
   const releaseBin = path.join(repoRoot, 'target', 'release', 'panorama-server');
-  const serverBin = fs.existsSync(debugBin) ? debugBin : releaseBin;
+  const debugBin = path.join(repoRoot, 'target', 'debug', 'panorama-server');
+  const serverBin = fs.existsSync(releaseBin) ? releaseBin : debugBin;
 
   if (!fs.existsSync(serverBin)) {
     throw new Error(`Server binary not found at ${debugBin} or ${releaseBin} — build first (e.g. \`just build\`)`);
@@ -85,12 +89,18 @@ export async function spawnInstance(customRepoRoot?: string): Promise<ServerInst
     PANORAMA_LISTEN: `127.0.0.1:${serverPort}`,
   };
 
-  const serverProcess: ChildProcess = spawn(serverBin, [], { env, stdio: 'pipe' });
+  const serverProcess: ChildProcess = spawn(serverBin, [], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let serverLogs = '';
+  serverProcess.stdout?.on('data', (chunk) => { serverLogs += chunk.toString(); });
+  serverProcess.stderr?.on('data', (chunk) => { serverLogs += chunk.toString(); });
 
   const url = `http://127.0.0.1:${serverPort}`;
-  const ready = await waitForUrl(`${url}/api/plugins`, 60, 100, `instance on port ${serverPort}`);
+  const ready = await waitForUrl(`${url}/api/plugins`, 150, 100, `instance on port ${serverPort}`);
 
   if (!ready) {
+    if (serverLogs) {
+      console.error(`--- Server logs for port ${serverPort} ---\n${serverLogs}\n--- End server logs ---`);
+    }
     serverProcess.kill('SIGKILL');
     fs.rmSync(tempDir, { recursive: true, force: true });
     throw new Error(`Server failed to start on port ${serverPort}`);
@@ -123,7 +133,7 @@ export async function spawnInstance(customRepoRoot?: string): Promise<ServerInst
 }
 
 // CLI entrypoint if executed directly
-if (import.meta.main) {
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   const command = process.argv[2] || 'start';
 
   if (command === 'start') {

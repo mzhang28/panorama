@@ -55,8 +55,14 @@ test.describe('Node CRUD through UI', () => {
 
   test('clicking a node shows its detail', async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('.card', { timeout: 5000 });
-    await page.locator('.card').first().click();
+    await page.click('button:has-text("+ New Node")');
+    const uniqueTitle = `Detail-${Date.now()}`;
+    await page.locator('input[placeholder="Node title"]').fill(uniqueTitle);
+    await page.click('button:has-text("Create")');
+    await page.waitForTimeout(500);
+
+    const card = page.locator('.card').filter({ hasText: uniqueTitle });
+    await card.click();
     await expect(page.locator('h3:has-text("Node:")').first()).toBeVisible({ timeout: 3000 });
     // The detail panel shows field data in a table
     await expect(page.locator('table')).toBeVisible({ timeout: 3000 });

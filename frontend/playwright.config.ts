@@ -25,9 +25,9 @@ const e2eWorkers = process.env.E2E_WORKERS ? parseInt(process.env.E2E_WORKERS, 1
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 60_000,
-  expect: { timeout: 10_000 },
-  fullyParallel: true,
+  timeout: 10_000,
+  expect: { timeout: 3_000 },
+  fullyParallel: false,
   retries: 0,
   workers: e2eWorkers,
   reporter: 'list',

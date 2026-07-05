@@ -73,11 +73,11 @@ const app = command({
     console.log('');
 
     if (args.build) {
-      console.log('--- Packaging .panoapp files via Nx ---');
-      runCommand('bun', ['x', 'nx', 'run-many', '-t', 'package-panoapp'], repoRoot);
+      console.log('--- Packaging .panoapp files (release mode) via Nx ---');
+      runCommand('bun', ['x', 'nx', 'run-many', '-t', 'package-panoapp', '-c', 'release'], repoRoot);
 
-      console.log('\n--- Building server via Nx ---');
-      runCommand('bun', ['x', 'nx', 'build', 'panorama-server'], repoRoot);
+      console.log('\n--- Building server (release mode) via Nx ---');
+      runCommand('bun', ['x', 'nx', 'build', 'panorama-server', '-c', 'release'], repoRoot);
       console.log('');
     }
 

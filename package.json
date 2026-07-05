@@ -1,6 +1,7 @@
 {
   "name": "panorama",
   "private": true,
+  "type": "module",
   "workspaces": [
     "frontend",
     "crates/panorama-app-*/ui"
