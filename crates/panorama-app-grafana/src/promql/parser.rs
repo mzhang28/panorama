@@ -31,11 +31,12 @@ impl From<ParseError> for panorama_core::PluginError {
 struct Parser {
     input: Vec<char>,
     pos: usize,
+    depth: usize,
 }
 
 impl Parser {
     fn new(src: &str) -> Self {
-        Self { input: src.chars().collect(), pos: 0 }
+        Self { input: src.chars().collect(), pos: 0, depth: 0 }
     }
 
     fn err<T>(&self, msg: &str) -> Result<T, ParseError> {
@@ -60,20 +61,62 @@ impl Parser {
         }
     }
 
-    fn peek_str(&self, s: &str) -> bool {
-        let remaining: String = self.input[self.pos..].iter().collect();
-        remaining.starts_with(s)
+    fn peek_str(&mut self, s: &str) -> bool {
+        self.skip_ws();
+        let s_chars: Vec<char> = s.chars().collect();
+        if self.pos + s_chars.len() > self.input.len() {
+            return false;
+        }
+        for (i, &ch) in s_chars.iter().enumerate() {
+            if self.input[self.pos + i] != ch {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn match_keyword(&mut self, kw: &str) -> bool {
+        self.skip_ws();
+        let kw_chars: Vec<char> = kw.chars().collect();
+        let len = kw_chars.len();
+
+        if self.pos + len > self.input.len() {
+            return false;
+        }
+
+        for (i, &ch) in kw_chars.iter().enumerate() {
+            if self.input[self.pos + i].to_ascii_lowercase() != ch.to_ascii_lowercase() {
+                return false;
+            }
+        }
+
+        if let Some(&next) = self.input.get(self.pos + len) {
+            if next.is_alphanumeric() || next == '_' {
+                return false;
+            }
+        }
+
+        self.pos += len;
+        true
     }
 
     fn expect_str(&mut self, s: &str) -> Result<(), ParseError> {
         self.skip_ws();
-        let remaining: String = self.input[self.pos..].iter().collect();
-        if remaining.starts_with(s) {
-            self.pos += s.len();
-            Ok(())
-        } else {
-            self.err(&format!("expected '{}'", s))
+        let s_chars: Vec<char> = s.chars().collect();
+        if self.pos + s_chars.len() <= self.input.len() {
+            let mut matches = true;
+            for (i, &ch) in s_chars.iter().enumerate() {
+                if self.input[self.pos + i] != ch {
+                    matches = false;
+                    break;
+                }
+            }
+            if matches {
+                self.pos += s_chars.len();
+                return Ok(());
+            }
         }
+        self.err(&format!("expected '{}'", s))
     }
 
     fn read_identifier(&mut self) -> Result<String, ParseError> {
@@ -89,13 +132,9 @@ impl Parser {
         if self.pos == start {
             return self.err("expected identifier");
         }
-        // Metric names cannot start with a digit in PromQL, but for identifiers
-        // in general (like label names) digits at the start are fine.
         Ok(self.input[start..self.pos].iter().collect())
     }
 
-    /// Read a metric name: allows colons (Prometheus-style) but must start with
-    /// [a-zA-Z_:] and must contain at least one non-colon char.
     fn read_metric_name(&mut self) -> Result<String, ParseError> {
         self.skip_ws();
         let start = self.pos;
@@ -121,19 +160,14 @@ impl Parser {
         if quote != '"' && quote != '\'' {
             return self.err("expected string (\"...\" or '...')");
         }
-        self.pos += 1;
-        let start = self.pos;
+        self.pos += 1; // skip opening quote
+
         let mut result = String::new();
-        while let Some(c) = self.peek() {
+        while let Some(c) = self.advance() {
             if c == quote {
-                result.push_str(&self.input[start..self.pos].iter().collect::<String>());
-                self.pos += 1;
                 return Ok(result);
             }
             if c == '\\' {
-                // Flush accumulated chars
-                result.push_str(&self.input[start..self.pos].iter().collect::<String>());
-                self.pos += 1; // skip backslash
                 if let Some(escaped) = self.advance() {
                     match escaped {
                         'n' => result.push('\n'),
@@ -142,19 +176,17 @@ impl Parser {
                         '\\' => result.push('\\'),
                         '"' => result.push('"'),
                         '\'' => result.push('\''),
-                        _ => {
+                        other => {
                             result.push('\\');
-                            result.push(escaped);
+                            result.push(other);
                         }
                     }
+                } else {
+                    return self.err("unterminated string escape");
                 }
-                // advance start past the escaped char
-                // (start is now self.pos since we advanced)
-                // Actually we need to account for multi-char before the escape
-                // Let's use a simpler approach: just track result
-                continue; // skip the per-char advance below
+            } else {
+                result.push(c);
             }
-            self.pos += 1;
         }
         self.err("unterminated string")
     }
@@ -171,6 +203,8 @@ impl Parser {
             }
         }
 
+        let num_start_digits = self.pos;
+
         // Integer part
         while let Some(c) = self.peek() {
             if c.is_ascii_digit() {
@@ -182,7 +216,6 @@ impl Parser {
 
         // Fractional part
         if let Some('.') = self.peek() {
-            // Check it's not ".." (range) or ".<digit>" (field access)
             if self.pos + 1 < self.input.len() {
                 let next = self.input[self.pos + 1];
                 if next.is_ascii_digit() {
@@ -195,7 +228,7 @@ impl Parser {
             }
         }
 
-        // Exponent part (e.g., 1e9, 2.5e-3)
+        // Exponent part
         if let Some(c) = self.peek() {
             if c == 'e' || c == 'E' {
                 is_float = true;
@@ -207,6 +240,11 @@ impl Parser {
                     if c.is_ascii_digit() { self.pos += 1; } else { break; }
                 }
             }
+        }
+
+        if self.pos == start || self.pos == num_start_digits {
+            self.pos = start;
+            return self.err("expected number");
         }
 
         let num_str: String = self.input[start..self.pos].iter().collect();
@@ -242,7 +280,13 @@ pub fn parse(src: &str) -> Result<Expr, ParseError> {
 // ── Expression parsing with precedence climbing ───────────────────────────────
 
 fn parse_expr(p: &mut Parser) -> Result<Expr, ParseError> {
-    parse_binary_expr(p, Precedence::Lowest)
+    if p.depth >= 100 {
+        return p.err("exceeded maximum recursion depth");
+    }
+    p.depth += 1;
+    let res = parse_binary_expr(p, Precedence::Lowest);
+    p.depth -= 1;
+    res
 }
 
 /// Precedence-climbing binary expression parser.
@@ -332,18 +376,10 @@ fn parse_bin_op(p: &mut Parser) -> Result<BinOpKind, ParseError> {
             else { Ok(BinOpKind::Lt) }
         }
         _ => {
-            // Keyword operators: and, or, unless
-            let remaining: String = p.input[p.pos..].iter().collect();
-            let lower = remaining.to_lowercase();
-            if lower.starts_with("and") && !remaining[3..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-                p.pos += 3; Ok(BinOpKind::And)
-            } else if lower.starts_with("or") && !remaining[2..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-                p.pos += 2; Ok(BinOpKind::Or)
-            } else if lower.starts_with("unless") && !remaining[6..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-                p.pos += 6; Ok(BinOpKind::Unless)
-            } else {
-                p.err("expected binary operator")
-            }
+            if p.match_keyword("and") { Ok(BinOpKind::And) }
+            else if p.match_keyword("or") { Ok(BinOpKind::Or) }
+            else if p.match_keyword("unless") { Ok(BinOpKind::Unless) }
+            else { p.err("expected binary operator") }
         }
     }
 }
@@ -748,11 +784,7 @@ fn parse_aggregation(op: AggregationOp, p: &mut Parser) -> Result<Expr, ParseErr
 
 fn parse_grouping(p: &mut Parser) -> Result<Grouping, ParseError> {
     p.skip_ws();
-    let remaining: String = p.input[p.pos..].iter().collect();
-    let lower = remaining.to_lowercase();
-
-    if lower.starts_with("by") {
-        p.expect_str("by")?;
+    if p.match_keyword("by") {
         p.skip_ws();
         if p.peek() == Some('(') {
             let labels = parse_label_list(p)?;
@@ -760,8 +792,7 @@ fn parse_grouping(p: &mut Parser) -> Result<Grouping, ParseError> {
         } else {
             Ok(Grouping { by: true, labels: vec![] })
         }
-    } else if lower.starts_with("without") {
-        p.expect_str("without")?;
+    } else if p.match_keyword("without") {
         p.skip_ws();
         if p.peek() == Some('(') {
             let labels = parse_label_list(p)?;
@@ -770,7 +801,6 @@ fn parse_grouping(p: &mut Parser) -> Result<Grouping, ParseError> {
             Ok(Grouping { by: false, labels: vec![] })
         }
     } else {
-        // No grouping clause
         Ok(Grouping { by: true, labels: vec![] })
     }
 }
@@ -802,16 +832,11 @@ fn parse_label_list(p: &mut Parser) -> Result<Vec<String>, ParseError> {
 
 fn parse_vector_matching(p: &mut Parser) -> Result<VectorMatching, ParseError> {
     p.skip_ws();
-    let remaining: String = p.input[p.pos..].iter().collect();
-    let lower = remaining.to_lowercase();
-
-    if lower.starts_with("on") && !remaining[2..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-        p.expect_str("on")?;
+    if p.match_keyword("on") {
         let labels = parse_label_list(p)?;
         let (group_left, group_right) = parse_group_side(p)?;
         Ok(VectorMatching { card: VectorMatchCard::On, labels, group_left, group_right })
-    } else if lower.starts_with("ignoring") && !remaining[8..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-        p.expect_str("ignoring")?;
+    } else if p.match_keyword("ignoring") {
         let labels = parse_label_list(p)?;
         let (group_left, group_right) = parse_group_side(p)?;
         Ok(VectorMatching { card: VectorMatchCard::Ignoring, labels, group_left, group_right })
@@ -822,26 +847,19 @@ fn parse_vector_matching(p: &mut Parser) -> Result<VectorMatching, ParseError> {
 
 fn parse_group_side(p: &mut Parser) -> Result<(Option<Vec<String>>, Option<Vec<String>>), ParseError> {
     p.skip_ws();
-    let remaining: String = p.input[p.pos..].iter().collect();
-    let lower = remaining.to_lowercase();
-
-    if lower.starts_with("group_left") && !remaining[10..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-        p.expect_str("group_left")?;
+    if p.match_keyword("group_left") {
         p.skip_ws();
         let labels = if p.peek() == Some('(') {
             Some(parse_label_list(p)?)
         } else {
-            // group_left without explicit labels means "include all labels from the left"
             Some(vec![])
         };
         Ok((labels, None))
-    } else if lower.starts_with("group_right") && !remaining[11..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-        p.expect_str("group_right")?;
+    } else if p.match_keyword("group_right") {
         p.skip_ws();
         let labels = if p.peek() == Some('(') {
             Some(parse_label_list(p)?)
         } else {
-            // group_right without explicit labels means "include all labels from the right"
             Some(vec![])
         };
         Ok((None, labels))
@@ -856,18 +874,15 @@ fn parse_at_modifier(p: &mut Parser) -> Result<AtModifier, ParseError> {
     p.pos += 1; // skip '@'
     p.skip_ws();
 
-    // Check for start() or end()
-    let remaining: String = p.input[p.pos..].iter().collect();
-    if remaining.to_lowercase().starts_with("start()") {
-        p.pos += 7;
+    if p.peek_str("start()") {
+        p.expect_str("start()")?;
         return Ok(AtModifier::Start);
     }
-    if remaining.to_lowercase().starts_with("end()") {
-        p.pos += 5;
+    if p.peek_str("end()") {
+        p.expect_str("end()")?;
         return Ok(AtModifier::End);
     }
 
-    // Otherwise parse a number (unix timestamp)
     let expr = p.read_number()?;
     match expr {
         Expr::NumberLiteral(n) => Ok(AtModifier::UnixTimestamp(n)),
@@ -884,14 +899,10 @@ fn parse_duration(p: &mut Parser) -> Result<Duration, ParseError> {
     let mut total_ms: i64 = 0;
     let mut saw_value = false;
 
-    // If first char is a digit, parse compound duration
-    // Otherwise it should start with a number
-
     loop {
         p.skip_ws();
         if p.eof() { break; }
 
-        // Parse number
         let num_start = p.pos;
         let mut has_digits = false;
         while let Some(c) = p.peek() {
@@ -914,7 +925,13 @@ fn parse_duration(p: &mut Parser) -> Result<Duration, ParseError> {
             pos: num_start,
         })?;
 
-        // Parse unit
+        if value.is_nan() || value.is_infinite() || value < 0.0 {
+            return Err(ParseError {
+                message: format!("invalid duration value: {}", num_str),
+                pos: num_start,
+            });
+        }
+
         p.skip_ws();
         let unit_ms: i64 = match p.peek() {
             Some('w') => { p.pos += 1; 7 * 24 * 3600 * 1000 }
@@ -932,13 +949,23 @@ fn parse_duration(p: &mut Parser) -> Result<Duration, ParseError> {
             }
         };
 
-        total_ms += (value * unit_ms as f64) as i64;
+        let ms = value * unit_ms as f64;
+        if ms > i64::MAX as f64 {
+            return Err(ParseError {
+                message: "duration overflow".into(),
+                pos: num_start,
+            });
+        }
+
+        total_ms = total_ms.checked_add(ms as i64).ok_or_else(|| ParseError {
+            message: "duration overflow".into(),
+            pos: num_start,
+        })?;
+
         saw_value = true;
 
-        // Check if there's more (e.g., "1h30m")
         p.skip_ws();
         if p.eof() { break; }
-        // Peek ahead — if the next char is a digit, continue parsing
         let next_is_digit = p.peek().map_or(false, |c| c.is_ascii_digit() || c == '.');
         if !next_is_digit { break; }
     }
@@ -1292,5 +1319,40 @@ mod tests {
     #[test]
     fn test_empty_input() {
         assert!(parse("").is_err());
+    }
+
+    // ── Fuzz Crash Regressions ─────────────────────────────────────────────
+
+    #[test]
+    fn test_fuzz_crash_regressions() {
+        // Truncated keywords should return ParseError, never panic
+        let _ = parse("a and");
+        let _ = parse("a or");
+        let _ = parse("a unless");
+        let _ = parse("a on");
+        let _ = parse("a ignoring");
+        let _ = parse("a group_left");
+        let _ = parse("a group_right");
+
+        // Unicode inputs & non-ASCII boundaries
+        let _ = parse("and🦀");
+        let _ = parse("ignoring🔥");
+        let _ = parse(r#""hello\nworld""#);
+
+        // String with escape sequences
+        if let Ok(Expr::StringLiteral(s)) = parse(r#""hello\nworld""#) {
+            assert_eq!(s, "hello\nworld");
+        } else {
+            panic!("failed string escape test");
+        }
+
+        // Duration overflow & invalid values
+        assert!(parse("metric[1e300d]").is_err());
+        assert!(parse("metric[-5m]").is_err());
+        assert!(parse("metric[nand]").is_err());
+
+        // Deeply nested parens recursion depth limit
+        let deep = "(".repeat(150) + "a" + &")".repeat(150);
+        assert!(parse(&deep).is_err());
     }
 }

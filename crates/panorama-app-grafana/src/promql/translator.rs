@@ -357,7 +357,11 @@ fn translate_function(
             if fc.args.len() < 2 {
                 return Err("topk() requires (k, expr) arguments".into());
             }
-            let k = eval_number_literal(&fc.args[0])? as usize;
+            let k_raw = eval_number_literal(&fc.args[0])?;
+            if k_raw < 0.0 || k_raw.is_nan() || k_raw > 1_000_000.0 {
+                return Err("k parameter in topk() must be a positive integer <= 1,000,000".into());
+            }
+            let k = k_raw as usize;
             let mut tq = translate_expr(&fc.args[1], ctx)?;
             tq.post_steps.push(PostStep::TopK { k });
             Ok(tq)
@@ -366,7 +370,11 @@ fn translate_function(
             if fc.args.len() < 2 {
                 return Err("bottomk() requires (k, expr) arguments".into());
             }
-            let k = eval_number_literal(&fc.args[0])? as usize;
+            let k_raw = eval_number_literal(&fc.args[0])?;
+            if k_raw < 0.0 || k_raw.is_nan() || k_raw > 1_000_000.0 {
+                return Err("k parameter in bottomk() must be a positive integer <= 1,000,000".into());
+            }
+            let k = k_raw as usize;
             let mut tq = translate_expr(&fc.args[1], ctx)?;
             tq.post_steps.push(PostStep::BottomK { k });
             Ok(tq)
@@ -653,7 +661,13 @@ fn extract_range_seconds(expr: &Expr) -> Result<f64, String> {
 /// Try to evaluate an expression as a numeric literal.
 fn eval_number_literal(expr: &Expr) -> Result<f64, String> {
     match expr {
-        Expr::NumberLiteral(n) => Ok(*n),
+        Expr::NumberLiteral(n) => {
+            if n.is_nan() || n.is_infinite() {
+                Err("invalid numeric literal: NaN or Infinity".into())
+            } else {
+                Ok(*n)
+            }
+        }
         Expr::UnaryOp(un) => {
             let val = eval_number_literal(&un.expr)?;
             match un.op {
