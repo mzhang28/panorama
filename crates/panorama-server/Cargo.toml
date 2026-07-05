@@ -43,6 +43,7 @@ panorama-app-trips = { path = "../panorama-app-trips" }
 panorama-app-beli = { path = "../panorama-app-beli" }
 panorama-app-subsonic = { path = "../panorama-app-subsonic" }
 panorama-app-files = { path = "../panorama-app-files" }
+proptest = "1.11.0"
 
 [build-dependencies]
 built = { version = "0.7", features = ["chrono"] }

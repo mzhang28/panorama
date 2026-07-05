@@ -58,6 +58,9 @@ test-e2e *args:
 test-e2e-quick *args:
     bun scripts/e2e.ts {{ args }}
 
+test-proptest:
+    cargo test -p panorama-server --test query_eval_proptest
+
 # Run Rust tests
 test-rust:
     cargo test --workspace
