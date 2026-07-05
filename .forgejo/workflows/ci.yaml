@@ -84,8 +84,5 @@ jobs:
       - name: Run Rust unit & integration tests
         run: cargo test --workspace --release
 
-      - name: Build panoapps & server
-        run: just build
-
       - name: Run Playwright E2E tests
-        run: just test-e2e
+        run: bun x nx run e2e:test -c release

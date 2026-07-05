@@ -6,15 +6,24 @@
       "options": {
         "command": "bun scripts/e2e.ts"
       },
+      "configurations": {
+        "development": {
+          "command": "bun scripts/e2e.ts"
+        },
+        "release": {
+          "command": "bun scripts/e2e.ts"
+        }
+      },
+      "defaultConfiguration": "development",
       "dependsOn": [
-        "panorama-server:build:release",
-        "panorama-app-beli:package-panoapp:release",
-        "panorama-app-files:package-panoapp:release",
-        "panorama-app-grafana:package-panoapp:release",
-        "panorama-app-journal:package-panoapp:release",
-        "panorama-app-subsonic:package-panoapp:release",
-        "panorama-app-trips:package-panoapp:release",
-        "panorama-app-wakatime:package-panoapp:release"
+        "panorama-server:build",
+        "panorama-app-beli:package-panoapp",
+        "panorama-app-files:package-panoapp",
+        "panorama-app-grafana:package-panoapp",
+        "panorama-app-journal:package-panoapp",
+        "panorama-app-subsonic:package-panoapp",
+        "panorama-app-trips:package-panoapp",
+        "panorama-app-wakatime:package-panoapp"
       ],
       "inputs": [
         "{workspaceRoot}/frontend/e2e/**/*",

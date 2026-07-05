@@ -33,6 +33,13 @@ const app = command({
       defaultValue: () => false,
       description: 'Trigger a full build of frontend, WASM plugins, server, and panoapps before testing.',
     }),
+    config: option({
+      type: optional(string),
+      long: 'config',
+      short: 'c',
+      defaultValue: () => 'release',
+      description: 'Build configuration to use with --build (development or release).',
+    }),
     playwrightArgs: restPositionals({
       type: string,
       displayName: 'playwright args',
@@ -73,11 +80,12 @@ const app = command({
     console.log('');
 
     if (args.build) {
-      console.log('--- Packaging .panoapp files (release mode) via Nx ---');
-      runCommand('bun', ['x', 'nx', 'run-many', '-t', 'package-panoapp', '-c', 'release'], repoRoot);
+      const buildConfig = args.config ?? 'release';
+      console.log(`--- Packaging .panoapp files (${buildConfig} mode) via Nx ---`);
+      runCommand('bun', ['x', 'nx', 'run-many', '-t', 'package-panoapp', '-c', buildConfig], repoRoot);
 
-      console.log('\n--- Building server (release mode) via Nx ---');
-      runCommand('bun', ['x', 'nx', 'build', 'panorama-server', '-c', 'release'], repoRoot);
+      console.log(`\n--- Building server (${buildConfig} mode) via Nx ---`);
+      runCommand('bun', ['x', 'nx', 'build', 'panorama-server', '-c', buildConfig], repoRoot);
       console.log('');
     }
 
