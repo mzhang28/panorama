@@ -36,10 +36,10 @@ pub enum MatchSource {
     },
 }
 
-/// The `WHERE` clause — a conjunction of predicates.
+/// The `WHERE` clause — a single predicate tree (AND binds tighter than OR).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhereClause {
-    pub predicates: Vec<Predicate>,
+    pub predicate: Predicate,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

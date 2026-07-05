@@ -81,14 +81,12 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
                 param_idx += 1;
 
                 if let Some(wc) = &mc.where_clause {
-                    for pred in &wc.predicates {
-                        let (pred_sql, pred_params) = compile_predicate(
-                            pred, &mc.variable, &mut ctx, conn, param_idx,
-                        )?;
-                        where_sqls.push(pred_sql);
-                        param_idx += pred_params.len();
-                        params.extend(pred_params);
-                    }
+                    let (pred_sql, pred_params) = compile_predicate(
+                        &wc.predicate, &mc.variable, &mut ctx, conn, param_idx,
+                    )?;
+                    where_sqls.push(pred_sql);
+                    param_idx += pred_params.len();
+                    params.extend(pred_params);
                 }
 
                 // CTEs select from the `nodes` table (aliased `n`)
@@ -353,7 +351,7 @@ fn compile_predicate(
             let key = field_path_to_json_key(field_path);
             Ok((
                 format!(
-                    "json_extract(n.fields_json, '$.\"{key}\".value') LIKE ?{p}",
+                    "json_extract(n.fields_json, '$.\"{key}\".type') = 'String' AND json_extract(n.fields_json, '$.\"{key}\".value') LIKE ?{p}",
                     key = key, p = pi
                 ),
                 vec![ParamValue::Text(pattern.clone())],
@@ -406,7 +404,7 @@ fn value_to_param(v: &Value) -> ParamValue {
         Value::String(s) => ParamValue::Text(s.clone()),
         Value::Integer(i) => ParamValue::Integer(*i),
         Value::Float(f) => ParamValue::Real(*f),
-        Value::Boolean(b) => ParamValue::Text(if *b { "true".into() } else { "false".into() }),
+        Value::Boolean(b) => ParamValue::Integer(if *b { 1 } else { 0 }),
         Value::Null => ParamValue::Null,
     }
 }

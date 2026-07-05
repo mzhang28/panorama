@@ -25,7 +25,7 @@ pub fn eval_query(query: &Query, nodes: &[Node]) -> Vec<serde_json::Value> {
         let matched: Vec<&Node> = if let Some(wc) = &mc.where_clause {
             candidates
                 .into_iter()
-                .filter(|n| wc.predicates.iter().all(|p| eval_predicate(p, n)))
+                .filter(|n| eval_predicate(&wc.predicate, n))
                 .collect()
         } else {
             candidates
@@ -39,11 +39,22 @@ pub fn eval_query(query: &Query, nodes: &[Node]) -> Vec<serde_json::Value> {
 
     // ORDER BY
     if let Some(ob) = &query.order_by {
-        let key = field_key(&ob.field);
+        let field_key_str = field_key(&ob.field);
+        // If the ORDER BY field matches a RETURN column, use the alias as key
+        let sort_key = query.return_clause.columns.iter()
+            .find_map(|col| {
+                match &col.expression {
+                    ReturnExpr::Field(fp) if field_key(fp) == field_key_str => {
+                        col.alias.clone().or_else(|| Some(fp.field.clone()))
+                    }
+                    _ => None,
+                }
+            })
+            .unwrap_or(field_key_str);
         let desc = matches!(ob.direction, OrderDir::Desc);
         rows.sort_by(|a, b| {
-            let va = column_value(a, &key);
-            let vb = column_value(b, &key);
+            let va = column_value(a, &sort_key);
+            let vb = column_value(b, &sort_key);
             let ord = cmp_json(&va, &vb);
             if desc { ord.reverse() } else { ord }
         });
@@ -141,6 +152,7 @@ fn cmp_json(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering 
             na.as_f64().partial_cmp(&nb.as_f64()).unwrap_or(Ordering::Equal)
         }
         (serde_json::Value::Bool(ba), serde_json::Value::Bool(bb)) => ba.cmp(bb),
+        // Mixed types: evaluator treats as equal; compiler must match
         _ => Ordering::Equal,
     }
 }
@@ -214,7 +226,11 @@ fn field_matches_cmp(fv: &crate::types::FieldValue, op: &CmpOp, qv: &Value) -> b
         (FieldValue::Boolean(a), Value::Boolean(b)) => match op {
             CmpOp::Eq => a == b,
             CmpOp::Neq => a != b,
-            _ => false,
+            // false < true
+            CmpOp::Lt => !a && *b,
+            CmpOp::Lte => !a || *b,
+            CmpOp::Gt => *a && !b,
+            CmpOp::Gte => *a || !b,
         },
         _ => false,
     }

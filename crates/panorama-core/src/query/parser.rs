@@ -198,7 +198,7 @@ fn parse_match(p: &mut Parser) -> Result<MatchClause, ParseError> {
 
     let where_clause = if peek_keyword(p, "WHERE") {
         p.expect_keyword("WHERE")?;
-        Some(WhereClause { predicates: parse_predicates(p)? })
+        Some(WhereClause { predicate: parse_predicates(p)? })
     } else {
         None
     };
@@ -251,7 +251,7 @@ fn parse_ref_traverse(p: &mut Parser, from_var: String) -> Result<MatchClause, P
 
     let where_clause = if peek_keyword(p, "WHERE") {
         p.expect_keyword("WHERE")?;
-        Some(WhereClause { predicates: parse_predicates(p)? })
+        Some(WhereClause { predicate: parse_predicates(p)? })
     } else {
         None
     };
@@ -275,14 +275,29 @@ fn peek_keyword(p: &Parser, kw: &str) -> bool {
     remaining.trim_start().to_lowercase().starts_with(&kw.to_lowercase())
 }
 
-fn parse_predicates(p: &mut Parser) -> Result<Vec<Predicate>, ParseError> {
-    let mut preds = Vec::new();
-    preds.push(parse_predicate(p)?);
+fn parse_predicates(p: &mut Parser) -> Result<Predicate, ParseError> {
+    // OR has lower precedence: a AND b OR c AND d  →  Or(And(a,b), And(c,d))
+    let mut left = parse_and_expr(p)?;
+    while peek_keyword(p, "OR") {
+        p.expect_keyword("OR")?;
+        let right = parse_and_expr(p)?;
+        left = Predicate::Or(Box::new(left), Box::new(right));
+    }
+    Ok(left)
+}
+
+fn parse_and_expr(p: &mut Parser) -> Result<Predicate, ParseError> {
+    let mut left = parse_atomic_predicate(p)?;
     while peek_keyword(p, "AND") {
         p.expect_keyword("AND")?;
-        preds.push(parse_predicate(p)?);
+        let right = parse_atomic_predicate(p)?;
+        left = Predicate::And(Box::new(left), Box::new(right));
     }
-    Ok(preds)
+    Ok(left)
+}
+
+fn parse_atomic_predicate(p: &mut Parser) -> Result<Predicate, ParseError> {
+    parse_predicate(p)
 }
 
 fn parse_predicate(p: &mut Parser) -> Result<Predicate, ParseError> {
@@ -614,9 +629,8 @@ mod tests {
             r#"MATCH (n) IN space("personal") WHERE n CONFORMS TO schema("com.example.event") RETURN n.title AS title"#,
         ).unwrap();
         assert!(q.matches[0].where_clause.is_some());
-        let preds = &q.matches[0].where_clause.as_ref().unwrap().predicates;
-        assert_eq!(preds.len(), 1);
-        match &preds[0] {
+        let pred = &q.matches[0].where_clause.as_ref().unwrap().predicate;
+        match pred {
             Predicate::ConformsTo { schema_id, .. } => assert_eq!(schema_id, "com.example.event"),
             _ => panic!("expected ConformsTo"),
         }
@@ -627,8 +641,8 @@ mod tests {
         let q = parse_query(
             r#"MATCH (n) IN space("personal") WHERE n.start_time > "2026-01-01" RETURN n"#,
         ).unwrap();
-        let preds = &q.matches[0].where_clause.as_ref().unwrap().predicates;
-        match &preds[0] {
+        let pred = &q.matches[0].where_clause.as_ref().unwrap().predicate;
+        match pred {
             Predicate::FieldCompare { field_path, op, value, .. } => {
                 assert_eq!(field_path.field, "start_time");
                 assert_eq!(*op, CmpOp::Gt);
@@ -662,8 +676,8 @@ mod tests {
         let q = parse_query(
             r#"MATCH (n) IN space("personal") WHERE HAS_FIELD(n, "app", "attendees") RETURN n"#,
         ).unwrap();
-        let preds = &q.matches[0].where_clause.as_ref().unwrap().predicates;
-        match &preds[0] {
+        let pred = &q.matches[0].where_clause.as_ref().unwrap().predicate;
+        match pred {
             Predicate::HasField { namespace, field_name, .. } => {
                 assert_eq!(namespace, "app");
                 assert_eq!(field_name, "attendees");
