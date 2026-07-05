@@ -54,6 +54,15 @@ jobs:
             bun x playwright install chromium
           fi
 
+      - name: Cache Nx computation results
+        uses: actions/cache@v4
+        with:
+          path: .nx
+          key: ${{ runner.os }}-nx-${{ hashFiles('nx.json', '**/project.json') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-nx-${{ hashFiles('nx.json', '**/project.json') }}-
+            ${{ runner.os }}-nx-
+
       - name: Cache WASM and Build Artifacts
         uses: actions/cache@v4
         with:
@@ -64,11 +73,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-build-artifacts-
 
-      - name: Build everything (frontend, WASM plugins, server & .panoapps)
-        run: just build
-
       - name: Run Rust unit & integration tests
         run: cargo test --workspace --release
 
-      - name: Run Playwright E2E tests
+      - name: Run Playwright E2E tests (Nx builds dependencies automatically)
         run: just test-e2e
