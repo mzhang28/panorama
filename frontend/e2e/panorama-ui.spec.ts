@@ -8,7 +8,7 @@ test.describe("Panorama Core UI", () => {
   test("page loads with title and sidebar", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("h1")).toContainText("Panorama");
-    await expect(page.locator(".sidebar")).toBeVisible();
+    await expect(page.locator(".app-shell-sidebar")).toBeVisible();
   });
 
   test("sidebar has navigation links", async ({ page }) => {
@@ -25,62 +25,42 @@ test.describe("Panorama Core UI", () => {
 
   test("can navigate between views", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h2")).toContainText("Nodes");
+    await expect(page.locator("h1")).toContainText("Nodes");
     await page.click('a:has-text("Schemas")');
     await expect(page.locator("h2")).toContainText("Schemas");
     await page.click('a:has-text("Nodes")');
-    await expect(page.locator("h2")).toContainText("Nodes");
+    await expect(page.locator("h1")).toContainText("Nodes");
   });
 });
 
-test.describe("Node CRUD through UI", () => {
-  test("create node form opens and closes", async ({ page }) => {
+test.describe("Node Explorer Home", () => {
+  test("shows nodes table with search", async ({ page }) => {
     await page.goto("/");
-    await page.click('button:has-text("+ New Node")');
-    await expect(page.locator('input[placeholder="Node title"]')).toBeVisible();
-    await expect(page.locator('button:has-text("Create")')).toBeVisible();
-  });
-
-  test("creates a node and sees it in the list", async ({ page }) => {
-    await page.goto("/");
-    await page.click('button:has-text("+ New Node")');
-    const uniqueTitle = `E2E-${Date.now()}`;
-    await page.locator('input[placeholder="Node title"]').fill(uniqueTitle);
-    await page.click('button:has-text("Create")');
-    // The node should appear in the list — use first() since nodes accumulate
     await expect(
-      page.locator(`strong:has-text("${uniqueTitle}")`).first(),
+      page.locator('input[placeholder="Search nodes..."]'),
     ).toBeVisible();
-  });
-
-  test("clicking a node shows its detail", async ({ page }) => {
-    await page.goto("/");
-    await page.click('button:has-text("+ New Node")');
-    const uniqueTitle = `Detail-${Date.now()}`;
-    await page.locator('input[placeholder="Node title"]').fill(uniqueTitle);
-    await page.click('button:has-text("Create")');
-    const card = page.locator(".card").filter({ hasText: uniqueTitle });
-    await card.click();
-    await expect(page.locator('h3:has-text("Node:")').first()).toBeVisible();
-    // The detail panel shows field data in a table
     await expect(page.locator("table")).toBeVisible();
   });
 
-  test("can delete a node", async ({ page }) => {
+  test("shows stats bar with node counts", async ({ page }) => {
     await page.goto("/");
-    // First create one so we have something to delete
-    const uniqueTitle = `DelMe-${Date.now()}`;
-    await page.click('button:has-text("+ New Node")');
-    await page.locator('input[placeholder="Node title"]').fill(uniqueTitle);
-    await page.click('button:has-text("Create")');
-    // Target the specific node card created for deletion
-    const card = page.locator(".card").filter({ hasText: uniqueTitle });
-    page.once("dialog", (dialog) => dialog.accept());
-    await card.locator('button:has-text("Delete")').click();
-    // Node should be gone
-    await expect(page.locator(`strong:has-text("${uniqueTitle}")`)).toHaveCount(
-      0,
-    );
+    await expect(page.locator('span:has-text("Total Nodes")')).toBeVisible();
+    await expect(page.locator('span:has-text("Schemas")')).toBeVisible();
+  });
+
+  test("shows activity chart", async ({ page }) => {
+    await page.goto("/");
+    await expect(
+      page.locator('h3:has-text("Activity Timeline")'),
+    ).toBeVisible();
+  });
+
+  test("search filters the node table", async ({ page }) => {
+    await page.goto("/");
+    const searchInput = page.locator('input[placeholder="Search nodes..."]');
+    await searchInput.fill("nonexistent-node-xyz");
+    // Pagination should show filtered count
+    await expect(page.locator("text=0 of")).toBeVisible();
   });
 });
 

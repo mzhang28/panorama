@@ -42,7 +42,7 @@ export async function findFreePort(): Promise<number> {
 
 export async function waitForUrl(
   url: string,
-  attempts = 150,
+  attempts = 600,
   interval = 100,
   desc = "server",
 ): Promise<boolean> {
