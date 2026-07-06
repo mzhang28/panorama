@@ -39,10 +39,10 @@ function enrichNode(node: Node): EnrichedNodeRow {
     fields['system:node_title']?.value ||
     fields['files:filename']?.value ||
     fields['journal:title']?.value ||
-    fields['wakatime:entity']?.value ||
+    fields['coding:entity']?.value ||
     fields['trips:name']?.value ||
-    fields['beli:name']?.value ||
-    fields['subsonic:name']?.value ||
+    fields['restaurants:name']?.value ||
+    fields['music:name']?.value ||
     node.id.slice(0, 8)
 
   const createdDate = new Date(node.created_at || Date.now())

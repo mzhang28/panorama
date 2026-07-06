@@ -21,7 +21,8 @@ use crate::object_store::ObjectStorage;
 type WasiCtx = wasmtime_wasi::preview1::WasiP1Ctx;
 
 pub async fn execute_wasm_handler(
-    wasm_bytes: &[u8],
+    engine: &wasmtime::Engine,
+    module: &wasmtime::Module,
     endpoint: &str,
     request: &HttpRequest,
     plugin_id: &str,
@@ -30,13 +31,6 @@ pub async fn execute_wasm_handler(
     schema_registry: &SchemaRegistry,
     object_storage: &ObjectStorage,
 ) -> Result<HttpResponse, PluginError> {
-    let mut config = wasmtime::Config::new();
-    config.async_support(true);
-    let engine = wasmtime::Engine::new(&config)
-        .map_err(|e| PluginError::internal(format!("wasm engine: {}", e)))?;
-
-    let module = wasmtime::Module::from_binary(&engine, wasm_bytes)
-        .map_err(|e| PluginError::internal(format!("wasm compile: {}", e)))?;
 
     // Build WASI context with stdin from request JSON
     let input_json = serde_json::to_vec(&serde_json::json!({
@@ -56,8 +50,8 @@ pub async fn execute_wasm_handler(
     builder.stdout(stdout_pipe.clone());
     let wasi_ctx = builder.build_p1();
 
-    let mut store = wasmtime::Store::new(&engine, wasi_ctx);
-    let mut linker = wasmtime::Linker::new(&engine);
+    let mut store = wasmtime::Store::new(engine, wasi_ctx);
+    let mut linker = wasmtime::Linker::new(engine);
 
     wasmtime_wasi::preview1::wasi_snapshot_preview1::add_to_linker(
         &mut linker,
@@ -307,7 +301,7 @@ pub async fn execute_wasm_handler(
 
     // ── Instantiate & run ───────────────────────────────────────────────
 
-    let instance = linker.instantiate_async(&mut store, &module).await
+    let instance = linker.instantiate_async(&mut store, module).await
         .map_err(|e| PluginError::internal(format!("instantiate: {}", e)))?;
 
     let start = instance.get_typed_func::<(), ()>(&mut store, "_start")

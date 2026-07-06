@@ -37,7 +37,7 @@ COPY crates/ crates/
 COPY fuzz/ fuzz/
 
 # Build WASM plugins
-RUN for app in journal wakatime grafana trips beli subsonic files; do \
+RUN for app in journal coding dashboards trips restaurants music files; do \
       RUSTFLAGS="-C link-arg=--allow-undefined" cargo build --release -p "panorama-app-${app}" --target wasm32-wasip1; \
     done
 
@@ -50,7 +50,7 @@ COPY scripts/package-panoapp.ts /tmp/package-panoapp.ts
 
 # Package .panoapp files (manifest + WASM + UI)
 RUN mkdir -p /panoapp && \
-    for crate in journal wakatime grafana trips beli subsonic files; do \
+    for crate in journal coding dashboards trips restaurants music files; do \
       m="crates/panorama-app-${crate}/manifest.json"; \
       w="target/wasm32-wasip1/release/${crate}.wasm"; \
       ui="crates/panorama-app-${crate}/ui/dist"; \

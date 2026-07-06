@@ -1,0 +1,62 @@
+{
+  "name": "panorama-app-dashboards",
+  "targets": {
+    "build-wasm": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-dashboards --target wasm32-wasip1"
+      },
+      "configurations": {
+        "development": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-dashboards --target wasm32-wasip1"
+        },
+        "release": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build --release -p panorama-app-dashboards --target wasm32-wasip1"
+        }
+      },
+      "defaultConfiguration": "development",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/Cargo.toml",
+        "{workspaceRoot}/crates/panorama-core/src/**/*",
+        "{workspaceRoot}/crates/wasm-types/src/**/*",
+        "{workspaceRoot}/Cargo.lock"
+      ],
+      "outputs": [
+        "{workspaceRoot}/target/wasm32-wasip1/debug/dashboards.wasm",
+        "{workspaceRoot}/target/wasm32-wasip1/release/dashboards.wasm"
+      ],
+      "cache": true
+    },
+    "package-panoapp": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun scripts/package-panoapp.ts crates/panorama-app-dashboards/manifest.json target/wasm32-wasip1/debug/dashboards.wasm dist/panoapp --ui-dir crates/panorama-app-dashboards/ui/dist"
+      },
+      "configurations": {
+        "development": {
+          "command": "bun scripts/package-panoapp.ts crates/panorama-app-dashboards/manifest.json target/wasm32-wasip1/debug/dashboards.wasm dist/panoapp --ui-dir crates/panorama-app-dashboards/ui/dist"
+        },
+        "release": {
+          "command": "bun scripts/package-panoapp.ts crates/panorama-app-dashboards/manifest.json target/wasm32-wasip1/release/dashboards.wasm dist/panoapp --ui-dir crates/panorama-app-dashboards/ui/dist"
+        }
+      },
+      "defaultConfiguration": "development",
+      "dependsOn": [
+        "build-wasm",
+        "panorama-plugin-dashboards-ui:build"
+      ],
+      "inputs": [
+        "{projectRoot}/manifest.json",
+        "{workspaceRoot}/scripts/package-panoapp.ts",
+        "{workspaceRoot}/target/wasm32-wasip1/debug/dashboards.wasm",
+        "{workspaceRoot}/target/wasm32-wasip1/release/dashboards.wasm",
+        "{projectRoot}/ui/dist/**/*"
+      ],
+      "outputs": [
+        "{workspaceRoot}/dist/panoapp/dashboards.panoapp"
+      ],
+      "cache": true
+    }
+  }
+}

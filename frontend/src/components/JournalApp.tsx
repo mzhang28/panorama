@@ -154,6 +154,11 @@ export function JournalApp() {
       queryClient.invalidateQueries({ queryKey: ['journal-pages'] })
       queryClient.invalidateQueries({ queryKey: ['journal-children'] })
       setShowNewBlock(false)
+      // Manually add the new page to the cached pages list so the sidebar updates
+      queryClient.setQueryData(['journal-pages'], (old: any) => {
+        const oldPages = (Array.isArray(old) ? old : old?.rows ?? []);
+        return [block, ...oldPages];
+      });
       // Navigate to newly created root page (not child blocks)
       if (!vars.parent_id && block.id) {
         setSelectedPageId(block.id)
@@ -290,6 +295,7 @@ export function JournalApp() {
                     }
                   }}
                   title="Delete page"
+                  data-active-page-id={activePageId || ''}
                 >
                   🗑️
                 </button>

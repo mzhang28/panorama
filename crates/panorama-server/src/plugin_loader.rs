@@ -39,6 +39,10 @@ pub struct PluginInfo {
 struct WasmPlugin {
     info: LoadedPluginInfo,
     wasm_bytes: Vec<u8>,
+    /// Pre-compiled WASM module + engine — shared across requests
+    compiled: Arc<wasmtime::Module>,
+    /// Engine that owns the module (must outlive it)
+    _engine: Arc<wasmtime::Engine>,
     ui_files: HashMap<String, Vec<u8>>,
 }
 
@@ -130,11 +134,21 @@ impl PluginLoader {
             is_wasm: package.wasm_bytes.is_some(),
         };
 
-        // If WASM module is present, store it for execution
+        // If WASM module is present, compile it now and store for execution
         if let Some(wasm_bytes) = &package.wasm_bytes {
+            let mut config = wasmtime::Config::new();
+            config.async_support(true);
+            let engine = wasmtime::Engine::new(&config)
+                .map_err(|e| format!("wasm engine: {}", e))?;
+            let compiled = wasmtime::Module::from_binary(&engine, wasm_bytes)
+                .map_err(|e| format!("wasm compile: {}", e))?;
+            tracing::info!(plugin = %plugin_id, "Pre-compiled WASM module");
+
             self.wasm_plugins.write().await.insert(plugin_id.clone(), WasmPlugin {
                 info: info.clone(),
                 wasm_bytes: wasm_bytes.clone(),
+                compiled: Arc::new(compiled),
+                _engine: Arc::new(engine),
                 ui_files: package.ui_files.clone(),
             });
         }
@@ -205,18 +219,30 @@ impl PluginLoader {
         };
 
         if let Some(wp) = wasm_plugin {
-            // Execute via WASM runtime — passes plugin_id + capabilities
-            // so host functions enforce the same checks as native dispatch
-            return wasm_runtime::execute_wasm_handler(
-                &wp.wasm_bytes,
-                endpoint,
-                &request,
-                &wp.info.info.id,
-                &wp.info.capabilities,
-                &self.storage,
-                &self.schema_registry,
-                &self.object_storage,
-            ).await;
+            // Execute via WASM runtime on a blocking thread — host functions
+            // use pollster::block_on which would otherwise starve tokio workers.
+            let engine = wp._engine.clone();
+            let compiled = wp.compiled.clone();
+            let plugin_id = wp.info.info.id.clone();
+            let capabilities = wp.info.capabilities.clone();
+            let storage = self.storage.clone();
+            let schema_registry = self.schema_registry.clone();
+            let object_storage = self.object_storage.clone();
+            let endpoint = endpoint.to_string();
+            let result = tokio::task::spawn_blocking(move || {
+                pollster::block_on(wasm_runtime::execute_wasm_handler(
+                    &engine,
+                    &compiled,
+                    &endpoint,
+                    &request,
+                    &plugin_id,
+                    &capabilities,
+                    &storage,
+                    &schema_registry,
+                    &object_storage,
+                ))
+            }).await.map_err(|e| PluginError::internal(format!("wasm panic: {}", e)))?;
+            return result;
         }
 
         // Otherwise, try native plugin

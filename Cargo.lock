@@ -1551,6 +1551,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "matchers"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
+dependencies = [
+ "regex-automata",
+]
+
+[[package]]
 name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1995,12 +2004,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "panorama-app-beli"
+name = "panorama-app-coding"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "panorama-core",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "panorama-app-dashboards"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "nom",
  "panorama-core",
  "serde",
  "serde_json",
@@ -2014,20 +2037,6 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
- "panorama-core",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "panorama-app-grafana"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "nom",
  "panorama-core",
  "serde",
  "serde_json",
@@ -2050,7 +2059,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "panorama-app-subsonic"
+name = "panorama-app-music"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "panorama-core",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "panorama-app-restaurants"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -2064,19 +2086,6 @@ dependencies = [
 
 [[package]]
 name = "panorama-app-trips"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "panorama-core",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "panorama-app-wakatime"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -2106,7 +2115,7 @@ name = "panorama-fuzzers"
 version = "0.1.0"
 dependencies = [
  "afl",
- "panorama-app-grafana",
+ "panorama-app-dashboards",
  "panorama-core",
 ]
 
@@ -2122,13 +2131,13 @@ dependencies = [
  "chrono",
  "dashmap",
  "mime",
- "panorama-app-beli",
+ "panorama-app-coding",
+ "panorama-app-dashboards",
  "panorama-app-files",
- "panorama-app-grafana",
  "panorama-app-journal",
- "panorama-app-subsonic",
+ "panorama-app-music",
+ "panorama-app-restaurants",
  "panorama-app-trips",
- "panorama-app-wakatime",
  "panorama-core",
  "pollster",
  "proptest",
@@ -3358,10 +3367,14 @@ version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
 dependencies = [
+ "matchers",
  "nu-ansi-term",
+ "once_cell",
+ "regex-automata",
  "sharded-slab",
  "smallvec",
  "thread_local",
+ "tracing",
  "tracing-core",
  "tracing-log",
 ]

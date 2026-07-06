@@ -5,23 +5,23 @@ import React from 'react'
 
 // Static imports of all plugin UIs — Vite resolves via bun workspace symlinks
 import JournalApp from 'panorama-plugin-journal-ui'
-import GrafanaApp from 'panorama-plugin-grafana-ui'
-import WakatimeApp from 'panorama-plugin-wakatime-ui'
+import DashboardsApp from 'panorama-plugin-dashboards-ui'
+import CodingApp from 'panorama-plugin-coding-ui'
 import TripsApp from 'panorama-plugin-trips-ui'
-import BeliApp from 'panorama-plugin-beli-ui'
-import SubsonicApp from 'panorama-plugin-subsonic-ui'
+import RestaurantsApp from 'panorama-plugin-restaurants-ui'
+import MusicApp from 'panorama-plugin-music-ui'
 import FilesApp from 'panorama-plugin-files-ui'
 
 type PluginComponent = React.ComponentType<{ pluginId: string }>
 
 const PLUGINS: Record<string, PluginComponent> = {
-  'io.mzhang.panorama.journal':  JournalApp,
-  'io.mzhang.panorama.grafana':  GrafanaApp,
-  'io.mzhang.panorama.wakatime': WakatimeApp,
-  'io.mzhang.panorama.trips':    TripsApp,
-  'io.mzhang.panorama.beli':     BeliApp,
-  'io.mzhang.panorama.subsonic': SubsonicApp,
-  'io.mzhang.panorama.files':    FilesApp,
+  'io.mzhang.panorama.journal':      JournalApp,
+  'io.mzhang.panorama.dashboards':   DashboardsApp,
+  'io.mzhang.panorama.coding':       CodingApp,
+  'io.mzhang.panorama.trips':        TripsApp,
+  'io.mzhang.panorama.restaurants':  RestaurantsApp,
+  'io.mzhang.panorama.music':        MusicApp,
+  'io.mzhang.panorama.files':        FilesApp,
 }
 
 const FALLBACK: PluginComponent = () => (

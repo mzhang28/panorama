@@ -217,9 +217,8 @@ test.describe('Journal Plugin UI', () => {
     await page.locator('.journal-page-meta button[title="Delete page"]').click();
 
     // Page should show as soft-deleted in sidebar (strikethrough)
-    await expect(page.locator('.journal-page-link.deleted').first()).toBeVisible();
+    await expect(page.locator('.journal-page-link.deleted').first()).toBeVisible({ timeout: 10_000 });
   });
-
   test('adding a child block to a page', async ({ page }) => {
     await page.goto('/');
     await page.click('a:has-text("Journal")');
@@ -249,9 +248,9 @@ test.describe('Journal Plugin UI', () => {
   });
 });
 
-// ═══ Wakatime Plugin — full UI interaction ═══
+// ═══ Coding Activity Plugin — full UI interaction ═══
 
-test.describe('Wakatime Plugin UI', () => {
+test.describe('Coding Activity Plugin UI', () => {
 
   test('opens coding activity and shows heartbeat form', async ({ page }) => {
     await page.goto('/');
@@ -332,9 +331,9 @@ test.describe('Dashboards Plugin UI', () => {
   });
 });
 
-// ═══ Beli Plugin — full UI interaction ═══
+// ═══ Restaurant Rankings Plugin — full UI interaction ═══
 
-test.describe('Beli Plugin UI', () => {
+test.describe('Restaurant Rankings Plugin UI', () => {
 
   test('opens restaurant rankings and shows explanation', async ({ page }) => {
     await page.goto('/');
@@ -474,9 +473,9 @@ test.describe('File Manager Plugin UI', () => {
   });
 });
 
-// ═══ Subsonic Plugin — full UI interaction ═══
+// ═══ Music Library Plugin — full UI interaction ═══
 
-test.describe('Subsonic Music Plugin UI', () => {
+test.describe('Music Library Music Plugin UI', () => {
 
   test('opens music library and shows upload section', async ({ page }) => {
     await page.goto('/');

@@ -28,11 +28,11 @@ export default defineConfig(({ mode }) => ({
     // prod.tsx are parsed, even though only one is loaded at runtime.
     alias: {
       'panorama-plugin-journal-ui':  resolvePlugin('journal'),
-      'panorama-plugin-grafana-ui':  resolvePlugin('grafana'),
-      'panorama-plugin-wakatime-ui': resolvePlugin('wakatime'),
+      'panorama-plugin-dashboards-ui':  resolvePlugin('dashboards'),
+      'panorama-plugin-coding-ui': resolvePlugin('coding'),
       'panorama-plugin-trips-ui':    resolvePlugin('trips'),
-      'panorama-plugin-beli-ui':     resolvePlugin('beli'),
-      'panorama-plugin-subsonic-ui': resolvePlugin('subsonic'),
+      'panorama-plugin-restaurants-ui':     resolvePlugin('restaurants'),
+      'panorama-plugin-music-ui': resolvePlugin('music'),
       'panorama-plugin-files-ui':    resolvePlugin('files'),
     },
   },

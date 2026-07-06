@@ -12,15 +12,15 @@ All automated test suites are passing with zero exit code:
 
 Major platform, architecture, and app milestones recently achieved:
 - **Single Dev Server with Bun Workspace Architecture**: Consolidated dev pipeline by converting all 7 plugin UIs (`crates/panorama-app-*/ui`) into Bun workspace packages. Nuked 8 separate Vite dev servers in favor of Vite HMR through a single dev server on `:5173`. Added dual dev/prod plugin loader pipeline (`plugins/dev.tsx` static workspace imports for dev/E2E vs `plugins/prod.tsx` Module Federation dynamic remotes for production).
-- **Schema FieldType Validation across All Apps (`FieldTypeConstraint`)**: Explicitly annotated every `SchemaField` across all 7 app plugins (`journal`, `wakatime`, `grafana`, `files`, `beli`, `trips`, `subsonic`) with strict `FieldTypeConstraint` types (`String`, `Integer`, `Float`, `Boolean`, `DateTime`, `Json`, `NodeRef`, `Array`, `ObjectRef`), activating full write-path type constraint checking via `SchemaRegistry::validate_required`.
+- **Schema FieldType Validation across All Apps (`FieldTypeConstraint`)**: Explicitly annotated every `SchemaField` across all 7 app plugins (`journal`, `coding`, `dashboards`, `files`, `restaurants`, `trips`, `music`) with strict `FieldTypeConstraint` types (`String`, `Integer`, `Float`, `Boolean`, `DateTime`, `Json`, `NodeRef`, `Array`, `ObjectRef`), activating full write-path type constraint checking via `SchemaRegistry::validate_required`.
 - **Full Frontends Across All 7 Plugins**: Built and integrated dedicated React UIs for all 7 plugins into the main SPA shell:
   - **Journal App**: Logseq-inspired outliner block tree with inline block editing, collapsible nodes, indent/outdent controls, page creator, journal day selector, and backlinks inspector panel.
-  - **Grafana App**: React SPA dashboard editor with PromQL query editor, panel CRUD, grid layout controls, time-range presets, and 6 SVG chart types.
-  - **WakaTime App**: Coding activity dashboard with heartbeat ingestion test form, interactive project/language/file leaderboards, and SVG activity time-series chart.
-  - **Beli App**: Restaurant rating app with restaurant creation, pairwise rating comparison form (`A > B`), and Kahn's algorithm topological ranking display.
+  - **Dashboards App**: React SPA dashboard editor with PromQL query editor, panel CRUD, grid layout controls, time-range presets, and 6 SVG chart types.
+  - **Coding Activity App**: Coding activity dashboard with heartbeat ingestion test form, interactive project/language/file leaderboards, and SVG activity time-series chart.
+  - **Restaurant Rankings App**: Restaurant rating app with restaurant creation, pairwise rating comparison form (`A > B`), and Kahn's algorithm topological ranking display.
   - **Trips App**: Itinerary planner with trip creator, event scheduling form with lat/lng coordinates, and map location pins list view.
   - **Files App**: Object storage manager with file drop zone, file listing with folder filtering, storage usage metrics, and stream downloads.
-  - **Subsonic App**: Audio streaming app with track uploader, HTML5 audio playback controls bar, and system node artist/album browser.
+  - **Music Library App**: Audio streaming app with track uploader, HTML5 audio playback controls bar, and system node artist/album browser.
 - **Storage Backend Abstraction Layer (`StorageBackend`)**: Isolated all SQLite-specific code behind a clean `StorageBackend` trait and `NodeStorage` wrapper, enabling pluggable database backends (e.g., PostgreSQL, DynamoDB) without changing platform or plugin code.
 - **Containerization Infrastructure (Bun-based Docker Workflows)**: Replaced Node.js base images with `oven/bun:1` across `Dockerfile.frontend` and `Dockerfile.backend` (ui-builder stage) and configured root workspace context support for fast, reproducible containerized builds.
 - **Client-Side SPA Routing**: Replaced state-based view switching in `App.tsx` with TanStack Router (`@tanstack/react-router` v1.170) supporting URL-based navigation across all main panels and app views.
@@ -69,7 +69,7 @@ Major platform, architecture, and app milestones recently achieved:
 | LIMIT / SKIP | ✅ Done | |
 | CRDT view selectors (@merged, @ops, @at) | ❌ Missing | §3.6 — not in parser or compiler |
 | Operator / Type validity matrix (§3.7) | ❌ Missing | Compiler doesn't validate operator suitability per field type (e.g. string vs boolean) at compile time |
-| Aggregation (COUNT, SUM, GROUP BY) | ❌ Missing | Explicit non-goal for v0; handled by plugin post-processing (e.g. Grafana PromQL engine) |
+| Aggregation (COUNT, SUM, GROUP BY) | ❌ Missing | Explicit non-goal for v0; handled by plugin post-processing (e.g. Dashboards PromQL engine) |
 | Subqueries | ❌ Missing | Explicit non-goal for v0 |
 | Full-text search | ❌ Missing | Explicit non-goal for v0 |
 
@@ -96,7 +96,7 @@ Major platform, architecture, and app milestones recently achieved:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Client-Side SPA Navigation | ✅ Done | TanStack Router (`@tanstack/react-router` v1.170) handles URL routing for `/`, `/nodes`, `/schemas`, `/plugins`, `/journal`, `/journal/page/$pageId`, `/grafana`, `/wakatime`, `/files`, `/beli`, `/trips`, `/subsonic` |
+| Client-Side SPA Navigation | ✅ Done | TanStack Router (`@tanstack/react-router` v1.170) handles URL routing for `/`, `/nodes`, `/schemas`, `/plugins`, `/journal`, `/journal/page/$pageId`, `/dashboards`, `/coding`, `/files`, `/restaurants`, `/trips`, `/music` |
 | Node CRUD endpoints | ✅ Done | |
 | Query language endpoint (POST /api/query) | ✅ Done | |
 | Schema list/get endpoints | ✅ Done | From in-memory registry |
@@ -118,7 +118,7 @@ Major platform, architecture, and app milestones recently achieved:
 | Single Dev Server (Bun Workspace) | ✅ Done | All 7 plugin UIs in `crates/panorama-app-*/ui` symlinked as Bun workspace packages, served with Vite HMR on `:5173` |
 | Dual Dev/Prod Plugin Loader Pipeline | ✅ Done | `plugins/dev.tsx` static workspace imports for dev/E2E vs `plugins/prod.tsx` Module Federation dynamic remotes for production |
 | Background tasks | ⚠️ Trait defined | `background_tasks()` returns definitions; no scheduler that actually runs them |
-| UI Component Integration | ✅ Done | All 7 app frontends (Journal, Grafana, WakaTime, Files, Beli, Trips, Subsonic) built and integrated into main SPA shell |
+| UI Component Integration | ✅ Done | All 7 app frontends (Journal, Dashboards, Coding Activity, Files, Restaurant Rankings, Trips, Music Library) built and integrated into main SPA shell |
 
 ### 1.6 Reactor & Hook Subsystem (`design/HOOK_DESIGN.md`)
 
@@ -160,12 +160,12 @@ Major platform, architecture, and app milestones recently achieved:
 | Schema viewer (list, field details) | ✅ Done | `SchemaViewer.tsx` |
 | Plugin panel (list, select) | ✅ Done | `PluginPanel.tsx` |
 | Journal App UI | ✅ Done | Logseq-inspired block tree outliner (`JournalApp.tsx`). Supports page creation, journal day navigation, collapsible subtrees, block editing, indent/outdent, wiki-links `[[title]]`, and backlink inspector |
-| Grafana App UI | ✅ Done | Full React SPA dashboard builder (`panorama-app-grafana/ui/src/App.tsx`). Supports panel CRUD, PromQL editor, grid layout controls, and 6 inline SVG chart types |
-| WakaTime App UI | ✅ Done | Coding activity dashboard (`panorama-app-wakatime/ui/src/App.tsx`). Heartbeat submission test form, project/language/file leaderboards, and SVG activity time-series chart |
+| Dashboards App UI | ✅ Done | Full React SPA dashboard builder (`panorama-app-dashboards/ui/src/App.tsx`). Supports panel CRUD, PromQL editor, grid layout controls, and 6 inline SVG chart types |
+| Coding Activity App UI | ✅ Done | Coding activity dashboard (`panorama-app-coding/ui/src/App.tsx`). Heartbeat submission test form, project/language/file leaderboards, and SVG activity time-series chart |
 | Files App UI | ✅ Done | Storage file manager (`panorama-app-files/ui/src/App.tsx`). Drag-and-drop / select upload form, folder filters, storage stats, file listing, download links |
-| Beli App UI | ✅ Done | Restaurant rating app (`panorama-app-beli/ui/src/App.tsx`). Restaurant creator, pairwise comparison form (`A > B`), Kahn's algorithm topological ranking tiers display |
+| Restaurant Rankings App UI | ✅ Done | Restaurant rating app (`panorama-app-restaurants/ui/src/App.tsx`). Restaurant creator, pairwise comparison form (`A > B`), Kahn's algorithm topological ranking tiers display |
 | Trips App UI | ✅ Done | Trip itinerary planner (`panorama-app-trips/ui/src/App.tsx`). Trip creation form, event timeline form with lat/lng coordinates, map location pins list view |
-| Subsonic App UI | ✅ Done | Music library player (`panorama-app-subsonic/ui/src/App.tsx`). Audio track uploader, HTML5 playback bar, artist/album system node browser |
+| Music Library App UI | ✅ Done | Music library player (`panorama-app-music/ui/src/App.tsx`). Audio track uploader, HTML5 playback bar, artist/album system node browser |
 | Docker Container Builds (Bun) | ✅ Done | `Dockerfile.frontend` and `Dockerfile.backend` build frontend via `oven/bun:1` |
 | Production build embedding | ✅ Done | Via rust-embed into `panorama-server` |
 
@@ -195,25 +195,25 @@ Major platform, architecture, and app milestones recently achieved:
 
 **Integration & E2E tests:** Verified via unit tests (`test_backlinks_query`, `test_block_search`, `test_recursive_block_deletion`, etc.) and 7 Playwright E2E UI test scenarios (`app-journal.spec.ts`).
 
-### 2.2 Wakatime App
+### 2.2 Coding Activity App
 
-**What a user expects:** Wakatime-compatible heartbeat endpoint, bulk ingestion, durations calculation, summaries, overall stats, project list, API key auth, activity dashboard UI.
+**What a user expects:** Heartbeat endpoint compatible with popular coding activity tracking services, bulk ingestion, durations calculation, summaries, overall stats, project list, API key auth, activity dashboard UI.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Single heartbeat ingestion | ✅ Done | `POST /users/current/heartbeats` (and `/heartbeat`) |
 | Bulk heartbeat ingestion | ✅ Done | `POST /users/current/heartbeats.bulk` (and `/heartbeats`) |
-| Full 25+ field heartbeat schema | ✅ Done | `wakatime:entity`, `wakatime:type`, `wakatime:category`, `wakatime:project`, `wakatime:branch`, `wakatime:language`, `wakatime:lines`, `wakatime:lineno`, `wakatime:cursorpos`, `wakatime:is_write`, etc. |
+| Full 25+ field heartbeat schema | ✅ Done | `coding:entity`, `coding:type`, `coding:category`, `coding:project`, `coding:branch`, `coding:language`, `coding:lines`, `coding:lineno`, `coding:cursorpos`, `coding:is_write`, etc. |
 | Durations API | ✅ Done | `GET /users/current/durations` returns time-bucketed duration breakdowns |
 | Summaries API | ✅ Done | `GET /users/current/summaries` daily stats breakdowns over date range |
 | Overall Stats API | ✅ Done | `GET /users/current/stats` top projects, top languages, daily average |
 | Projects API | ✅ Done | `GET /users/current/projects` list of active coding projects |
 | API Key Authorization | ✅ Done | Validates `Authorization: Bearer <key>` and `X-Api-Key` headers |
-| Coding Activity Dashboard UI | ✅ Done | Dedicated React UI (`panorama-app-wakatime/ui/src/App.tsx`). Heartbeat submission form, project/language/file leaderboards, SVG activity time-series chart |
+| Coding Activity Dashboard UI | ✅ Done | Dedicated React UI (`panorama-app-coding/ui/src/App.tsx`). Heartbeat submission form, project/language/file leaderboards, SVG activity time-series chart |
 
-**Integration & E2E tests:** Verified via unit tests (`test_durations_calculation`, `test_summaries_calculation`, `test_api_key_auth`, etc.) and 3 Playwright E2E UI test scenarios (`app-wakatime.spec.ts`).
+**Integration & E2E tests:** Verified via unit tests (`test_durations_calculation`, `test_summaries_calculation`, `test_api_key_auth`, etc.) and 3 Playwright E2E UI test scenarios (`app-coding.spec.ts`).
 
-### 2.3 Grafana App
+### 2.3 Dashboards App
 
 **What a user expects:** Dashboard builder with panels, time-series queries, multiple chart types, PromQL query language, PromQL metric registry, dashboard CRUD, validation, import/export.
 
@@ -229,18 +229,18 @@ Major platform, architecture, and app milestones recently achieved:
 | Home dashboard auto-creation | ✅ Done | GET /api/dashboards/home auto-creates a default on first access |
 | Folder support | ✅ Done | GET/POST /api/folders for organizing dashboards |
 | PromQL query engine | ✅ Done | Full recursive-descent parser + AST → PQL translator. Supports instant/range vectors, label matchers (= != =~ !~), all binary operators, aggregations (sum/avg/min/max/count by/without), functions (rate/irate/increase/delta/topk/bottomk/histogram_quantile/sort/absent), subqueries, offset, @ modifier |
-| Metric registry | ✅ Done | Configurable metric name → namespace/field mapping with WakaTime defaults |
+| Metric registry | ✅ Done | Configurable metric name → namespace/field mapping with Coding Activity defaults |
 | PromQL validation endpoint | ✅ Done | POST /api/promql/validate returns PQL translation preview |
 | Query execution | ✅ Done | POST /api/ds/query accepts batch of PromQL panel queries, translates to PQL, executes via ctx.query(), applies post-processing (rate/increase/group-aggregation/sort/filter) |
 | Multiple panel types | ✅ Done | leaderboard, timeseries, stat, piechart, table, heatmap — all render in the React frontend |
 | Time range presets | ✅ Done | 15 presets from "Last 1 hour" to "This month", plus relative time parser (now-Nd/Nh/Nm/Ns) |
-| Dashboard editor UI | ✅ Done | Full React SPA (`panorama-app-grafana/ui/src/App.tsx`) with panel CRUD, PromQL textarea, grid position editor, panel type selector |
+| Dashboard editor UI | ✅ Done | Full React SPA (`panorama-app-dashboards/ui/src/App.tsx`) with panel CRUD, PromQL textarea, grid position editor, panel type selector |
 | Inline SVG chart rendering | ✅ Done | All chart types render with inline SVG — no external chart library |
 | Template variables | ❌ Missing | Schema exists but not wired to query interpolation |
 | Alerting | ❌ Missing | |
 | Drag-and-drop layout | ❌ Missing | Grid positions are editable as numbers, no drag handles |
 
-**Integration & E2E tests:** Verified via 16 Rust unit tests (`test_promql_execution`, `test_dashboard_crud`, etc.) and 5 Playwright E2E UI test scenarios (`app-grafana.spec.ts`).
+**Integration & E2E tests:** Verified via 16 Rust unit tests (`test_promql_execution`, `test_dashboard_crud`, etc.) and 5 Playwright E2E UI test scenarios (`app-dashboards.spec.ts`).
 
 ### 2.4 Files App
 
@@ -262,7 +262,7 @@ Major platform, architecture, and app milestones recently achieved:
 
 **Integration & E2E tests:** Verified via unit tests (`test_list_files`) and 2 Playwright E2E UI test scenarios (`app-files.spec.ts`).
 
-### 2.5 Beli (Restaurant Ratings) App
+### 2.5 Restaurant Rankings (Restaurant Ratings) App
 
 **What a user expects:** Browse restaurants, rate via comparisons, see personal rankings, discover new places, see friend rankings, photos, maps integration.
 
@@ -272,12 +272,12 @@ Major platform, architecture, and app milestones recently achieved:
 | List restaurants | ✅ Done | GET /restaurants |
 | Record pairwise comparison (A > B) | ✅ Done | POST /compare with better_id + worse_id |
 | Partial order rankings (topological sort) | ✅ Done | Kahn's algorithm with tiered output |
-| Restaurant Rankings React UI | ✅ Done | Dedicated React component (`panorama-app-beli/ui/src/App.tsx`). Add restaurant form, pairwise comparison selector form (A > B), and tiered topological rankings display |
+| Restaurant Rankings React UI | ✅ Done | Dedicated React component (`panorama-app-restaurants/ui/src/App.tsx`). Add restaurant form, pairwise comparison selector form (A > B), and tiered topological rankings display |
 | Restaurant edit/delete | ❌ Missing | |
 | Restaurant photos | ❌ Missing | |
 | Map view of restaurants | ❌ Missing | |
 
-**Integration & E2E tests:** Verified via 4 unit tests (`test_pairwise_comparison`, `test_topological_ranking`, etc.) and 4 Playwright E2E UI test scenarios (`app-beli.spec.ts`).
+**Integration & E2E tests:** Verified via 4 unit tests (`test_pairwise_comparison`, `test_topological_ranking`, etc.) and 4 Playwright E2E UI test scenarios (`app-restaurants.spec.ts`).
 
 ### 2.6 Trips App
 
@@ -294,21 +294,21 @@ Major platform, architecture, and app milestones recently achieved:
 
 **Integration & E2E tests:** Verified via 4 unit tests (`test_trip_creation`, `test_map_data_endpoint`, etc.) and 4 Playwright E2E UI test scenarios (`app-trips.spec.ts`).
 
-### 2.7 Subsonic App
+### 2.7 Music Library App
 
 **What a user expects:** Music library browser, album art, playlist management, streaming with seeking, transcoding, podcast support, multiple client compatibility.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Subsonic ping response | ✅ Done | GET /rest/ping returns valid Subsonic JSON |
-| Get artists | ⚠️ Heuristic | Queries nodes with system title, filtered for subsonic attributes |
-| Get albums | ⚠️ Heuristic | Queries nodes with subsonic:artist_id |
+| Music Library ping response | ✅ Done | GET /rest/ping returns valid Music Library JSON |
+| Get artists | ⚠️ Heuristic | Queries nodes with system title, filtered for music attributes |
+| Get albums | ⚠️ Heuristic | Queries nodes with music:artist_id |
 | Stream audio | ✅ Done | GET /rest/stream?id=X fetches from object storage with proper headers |
 | Upload audio + create track node | ✅ Done | POST /upload |
-| Music Library React UI | ✅ Done | Dedicated React component (`panorama-app-subsonic/ui/src/App.tsx`). Audio track uploader, HTML5 playback bar, artist and album node listings |
-| Full Subsonic client protocol coverage | ❌ Missing | `getMusicFolders`, `getIndexes`, `getAlbum`, `getCoverArt`, `search2`, etc. pending |
+| Music Library React UI | ✅ Done | Dedicated React component (`panorama-app-music/ui/src/App.tsx`). Audio track uploader, HTML5 playback bar, artist and album node listings |
+| Full Music Library client protocol coverage | ❌ Missing | `getMusicFolders`, `getIndexes`, `getAlbum`, `getCoverArt`, `search2`, etc. pending |
 
-**Integration & E2E tests:** Verified via 3 unit tests (`test_subsonic_ping`, `test_audio_stream`, etc.) and 2 Playwright E2E UI test scenarios (`app-subsonic.spec.ts`).
+**Integration & E2E tests:** Verified via 3 unit tests (`test_music_ping`, `test_audio_stream`, etc.) and 2 Playwright E2E UI test scenarios (`app-music.spec.ts`).
 
 ---
 
@@ -323,12 +323,12 @@ Major platform, architecture, and app milestones recently achieved:
 
 - **All 7 Plugins Have Functional React Frontends**:
   - Journal (`panorama-app-journal/ui`)
-  - Grafana (`panorama-app-grafana/ui`)
-  - WakaTime (`panorama-app-wakatime/ui`)
+  - Dashboards (`panorama-app-dashboards/ui`)
+  - Coding Activity (`panorama-app-coding/ui`)
   - Files (`panorama-app-files/ui`)
-  - Beli (`panorama-app-beli/ui`)
+  - Restaurant Rankings (`panorama-app-restaurants/ui`)
   - Trips (`panorama-app-trips/ui`)
-  - Subsonic (`panorama-app-subsonic/ui`)
+  - Music Library (`panorama-app-music/ui`)
 - **Unified Bun Workspace & Single Dev Server Architecture**: All 7 UIs are symlinked as Bun workspace packages under root `package.json`. A single Vite dev server on `:5173` serves all plugin sources with full HMR during development.
 - **Dual Dev/Prod Loading Pipeline**:
   - `dev.tsx`: Direct static imports of workspace plugin packages for local dev and Playwright E2E test harness execution.
@@ -344,12 +344,12 @@ Major platform, architecture, and app milestones recently achieved:
 | App | Create | Read | Update | Delete |
 |-----|--------|------|--------|--------|
 | Journal (Blocks/Pages) | ✅ | ✅ | ✅ | ✅ (Recursive) |
-| Wakatime (Heartbeats/Stats) | ✅ | ✅ | — | — |
-| Grafana (Dashboards) | ✅ | ✅ | ✅ | ✅ |
+| Coding Activity (Heartbeats/Stats) | ✅ | ✅ | — | — |
+| Dashboards (Dashboards) | ✅ | ✅ | ✅ | ✅ |
 | Files | ✅ | ✅ | — | ✅ |
-| Beli | ✅ | ✅ | — | — |
+| Restaurant Rankings | ✅ | ✅ | — | — |
 | Trips | ✅ | ✅ | — | — |
-| Subsonic | ✅ | ✅ | — | — |
+| Music Library | ✅ | ✅ | — | — |
 
 ---
 
@@ -361,7 +361,7 @@ Major platform, architecture, and app milestones recently achieved:
 
 2. **Wire Up Prepared Statement Cache (`StatementCache`).** Connect `StatementCache` (`crates/panorama-server/src/query/cache.rs`) into `StorageBackend` and `MetaStore` physical query execution to skip re-compiling SQL strings for repeated IR shapes (§7.3).
 
-3. **Refine Subsonic Schema Queries.** Upgrade `getArtists` and `getAlbums` from heuristic field checks to schema conformance filtering (`WHERE n CONFORMS TO schema("subsonic/Artist")`).
+3. **Refine Music Library Schema Queries.** Upgrade `getArtists` and `getAlbums` from heuristic field checks to schema conformance filtering (`WHERE n CONFORMS TO schema("music/Artist")`).
 
 4. **Separate Required vs. Preferred Schema Tracking on Node.** Store `required_schemas: Vec<SchemaRef>` on `Node` struct and update table schema to explicitly differentiate required vs preferred schemas.
 
@@ -380,7 +380,7 @@ Major platform, architecture, and app milestones recently achieved:
 
 8. **Pagination for List Endpoints.** Add `limit` and `cursor` pagination parameters across all app list handlers using PQL `LIMIT`/`SKIP`.
 
-9. **Drag-and-Drop / Advanced UI Enhancements.** Add drag-and-drop panel repositioning for Grafana and drag-and-drop file upload for Files app.
+9. **Drag-and-Drop / Advanced UI Enhancements.** Add drag-and-drop panel repositioning for Dashboards and drag-and-drop file upload for Files app.
 
 ### 4.3 Later (Polish and Advanced Features)
 

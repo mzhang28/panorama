@@ -207,15 +207,15 @@ async fn test_journal_pages_today() {
     assert_eq!(page["id"], page2["id"]);
 }
 
-// ─── Wakatime App Tests ──────────────────────────────────────
+// ─── Coding Activity App Tests ───────────────────────────────
 
 #[tokio::test]
-async fn test_wakatime_heartbeat_single() {
+async fn test_coding_heartbeat_single() {
     let (loader, _tmp) = setup_test_env();
-    let plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+    let plugin = Arc::new(panorama_app_coding::CodingPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
 
-    let ctx = loader.create_context("io.mzhang.panorama.wakatime", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.coding", plugin.required_capabilities());
 
     let req = HttpRequest {
         method: "POST".into(),
@@ -236,12 +236,12 @@ async fn test_wakatime_heartbeat_single() {
 }
 
 #[tokio::test]
-async fn test_wakatime_heartbeats_bulk() {
+async fn test_coding_heartbeats_bulk() {
     let (loader, _tmp) = setup_test_env();
-    let plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+    let plugin = Arc::new(panorama_app_coding::CodingPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
 
-    let ctx = loader.create_context("io.mzhang.panorama.wakatime", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.coding", plugin.required_capabilities());
 
     let req = HttpRequest {
         method: "POST".into(),
@@ -260,16 +260,16 @@ async fn test_wakatime_heartbeats_bulk() {
     assert_eq!(result["created"], 3);
 }
 
-// ─── Grafana/Dashboard App Tests ─────────────────────────────
+// ─── Dashboards/Dashboard App Tests ─────────────────────────────
 
 #[tokio::test]
-async fn test_grafana_query_count() {
+async fn test_dashboards_query_count() {
     let (loader, _tmp) = setup_test_env();
 
-    // First load wakatime and create some heartbeats
-    let wk_plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+    // First load coding plugin and create some heartbeats
+    let wk_plugin = Arc::new(panorama_app_coding::CodingPlugin::new());
     loader.load(wk_plugin.clone()).await.unwrap();
-    let wk_ctx = loader.create_context("io.mzhang.panorama.wakatime", wk_plugin.required_capabilities());
+    let wk_ctx = loader.create_context("io.mzhang.panorama.coding", wk_plugin.required_capabilities());
 
     // Create heartbeats with different projects
     for (project, file) in &[
@@ -279,16 +279,16 @@ async fn test_grafana_query_count() {
     ] {
         let mut node = Node::new(uuid::Uuid::nil());
         node.set_field("system:node_time", FieldValue::DateTime(chrono::Utc::now().to_rfc3339()));
-        node.set_field("wakatime:entity", FieldValue::String(file.to_string()));
-        node.set_field("wakatime:project", FieldValue::String(project.to_string()));
-        node.set_field("wakatime:duration", FieldValue::Float(3600.0));
+        node.set_field("coding:entity", FieldValue::String(file.to_string()));
+        node.set_field("coding:project", FieldValue::String(project.to_string()));
+        node.set_field("coding:duration", FieldValue::Float(3600.0));
         wk_ctx.create_node(node).await.unwrap();
     }
 
-    // Now query with grafana plugin
-    let gf_plugin = Arc::new(panorama_app_grafana::GrafanaPlugin::new());
+    // Now query with dashboards plugin
+    let gf_plugin = Arc::new(panorama_app_dashboards::DashboardsPlugin::new());
     loader.load(gf_plugin.clone()).await.unwrap();
-    let gf_ctx = loader.create_context("io.mzhang.panorama.grafana", gf_plugin.required_capabilities());
+    let gf_ctx = loader.create_context("io.mzhang.panorama.dashboards", gf_plugin.required_capabilities());
 
     // Test PromQL count query
     let req = HttpRequest {
@@ -299,8 +299,8 @@ async fn test_grafana_query_count() {
         body: Some(serde_json::json!({
             "queries": [{
                 "ref_id": "A",
-                "data_source": "io.mzhang.panorama.wakatime",
-                "promql": "count by (project) (wakatime_duration)"
+                "data_source": "io.mzhang.panorama.coding",
+                "promql": "count by (project) (coding_duration)"
             }],
             "range": {"from": "now-30d", "to": "now"}
         }).to_string().into_bytes().into()),
@@ -312,13 +312,13 @@ async fn test_grafana_query_count() {
 }
 
 #[tokio::test]
-async fn test_grafana_leaderboard() {
+async fn test_dashboards_leaderboard() {
     let (loader, _tmp) = setup_test_env();
 
-    // Create some time-series data via wakatime plugin
-    let wk_plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+    // Create some time-series data via coding plugin
+    let wk_plugin = Arc::new(panorama_app_coding::CodingPlugin::new());
     loader.load(wk_plugin.clone()).await.unwrap();
-    let wk_ctx = loader.create_context("io.mzhang.panorama.wakatime", wk_plugin.required_capabilities());
+    let wk_ctx = loader.create_context("io.mzhang.panorama.coding", wk_plugin.required_capabilities());
 
     for (project, hours) in &[
         ("project-a", 10.0),
@@ -327,16 +327,16 @@ async fn test_grafana_leaderboard() {
     ] {
         let mut node = Node::new(uuid::Uuid::nil());
         node.set_field("system:node_time", FieldValue::DateTime(chrono::Utc::now().to_rfc3339()));
-        node.set_field("wakatime:entity", FieldValue::String("file.rs".to_string()));
-        node.set_field("wakatime:project", FieldValue::String(project.to_string()));
-        node.set_field("wakatime:duration", FieldValue::Float(hours * 3600.0));
+        node.set_field("coding:entity", FieldValue::String("file.rs".to_string()));
+        node.set_field("coding:project", FieldValue::String(project.to_string()));
+        node.set_field("coding:duration", FieldValue::Float(hours * 3600.0));
         wk_ctx.create_node(node).await.unwrap();
     }
 
     // Query leaderboard
-    let gf_plugin = Arc::new(panorama_app_grafana::GrafanaPlugin::new());
+    let gf_plugin = Arc::new(panorama_app_dashboards::DashboardsPlugin::new());
     loader.load(gf_plugin.clone()).await.unwrap();
-    let gf_ctx = loader.create_context("io.mzhang.panorama.grafana", gf_plugin.required_capabilities());
+    let gf_ctx = loader.create_context("io.mzhang.panorama.dashboards", gf_plugin.required_capabilities());
 
     let req = HttpRequest {
         method: "POST".into(),
@@ -346,8 +346,8 @@ async fn test_grafana_leaderboard() {
         body: Some(serde_json::json!({
             "queries": [{
                 "ref_id": "A",
-                "data_source": "io.mzhang.panorama.wakatime",
-                "promql": "sum by (project) (wakatime_duration)"
+                "data_source": "io.mzhang.panorama.coding",
+                "promql": "sum by (project) (coding_duration)"
             }],
             "range": {"from": "now-30d", "to": "now"}
         }).to_string().into_bytes().into()),
@@ -371,11 +371,11 @@ async fn test_grafana_leaderboard() {
 }
 
 #[tokio::test]
-async fn test_grafana_save_and_list_dashboards() {
+async fn test_dashboards_save_and_list_dashboards() {
     let (loader, _tmp) = setup_test_env();
-    let plugin = Arc::new(panorama_app_grafana::GrafanaPlugin::new());
+    let plugin = Arc::new(panorama_app_dashboards::DashboardsPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("io.mzhang.panorama.grafana", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.dashboards", plugin.required_capabilities());
 
     // Create a dashboard (new API format)
     let req = HttpRequest {
@@ -392,8 +392,8 @@ async fn test_grafana_save_and_list_dashboards() {
                 "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
                 "queries": [{
                     "ref_id": "A",
-                    "data_source": "io.mzhang.panorama.wakatime",
-                    "promql": "sum by (project) (wakatime_duration)"
+                    "data_source": "io.mzhang.panorama.coding",
+                    "promql": "sum by (project) (coding_duration)"
                 }]
             }]
         }).to_string().into_bytes().into()),
@@ -519,14 +519,14 @@ async fn test_trips_map_view() {
     assert_eq!(map_data[0]["title"], "Tokyo Tower");
 }
 
-// ─── Beli (Restaurant Ratings) App Tests ─────────────────────
+// ─── Restaurant Rankings (Restaurant Ratings) App Tests ─────────────────────
 
 #[tokio::test]
-async fn test_beli_add_restaurant_and_compare() {
+async fn test_restaurants_add_and_compare() {
     let (loader, _tmp) = setup_test_env();
-    let plugin = Arc::new(panorama_app_beli::BeliPlugin::new());
+    let plugin = Arc::new(panorama_app_restaurants::RestaurantsPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("io.mzhang.panorama.beli", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.restaurants", plugin.required_capabilities());
 
     // Add restaurants
     let mut ids = Vec::new();
@@ -580,14 +580,14 @@ async fn test_beli_add_restaurant_and_compare() {
     assert_eq!(tiers.len(), 3);
 }
 
-// ─── Subsonic Music App Tests ─────────────────────────────────
+// ─── Music Library Music App Tests ─────────────────────────────────
 
 #[tokio::test]
-async fn test_subsonic_ping() {
+async fn test_music_ping() {
     let (loader, _tmp) = setup_test_env();
-    let plugin = Arc::new(panorama_app_subsonic::SubsonicPlugin::new());
+    let plugin = Arc::new(panorama_app_music::MusicPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("io.mzhang.panorama.subsonic", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.music", plugin.required_capabilities());
 
     let req = HttpRequest {
         method: "GET".into(),
@@ -599,15 +599,15 @@ async fn test_subsonic_ping() {
     let resp = plugin.handle_http_request("rest/ping", req, &ctx).await.unwrap();
     assert_eq!(resp.status, 200);
     let data: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
-    assert_eq!(data["subsonic-response"]["status"], "ok");
+    assert_eq!(data["music-response"]["status"], "ok");
 }
 
 #[tokio::test]
-async fn test_subsonic_upload_and_stream() {
+async fn test_music_upload_and_stream() {
     let (loader, _tmp) = setup_test_env();
-    let plugin = Arc::new(panorama_app_subsonic::SubsonicPlugin::new());
+    let plugin = Arc::new(panorama_app_music::MusicPlugin::new());
     loader.load(plugin.clone()).await.unwrap();
-    let ctx = loader.create_context("io.mzhang.panorama.subsonic", plugin.required_capabilities());
+    let ctx = loader.create_context("io.mzhang.panorama.music", plugin.required_capabilities());
 
     // Upload a music file
     let audio_data = vec![0u8; 1024]; // Fake audio data
@@ -711,11 +711,11 @@ async fn test_all_plugins_register_schemas() {
 
     let plugins: Vec<(Arc<dyn Plugin>, &str)> = vec![
         (Arc::new(panorama_app_journal::JournalPlugin::new()), "journal"),
-        (Arc::new(panorama_app_wakatime::WakatimePlugin::new()), "wakatime"),
-        (Arc::new(panorama_app_grafana::GrafanaPlugin::new()), "grafana"),
+        (Arc::new(panorama_app_coding::CodingPlugin::new()), "coding"),
+        (Arc::new(panorama_app_dashboards::DashboardsPlugin::new()), "dashboards"),
         (Arc::new(panorama_app_trips::TripsPlugin::new()), "trips"),
-        (Arc::new(panorama_app_beli::BeliPlugin::new()), "beli"),
-        (Arc::new(panorama_app_subsonic::SubsonicPlugin::new()), "subsonic"),
+        (Arc::new(panorama_app_restaurants::RestaurantsPlugin::new()), "restaurants"),
+        (Arc::new(panorama_app_music::MusicPlugin::new()), "music"),
         (Arc::new(panorama_app_files::FilesPlugin::new()), "files"),
     ];
 
@@ -748,7 +748,7 @@ async fn test_plugins_only_use_public_api() {
 
     // Verify by checking that plugins compile and load correctly
     let (loader, _tmp) = setup_test_env();
-    let plugin = Arc::new(panorama_app_wakatime::WakatimePlugin::new());
+    let plugin = Arc::new(panorama_app_coding::CodingPlugin::new());
 
     // Plugin should not have access to server internals
     // It can only interact through PluginContext

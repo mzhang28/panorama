@@ -17,13 +17,13 @@
       "defaultConfiguration": "development",
       "dependsOn": [
         "panorama-server:build",
-        "panorama-app-beli:package-panoapp",
+        "panorama-app-restaurants:package-panoapp",
         "panorama-app-files:package-panoapp",
-        "panorama-app-grafana:package-panoapp",
+        "panorama-app-dashboards:package-panoapp",
         "panorama-app-journal:package-panoapp",
-        "panorama-app-subsonic:package-panoapp",
+        "panorama-app-music:package-panoapp",
         "panorama-app-trips:package-panoapp",
-        "panorama-app-wakatime:package-panoapp"
+        "panorama-app-coding:package-panoapp"
       ],
       "inputs": [
         "{workspaceRoot}/frontend/e2e/**/*",

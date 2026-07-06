@@ -21,7 +21,7 @@ bytes = "1"
 mime = "0.3"
 async-trait = "0.1"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dashmap = "6"
 rand = "0.8"
 sha2 = "0.10"
@@ -37,11 +37,11 @@ pollster = "0.4"
 [dev-dependencies]
 tempfile = "3"
 panorama-app-journal = { path = "../panorama-app-journal" }
-panorama-app-wakatime = { path = "../panorama-app-wakatime" }
-panorama-app-grafana = { path = "../panorama-app-grafana" }
+panorama-app-coding = { path = "../panorama-app-coding" }
+panorama-app-dashboards = { path = "../panorama-app-dashboards" }
 panorama-app-trips = { path = "../panorama-app-trips" }
-panorama-app-beli = { path = "../panorama-app-beli" }
-panorama-app-subsonic = { path = "../panorama-app-subsonic" }
+panorama-app-restaurants = { path = "../panorama-app-restaurants" }
+panorama-app-music = { path = "../panorama-app-music" }
 panorama-app-files = { path = "../panorama-app-files" }
 proptest = "1.11.0"
 

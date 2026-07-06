@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 afl = "0.15"
 panorama-core = { path = "../crates/panorama-core" }
-panorama-app-grafana = { path = "../crates/panorama-app-grafana" }
+panorama-app-dashboards = { path = "../crates/panorama-app-dashboards" }
 
 [[bin]]
 name = "fuzz_promql"

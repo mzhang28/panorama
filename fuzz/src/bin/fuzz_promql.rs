@@ -1,5 +1,5 @@
 use afl::fuzz;
-use panorama_app_grafana::promql::{parse, translate, MetricRegistry};
+use panorama_app_dashboards::promql::{parse, translate, MetricRegistry};
 
 fn main() {
     let registry = MetricRegistry::default();

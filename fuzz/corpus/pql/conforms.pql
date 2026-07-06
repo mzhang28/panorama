@@ -1,1 +1,1 @@
-MATCH (n) IN space("default") CONFORMS TO schema("wakatime:heartbeat") RETURN n
+MATCH (n) IN space("default") CONFORMS TO schema("coding:heartbeat") RETURN n

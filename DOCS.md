@@ -37,7 +37,7 @@ making the type system self-hosted. Schemas can be:
 **Fields** are namespaced key-value pairs attached to nodes. The namespace system:
 - `system:` — Built-in fields (`node_title`, `node_time`, `node_start_time`, `node_end_time`, `created_at`, etc.)
 - `user:` — User-created fields
-- `<app-namespace>:` — App-specific fields (e.g., `journal:`, `wakatime:`, `grafana:`, `trips:`, `beli:`, `subsonic:`, `files:`)
+- `<app-namespace>:` — App-specific fields (e.g., `journal:`, `coding:`, `dashboards:`, `trips:`, `restaurants:`, `music:`, `files:`)
 
 **Spaces** handle multi-user permissions at the space level. All nodes in a space share the same `space_id` permissions boundary.
 
@@ -131,11 +131,11 @@ panorama/
 │   ├── panorama-core/          # Core types, query parser/AST, Plugin trait & PluginContext
 │   ├── panorama-server/        # Axum web server, SQLite storage, query compiler, Wasmtime runtime
 │   ├── panorama-app-journal/   # Journal app plugin (WASM / native)
-│   ├── panorama-app-wakatime/  # Wakatime activity app plugin
-│   ├── panorama-app-grafana/   # Dashboard & query engine app plugin
+│   ├── panorama-app-coding/   # Coding Activity app plugin
+│   ├── panorama-app-dashboards/   # Dashboard & query engine app plugin
 │   ├── panorama-app-trips/     # Trip planner app plugin
-│   ├── panorama-app-beli/      # Restaurant partial-ordering app plugin
-│   ├── panorama-app-subsonic/  # Music streaming app plugin
+│   ├── panorama-app-restaurants/      # Restaurant partial-ordering app plugin
+│   ├── panorama-app-music/  # Music streaming app plugin
 │   ├── panorama-app-files/     # File manager app plugin
 │   └── wasm-types/             # WASM shared type definitions
 ├── frontend/                   # React + TanStack + Module Federation frontend
@@ -242,10 +242,10 @@ RETURN n
 Fields are accessed via `n."namespace".field_name` or `n.system.field_name`:
 ```cypher
 MATCH (n) IN space("default")
-WHERE n CONFORMS TO schema("wakatime/Heartbeat")
-  AND n."wakatime".project = "panorama"
+WHERE n CONFORMS TO schema("coding/Heartbeat")
+  AND n."coding".project = "panorama"
   AND n.system.node_time >= "2026-01-01T00:00:00Z"
-RETURN n."wakatime".entity, n.system.node_time
+RETURN n."coding".entity, n.system.node_time
 ```
 
 #### 4. Field Presence Inspection
@@ -318,7 +318,7 @@ Plugins declare capabilities in `manifest.json`. The platform runtime checks the
 |-----------------|-------------|
 | `network_hosts` | Whitelisted remote domain names or hostnames for HTTP requests |
 | `field_read` | Namespaced fields readable by plugin (e.g. `["journal:*", "system:*"]` or `["*"]`) |
-| `field_write` | Namespaced fields writeable by plugin (e.g. `["wakatime:*", "system:node_time"]`) |
+| `field_write` | Namespaced fields writeable by plugin (e.g. `["coding:*", "system:node_time"]`) |
 | `write_own_nodes` | Boolean granting permission to modify nodes created by the plugin |
 | `app_managed_nodes` | Boolean granting permission for app-managed immutable nodes |
 | `object_storage_read` | Boolean permission to read from object storage buckets |
@@ -381,12 +381,12 @@ Daily markdown journal with block-level references.
 - **Endpoints**: `POST /entries`, `GET /entries`, `GET /entries/{id}`
 - **Schema**: `JournalEntry` (`journal/JournalEntry`)
 
-### 2. Coding Activity / WakaTime (`io.mzhang.panorama.wakatime`)
-WakaTime-compatible heartbeat and activity stats tracker.
+### 2. Coding Activity / Coding Activity (`io.mzhang.panorama.coding`)
+Coding Activity-compatible heartbeat and activity stats tracker.
 - **Endpoints**: `POST /users/current/heartbeats`, `POST /users/current/heartbeats.bulk`, `GET /users/current/durations`, `GET /stats`, `POST /heartbeat`, `POST /heartbeats`, `GET /summaries`
 - **Schemas**: `Heartbeat`, `Duration`, `DailySummary`
 
-### 3. Dashboards (`io.mzhang.panorama.grafana`)
+### 3. Dashboards (`io.mzhang.panorama.dashboards`)
 Leaderboard and time-series visualization system.
 - **Endpoints**: `GET /api/dashboards`, `POST /api/dashboards`, `POST /api/ds/query`, `GET /api/query/options`, `POST /api/dashboards/import`, `/api/folders`
 - **Schemas**: `Dashboard`, `Folder`
@@ -396,13 +396,13 @@ Trip planner with calendar and geolocation map views.
 - **Endpoints**: `POST /trips`, `GET /trips`, `POST /events`, `GET /events`, `GET /events/map`
 - **Schemas**: `Trip`, `Event`
 
-### 5. Restaurant Rankings / Beli (`io.mzhang.panorama.beli`)
+### 5. Restaurant Rankings / Restaurant Rankings (`io.mzhang.panorama.restaurants`)
 Restaurant partial ordering rankings via pairwise comparisons.
 - **Endpoints**: `POST /restaurants`, `GET /restaurants`, `POST /compare`, `GET /rankings`
 - **Schemas**: `Restaurant`, `Comparison`
 
-### 6. Music Library / Subsonic (`io.mzhang.panorama.subsonic`)
-Subsonic-compatible music streaming with object storage for audio.
+### 6. Music Library / Music Library (`io.mzhang.panorama.music`)
+music-streaming-compatible music streaming with object storage for audio.
 - **Endpoints**: `GET /rest/ping`, `GET /rest/getArtists`, `GET /rest/getAlbumList2`, `GET /rest/stream`, `POST /upload`
 - **Schemas**: `Artist`, `Album`, `Track`
 

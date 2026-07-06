@@ -61,7 +61,7 @@ This document outlines the **5 top critical invariants** governing the design, c
   - [capabilities.rs](file:///home/michael/Projects/panorama/crates/panorama-core/src/capabilities.rs#L54-L81) (`can_read_field`, `can_write_field`, `can_contact_host`)
   - [wasm_runtime.rs](file:///home/michael/Projects/panorama/crates/panorama-server/src/wasm_runtime.rs) (Host function interceptors and capability checks)
 - **Suggested Test Harness**:
-  - **Sandboxed Plugin Policy Harness**: Instantiate a mock WASM plugin granted `journal:*` read capability. Attempt to execute host calls requesting `wakatime:hours` read or host network calls to `unauthorized.com`. Verify host returns capability denied errors for all non-granted operations.
+  - **Sandboxed Plugin Policy Harness**: Instantiate a mock WASM plugin granted `journal:*` read capability. Attempt to execute host calls requesting `coding:hours` read or host network calls to `unauthorized.com`. Verify host returns capability denied errors for all non-granted operations.
 
 ---
 

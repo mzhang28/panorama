@@ -65,6 +65,7 @@ impl SqliteBackend {
         let read_pool = r2d2::Pool::builder().max_size(8).build(read_mgr).unwrap();
 
         let conn = write_pool.get().unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS nodes (
                 id TEXT PRIMARY KEY,

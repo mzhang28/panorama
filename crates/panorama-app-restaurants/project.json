@@ -1,0 +1,62 @@
+{
+  "name": "panorama-app-restaurants",
+  "targets": {
+    "build-wasm": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-restaurants --target wasm32-wasip1"
+      },
+      "configurations": {
+        "development": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-restaurants --target wasm32-wasip1"
+        },
+        "release": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build --release -p panorama-app-restaurants --target wasm32-wasip1"
+        }
+      },
+      "defaultConfiguration": "development",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/Cargo.toml",
+        "{workspaceRoot}/crates/panorama-core/src/**/*",
+        "{workspaceRoot}/crates/wasm-types/src/**/*",
+        "{workspaceRoot}/Cargo.lock"
+      ],
+      "outputs": [
+        "{workspaceRoot}/target/wasm32-wasip1/debug/restaurants.wasm",
+        "{workspaceRoot}/target/wasm32-wasip1/release/restaurants.wasm"
+      ],
+      "cache": true
+    },
+    "package-panoapp": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun scripts/package-panoapp.ts crates/panorama-app-restaurants/manifest.json target/wasm32-wasip1/debug/restaurants.wasm dist/panoapp --ui-dir crates/panorama-app-restaurants/ui/dist"
+      },
+      "configurations": {
+        "development": {
+          "command": "bun scripts/package-panoapp.ts crates/panorama-app-restaurants/manifest.json target/wasm32-wasip1/debug/restaurants.wasm dist/panoapp --ui-dir crates/panorama-app-restaurants/ui/dist"
+        },
+        "release": {
+          "command": "bun scripts/package-panoapp.ts crates/panorama-app-restaurants/manifest.json target/wasm32-wasip1/release/restaurants.wasm dist/panoapp --ui-dir crates/panorama-app-restaurants/ui/dist"
+        }
+      },
+      "defaultConfiguration": "development",
+      "dependsOn": [
+        "build-wasm",
+        "panorama-plugin-restaurants-ui:build"
+      ],
+      "inputs": [
+        "{projectRoot}/manifest.json",
+        "{workspaceRoot}/scripts/package-panoapp.ts",
+        "{workspaceRoot}/target/wasm32-wasip1/debug/restaurants.wasm",
+        "{workspaceRoot}/target/wasm32-wasip1/release/restaurants.wasm",
+        "{projectRoot}/ui/dist/**/*"
+      ],
+      "outputs": [
+        "{workspaceRoot}/dist/panoapp/restaurants.panoapp"
+      ],
+      "cache": true
+    }
+  }
+}
