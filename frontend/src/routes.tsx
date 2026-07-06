@@ -9,7 +9,7 @@ import {
   Navigate,
   useParams,
 } from "@tanstack/react-router";
-import { useState, useCallback, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { listPlugins, listSchemas } from "./api/client";
 import { NodeExplorerHome } from "./components/NodeExplorerHome";
 import { AppShell } from "./components/AppShell";
