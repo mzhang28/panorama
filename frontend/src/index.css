@@ -51,6 +51,29 @@
   color-scheme: dark;
 }
 
+/* Shared design tokens — theme-agnostic */
+:root {
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  --sidebar-width: 16rem;
+  --sidebar-width-collapsed: 3rem;
+  --content-max-width: 1200px;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --surface: var(--bg);
+  --surface-elevated: var(--bg-card);
+  --surface-inset: var(--bg);
+  --surface-hover: var(--bg-hover);
+}
+
 [data-theme="light"] {
   --bg: #f8fafc;
   --bg-card: #ffffff;
@@ -269,8 +292,8 @@ select:focus {
 
 /* Sidebar */
 .sidebar {
-  width: 260px;
-  min-width: 260px;
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
   height: 100vh;
   max-height: 100vh;
   background: var(--bg-card);
@@ -315,7 +338,7 @@ select:focus {
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 16px;
   box-shadow: var(--shadow-sm);
 }
