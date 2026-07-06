@@ -65,6 +65,10 @@ test-proptest:
 test-rust:
     cargo test --workspace
 
+# Run Storybook dev server for all plugin UIs
+storybook:
+    bun run --cwd frontend storybook
+
 # Profile Rust integration tests and generate a flamegraph
 profile-tests:
     RUSTFLAGS="-C force-frame-pointers=yes" cargo test --profile release-with-debuginfo -p panorama-server --test integration_test --no-run
