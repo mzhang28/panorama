@@ -1,13 +1,13 @@
-import { useMemo, useState } from "react";
 import {
-  useReactTable,
+  type ColumnDef,
+  flexRender,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
-  flexRender,
-  ColumnDef,
+  useReactTable,
 } from "@tanstack/react-table";
-import { Node } from "../api/client";
+import { useMemo, useState } from "react";
+import type { Node } from "../api/client";
 
 interface EnrichedRow {
   id: string;
@@ -111,7 +111,7 @@ export function NodeTableCondensed({ nodes }: NodeTableCondensedProps) {
   if (nodes.length === 0) {
     return (
       <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-[var(--radius-md)] p-[var(--space-6)]">
-        <p className="text-[var(--text-dim)] text-sm text-center py-8">
+        <p className="text-[var(--text-dim)] text-sm text-center py-[var(--space-8)]">
           No nodes found
         </p>
       </div>
@@ -143,7 +143,7 @@ export function NodeTableCondensed({ nodes }: NodeTableCondensedProps) {
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="text-left px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide bg-[var(--telemetry-thead-bg)]"
+                    className="text-left px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide bg-[var(--surface-elevated)]"
                   >
                     {flexRender(
                       header.column.columnDef.header,
@@ -188,8 +188,7 @@ export function NodeTableCondensed({ nodes }: NodeTableCondensedProps) {
             Previous
           </button>
           <span className="text-[var(--text-dim)] text-xs tabular-nums">
-            {table.getState().pagination.pageIndex + 1} /{" "}
-            {table.getPageCount() || 1}
+            {table.getState().pagination.pageIndex + 1} / {table.getPageCount()}
           </span>
           <button
             onClick={() => table.nextPage()}
