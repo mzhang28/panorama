@@ -28,7 +28,7 @@ export function NodeExplorerHome() {
 
       {/* Loading state */}
       {isLoading && (
-        <div className="flex items-center justify-center py-16">
+        <div className="flex items-center justify-center py-[var(--space-8)]">
           <p className="text-[var(--text-dim)]">Loading nodes...</p>
         </div>
       )}
