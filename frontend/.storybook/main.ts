@@ -2,12 +2,16 @@ import type { StorybookConfig } from "@storybook/react-vite";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { mergeConfig } from "vite";
+import UnoCSS from "unocss/vite";
 
 function getAbsolutePath(value: string) {
   return dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`)));
 }
 
 const config: StorybookConfig = {
+  core: {
+    allowedHosts: ["ephemeral"],
+  },
   stories: [
     // All plugin UI packages + frontend components
     "../../crates/panorama-app-*/ui/src/**/*.stories.@(js|jsx|mjs|ts|tsx)",
@@ -25,6 +29,7 @@ const config: StorybookConfig = {
   framework: getAbsolutePath("@storybook/react-vite"),
   async viteFinal(config) {
     return mergeConfig(config, {
+      plugins: [UnoCSS()],
       resolve: {
         alias: {
           // Mirror the dev Vite config aliases so plugin UI imports resolve

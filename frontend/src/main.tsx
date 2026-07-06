@@ -5,6 +5,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { router } from "./routes";
 import { ThemeProvider } from "./theme";
 import "./index.css";
+import "virtual:uno.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {

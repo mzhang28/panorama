@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { federation } from "@module-federation/vite";
+import UnoCSS from "unocss/vite";
 import path from "path";
 
 const BACKEND_PORT = process.env.VITE_BACKEND_PORT || "3000";
@@ -11,6 +12,7 @@ const resolvePlugin = (name: string) =>
 
 export default defineConfig(({ mode }) => ({
   plugins: [
+    UnoCSS(),
     react(),
     ...(mode === "production"
       ? [
@@ -29,8 +31,6 @@ export default defineConfig(({ mode }) => ({
       : []),
   ],
   resolve: {
-    // Rollup needs these aliases in all modes because both dev.tsx and
-    // prod.tsx are parsed, even though only one is loaded at runtime.
     alias: {
       "panorama-plugin-journal-ui": resolvePlugin("journal"),
       "panorama-plugin-dashboards-ui": resolvePlugin("dashboards"),
