@@ -1,6 +1,6 @@
-import { useMemo } from "react";
 import { ResponsiveBar } from "@nivo/bar";
-import { Node } from "../api/client";
+import { useMemo } from "react";
+import type { Node } from "../api/client";
 
 interface NodeActivityChartProps {
   nodes: Node[];

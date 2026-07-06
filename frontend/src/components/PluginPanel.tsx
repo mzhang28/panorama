@@ -1,6 +1,6 @@
-import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { callPluginEndpoint, PluginInfo } from "../api/client";
+import { useState } from "react";
+import { callPluginEndpoint, type PluginInfo } from "../api/client";
 
 export function PluginPanel({
   plugins,

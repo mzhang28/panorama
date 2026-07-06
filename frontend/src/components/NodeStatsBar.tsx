@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Node } from "../api/client";
+import type { Node } from "../api/client";
 
 interface NodeStatsBarProps {
   nodes: Node[];

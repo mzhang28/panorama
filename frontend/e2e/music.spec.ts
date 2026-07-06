@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 test.describe("Music Library Plugin UI", () => {
   test("opens music library and shows upload section", async ({ page }) => {

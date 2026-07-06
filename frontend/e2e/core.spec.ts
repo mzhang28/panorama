@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 test.describe("Panorama Core UI", () => {
   test("page loads with title and sidebar", async ({ page }) => {

@@ -1,8 +1,8 @@
 import type { StorybookConfig } from "@storybook/react-vite";
 import { dirname, resolve } from "path";
+import UnoCSS from "unocss/vite";
 import { fileURLToPath } from "url";
 import { mergeConfig } from "vite";
-import UnoCSS from "unocss/vite";
 
 function getAbsolutePath(value: string) {
   return dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`)));

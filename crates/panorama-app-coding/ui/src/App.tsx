@@ -2,7 +2,7 @@
 // Shows project and language leaderboards with stats from the coding plugin.
 // Loaded by the Panorama host via Module Federation at runtime.
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 
 // ── API helper ────────────────────────────────────────────────────────────────
 

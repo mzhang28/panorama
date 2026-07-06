@@ -1,7 +1,7 @@
 // File Manager Plugin — React UI component with file browser and upload.
 // Loaded by the Panorama host via Module Federation at runtime.
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // ── Minimal API helper (self-contained; no dependency on host client) ────────
 

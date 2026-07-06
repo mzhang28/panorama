@@ -1,4 +1,4 @@
-import { Node } from "../api/client";
+import type { Node } from "../api/client";
 
 export function createMockNode(overrides: Partial<Node> = {}): Node {
   const now = Date.now();

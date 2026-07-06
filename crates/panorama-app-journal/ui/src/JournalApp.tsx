@@ -1,9 +1,17 @@
 /// <reference types="vite/client" />
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
-import { Block, BlockNode, api, fStr, fBool, fJson, normalizeBlock } from "./api";
+import {
+  api,
+  type Block,
+  type BlockNode,
+  fBool,
+  fJson,
+  fStr,
+  normalizeBlock,
+} from "./api";
 import { GraphView } from "./GraphView";
 import { TiptapEditor } from "./TiptapEditor";
 
@@ -57,13 +65,29 @@ const iconBtnSm =
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
-export function JournalApp() {
+export function JournalApp({
+  pluginId = "io.mzhang.panorama.journal",
+  subpath = "",
+  navigate = (path: string) => {},
+}: {
+  pluginId?: string;
+  subpath?: string;
+  navigate?: (path: string) => void;
+}) {
   const queryClient = useQueryClient();
-  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
-  const [showNewBlock, setShowNewBlock] = useState(false);
+
+  const showGraph = subpath === "graph" || subpath === "/graph";
+  const isNewRoute = subpath === "new" || subpath === "/new";
+  const isTodayRoute =
+    subpath === "today" ||
+    subpath === "/today" ||
+    subpath === "" ||
+    subpath === "/";
+  const pageIdMatch = subpath.match(/^\/?page\/(.+)$/);
+  const selectedPageId = pageIdMatch ? pageIdMatch[1] : null;
+
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
-  const [showGraph, setShowGraph] = useState(false);
 
   const { data: pages = [], isLoading: pagesLoading } = useQuery({
     queryKey: ["journal-pages"],
@@ -106,9 +130,15 @@ export function JournalApp() {
         const oldPages = Array.isArray(old) ? old : (old?.rows ?? []);
         return [block, ...oldPages];
       });
-      if (!vars.parent_id && block.id) setSelectedPageId(block.id);
+      if (!vars.parent_id && block.id) navigate(`page/${block.id}`);
     },
   });
+
+  useEffect(() => {
+    if (isTodayRoute && todayPage?.id) {
+      navigate(`page/${todayPage.id}`);
+    }
+  }, [isTodayRoute, todayPage, navigate]);
 
   const updateBlock = useMutation({
     mutationFn: ({ id, ...body }: any) => api(`blocks/${id}`, "PUT", body),
@@ -129,10 +159,7 @@ export function JournalApp() {
     },
   });
 
-  const activePageId = selectedPageId || (todayPage as any)?.id;
-  const activePage = selectedPageId
-    ? selectedPage
-    : (todayPage as Block | null);
+  const activePage = selectedPageId ? selectedPage : null;
 
   return (
     <div className="journal-layout flex h-[calc(100vh-100px)] gap-0">
@@ -141,27 +168,19 @@ export function JournalApp() {
         <div className="journal-sidebar-section flex flex-col gap-[var(--space-2)] mb-[var(--space-4)]">
           <button
             className={`journal-today-btn ${sidebarLink}`}
-            onClick={() => {
-              setSelectedPageId(null);
-              queryClient.invalidateQueries({ queryKey: ["journal-today"] });
-            }}
+            onClick={() => navigate("today")}
           >
             📅 Today
           </button>
           <button
             className={`journal-new-page-btn ${sidebarLink}`}
-            onClick={() => {
-              setSelectedPageId(null);
-              setShowNewBlock(true);
-            }}
+            onClick={() => navigate("new")}
           >
             + New Page
           </button>
           <button
             className={`journal-graph-btn ${sidebarLink} ${showGraph ? sidebarLinkActive : ""}`}
-            onClick={() => {
-              setShowGraph(true);
-            }}
+            onClick={() => navigate("graph")}
           >
             🕸️ Graph View
           </button>
@@ -180,15 +199,14 @@ export function JournalApp() {
               const title = fStr(p, "system:node_title") || "Untitled";
               const day = fStr(p, "journal:journal_day");
               const isDeleted = fBool(p, "journal:deleted");
-              const active = activePageId === normalizeBlock(p).id;
+              const active = selectedPageId === normalizeBlock(p).id;
               return (
                 <button
                   key={normalizeBlock(p).id || title}
                   className={`journal-page-link ${sidebarLink}${active ? ` active ${sidebarLinkActive}` : ""}${isDeleted ? " deleted opacity-50 line-through" : ""}`}
                   onClick={() => {
-                    setSelectedPageId(normalizeBlock(p).id);
+                    navigate(`page/${normalizeBlock(p).id}`);
                     setShowBacklinks(false);
-                    setShowGraph(false);
                   }}
                   title={day || undefined}
                 >
@@ -209,15 +227,14 @@ export function JournalApp() {
       <main className="journal-main flex-1 overflow-y-auto p-[var(--space-6)] min-w-0">
         {showGraph ? (
           <div className="h-full w-full flex flex-col">
-            <h2 className="text-[22px] font-bold text-[var(--text)] m-0 mb-[var(--space-4)]">Digital Garden Graph</h2>
+            <h2 className="text-[22px] font-bold text-[var(--text)] m-0 mb-[var(--space-4)]">
+              Digital Garden Graph
+            </h2>
             <div className="flex-1 min-h-0 border border-[var(--border)] rounded-[var(--radius-md)] bg-black/5 overflow-hidden">
-              <GraphView onNodeClick={(id) => {
-                setSelectedPageId(id);
-                setShowGraph(false);
-              }} />
+              <GraphView onNodeClick={(id) => navigate(`page/${id}`)} />
             </div>
           </div>
-        ) : showNewBlock ? (
+        ) : isNewRoute ? (
           <NewBlockForm
             parentId={null}
             pageId={null}
@@ -225,9 +242,8 @@ export function JournalApp() {
             isPending={createBlock.isPending}
             onCreated={(data) => {
               queryClient.invalidateQueries({ queryKey: ["journal-pages"] });
-              setShowNewBlock(false);
               const newId = data?.n?.id || data?.id;
-              if (newId) setSelectedPageId(newId);
+              if (newId) navigate(`page/${newId}`);
             }}
           />
         ) : activePage ? (
@@ -251,8 +267,10 @@ export function JournalApp() {
                 <button
                   className={`${iconBtnSm} text-[var(--danger)] hover:text-[var(--danger-hover)]`}
                   onClick={() => {
-                    if (activePageId && confirm("Delete this page?"))
-                      deleteBlock.mutate(activePageId);
+                    if (selectedPageId && confirm("Delete this page?"))
+                      deleteBlock.mutate(selectedPageId, {
+                        onSuccess: () => navigate("today"),
+                      });
                   }}
                   title="Delete page"
                 >
@@ -313,8 +331,8 @@ export function JournalApp() {
             ))}
 
             <NewBlockForm
-              parentId={activePageId}
-              pageId={activePageId}
+              parentId={selectedPageId}
+              pageId={selectedPageId}
               createBlock={(body) => createBlock.mutateAsync(body)}
               isPending={createBlock.isPending}
               onCreated={() => {

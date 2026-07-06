@@ -1,7 +1,7 @@
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Placeholder from '@tiptap/extension-placeholder';
-import { useEffect } from 'react';
+import Placeholder from "@tiptap/extension-placeholder";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import { useEffect } from "react";
 
 export function TiptapEditor({
   content,
@@ -23,7 +23,7 @@ export function TiptapEditor({
       StarterKit.configure({
         heading: {
           levels: [1, 2, 3],
-        }
+        },
       }),
       Placeholder.configure({
         placeholder: 'Write something, or type "/" for commands...',
@@ -44,28 +44,34 @@ export function TiptapEditor({
   });
 
   useEffect(() => {
-    if (editor && !editor.isDestroyed && content !== editor.getHTML()) {
-      editor.commands.setContent(content);
+    if (editor && !editor.isDestroyed) {
+      try {
+        if (content !== editor.getHTML()) {
+          editor.commands.setContent(content);
+        }
+      } catch (e) {
+        // Ignore Tiptap schema/cached errors during re-renders
+      }
     }
   }, [content, editor]);
 
   useEffect(() => {
     if (editor && !editor.isDestroyed && autoFocus) {
-      editor.commands.focus('end');
+      editor.commands.focus("end");
     }
   }, [editor, autoFocus]);
 
   return (
-    <div 
+    <div
       className="tiptap-wrapper w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] px-[var(--space-3)] py-[var(--space-2)] text-[14px]"
       onKeyDown={(e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === "Enter" && !e.shiftKey) {
           if (onSave && editor && !editor.isDestroyed) {
             e.preventDefault();
             onSave(editor.getHTML());
           }
         }
-        if (e.key === 'Escape') {
+        if (e.key === "Escape") {
           if (onCancel) {
             e.preventDefault();
             onCancel();

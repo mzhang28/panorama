@@ -59,7 +59,11 @@ export function normalizeBlock(raw: any): Block {
   return raw?.n || raw;
 }
 
-export async function api(path: string, method = "GET", body?: any): Promise<any> {
+export async function api(
+  path: string,
+  method = "GET",
+  body?: any,
+): Promise<any> {
   const res = await callPluginEndpoint(PLUGIN_ID, path, method, body);
   if (!res.ok) throw new Error(await res.text());
   return res.json();

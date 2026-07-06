@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 test.describe("Journal Plugin UI", () => {
   test("opens journal and shows sidebar with Today button", async ({

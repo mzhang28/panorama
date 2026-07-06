@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 /** Package a single .panoapp from manifest + WASM + optional UI build output. */
 
-import { command, positional, option, optional, string, run } from "cmd-ts";
-import JSZip from "jszip";
+import { command, option, optional, positional, run, string } from "cmd-ts";
 import * as fs from "fs";
+import JSZip from "jszip";
 import * as path from "path";
 
 function walkDir(dir: string): string[] {

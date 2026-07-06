@@ -1,6 +1,6 @@
-import { defineConfig, devices } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { defineConfig, devices } from "@playwright/test";
 
 if (!process.env.E2E_WORKERS) {
   const envDir = import.meta.dirname ?? path.resolve(process.cwd(), "..");

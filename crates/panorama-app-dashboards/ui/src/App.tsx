@@ -7,11 +7,11 @@
 // Charts are rendered with inline SVG — no external chart library dependency.
 
 import {
-  useState,
-  useEffect,
+  type CSSProperties,
   useCallback,
+  useEffect,
   useMemo,
-  CSSProperties,
+  useState,
 } from "react";
 
 // ── API helper ────────────────────────────────────────────────────────────────

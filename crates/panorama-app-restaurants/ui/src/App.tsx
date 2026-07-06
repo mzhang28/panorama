@@ -1,7 +1,7 @@
 // Restaurant Rankings Plugin — React UI component with partial-order restaurant rankings.
 // Loaded by the Panorama host via Module Federation at runtime.
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 
 // ── Minimal API helper (self-contained; no dependency on host client) ────────
 

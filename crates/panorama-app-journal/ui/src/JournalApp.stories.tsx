@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  JournalApp,
-  PropertiesBlock,
   BlockView,
+  JournalApp,
   NewBlockForm,
+  PropertiesBlock,
 } from "./JournalApp";
 
 // ── Mock data helpers ──────────────────────────────────────────────────────────

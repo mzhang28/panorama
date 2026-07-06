@@ -7,16 +7,17 @@ import {
   createRouter,
   Link,
   Navigate,
+  useLocation,
+  useNavigate,
   useParams,
 } from "@tanstack/react-router";
-import { useMemo, Suspense } from "react";
+import { Suspense, useMemo } from "react";
 import { listPlugins, listSchemas } from "./api/client";
-import { NodeExplorerHome } from "./components/NodeExplorerHome";
+import { loadPluginComponent } from "./api/plugin-loader";
 import { AppShell } from "./components/AppShell";
+import { NodeExplorerHome } from "./components/NodeExplorerHome";
 import { PluginPanel } from "./components/PluginPanel";
 import { SchemaViewer } from "./components/SchemaViewer";
-
-import { loadPluginComponent } from "./api/plugin-loader";
 
 // ── Route definitions ─────────────────────────────────────────────────────────
 
@@ -68,17 +69,49 @@ function PluginsView() {
   return <PluginPanel plugins={plugins} />;
 }
 
-// /app/$pluginId
-const appRoute = createRoute({
+// /app/$pluginId and splat
+const appBaseRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/app/$pluginId",
   component: PluginAppView,
 });
 
+const appIndexRoute = createRoute({
+  getParentRoute: () => appBaseRoute,
+  path: "/",
+});
+
+const appSplatRoute = createRoute({
+  getParentRoute: () => appBaseRoute,
+  path: "$",
+});
+
 function PluginAppView() {
   const { pluginId } = useParams({ from: "/app/$pluginId" });
-  
-  const PluginComponent = useMemo(() => loadPluginComponent(pluginId), [pluginId]);
+  const navigate = useNavigate({ strict: false });
+  const location = useLocation();
+
+  // Extract subpath from location.pathname
+  // e.g. /app/io.mzhang.panorama.journal/page/123 -> "page/123"
+  const prefix = `/app/${pluginId}`;
+  let subpath = "";
+  if (location.pathname.startsWith(prefix)) {
+    subpath = location.pathname.slice(prefix.length);
+    if (subpath.startsWith("/")) subpath = subpath.slice(1);
+  }
+
+  const PluginComponent = useMemo(
+    () => loadPluginComponent(pluginId as string),
+    [pluginId],
+  );
+
+  const handleNavigate = (subpath: string) => {
+    if (subpath) {
+      navigate({ to: `/app/${pluginId}/${subpath}` });
+    } else {
+      navigate({ to: `/app/${pluginId}` });
+    }
+  };
 
   return (
     <div key={pluginId}>
@@ -86,7 +119,11 @@ function PluginAppView() {
         ← Back to Plugins
       </Link>
       <Suspense fallback={<p>Loading app...</p>}>
-        <PluginComponent pluginId={pluginId} />
+        <PluginComponent
+          pluginId={pluginId as string}
+          subpath={subpath}
+          navigate={handleNavigate}
+        />
       </Suspense>
     </div>
   );
@@ -99,7 +136,7 @@ const routeTree = rootRoute.addChildren([
   nodesRoute,
   schemasRoute,
   pluginsRoute,
-  appRoute,
+  appBaseRoute.addChildren([appIndexRoute, appSplatRoute]),
 ]);
 
 // ── Router creation ───────────────────────────────────────────────────────────

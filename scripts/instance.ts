@@ -6,11 +6,11 @@
  * data directory on a random port, loading pre-built .panoapp plugins.
  */
 
-import { spawn, ChildProcess } from "child_process";
-import { createServer } from "net";
+import { type ChildProcess, spawn } from "child_process";
 import * as fs from "fs";
-import * as path from "path";
+import { createServer } from "net";
 import * as os from "os";
+import * as path from "path";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);

@@ -1,4 +1,4 @@
-import { spawnInstance, ServerInstance } from "../../scripts/instance";
+import { type ServerInstance, spawnInstance } from "../../scripts/instance";
 
 let globalInstance: ServerInstance | undefined;
 

@@ -1,8 +1,8 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
 import { federation } from "@module-federation/vite";
-import UnoCSS from "unocss/vite";
+import react from "@vitejs/plugin-react";
 import path from "path";
+import UnoCSS from "unocss/vite";
+import { defineConfig } from "vite";
 
 const BACKEND_PORT = process.env.VITE_BACKEND_PORT || "3000";
 const FRONTEND_PORT = Number(process.env.VITE_PORT) || 5173;

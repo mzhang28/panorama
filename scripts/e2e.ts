@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+
 /**
  * Panorama E2E Test Harness.
  *
@@ -7,18 +8,18 @@
  * via scripts/instance.ts fixtures.
  */
 
+import { spawnSync } from "child_process";
 import {
+  boolean,
   command,
   flag,
+  number,
   option,
   optional,
-  number,
-  boolean,
-  string,
   restPositionals,
   run,
+  string,
 } from "cmd-ts";
-import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 

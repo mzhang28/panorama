@@ -12,7 +12,11 @@
 
 import React from "react";
 
-type PluginComponent = React.ComponentType<{ pluginId: string }>;
+type PluginComponent = React.ComponentType<{
+  pluginId: string;
+  subpath?: string;
+  navigate?: (subpath: string) => void;
+}>;
 
 export function loadPluginComponent(
   pluginId: string,

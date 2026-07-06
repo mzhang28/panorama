@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { NodeExplorerHome } from "../components/NodeExplorerHome";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { NodeExplorerHome } from "../components/NodeExplorerHome";
 
 // Create a QueryClient that returns mock data
 const queryClient = new QueryClient({

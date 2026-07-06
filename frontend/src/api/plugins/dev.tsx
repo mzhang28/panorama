@@ -1,18 +1,21 @@
 // Dev mode: direct workspace package imports. No lazy loading needed —
 // Vite bundles everything eagerly and HMR handles hot reloads.
 
-import React from "react";
-
+import CodingApp from "panorama-plugin-coding-ui";
+import DashboardsApp from "panorama-plugin-dashboards-ui";
+import FilesApp from "panorama-plugin-files-ui";
 // Static imports of all plugin UIs — Vite resolves via bun workspace symlinks
 import JournalApp from "panorama-plugin-journal-ui";
-import DashboardsApp from "panorama-plugin-dashboards-ui";
-import CodingApp from "panorama-plugin-coding-ui";
-import TripsApp from "panorama-plugin-trips-ui";
-import RestaurantsApp from "panorama-plugin-restaurants-ui";
 import MusicApp from "panorama-plugin-music-ui";
-import FilesApp from "panorama-plugin-files-ui";
+import RestaurantsApp from "panorama-plugin-restaurants-ui";
+import TripsApp from "panorama-plugin-trips-ui";
+import type React from "react";
 
-type PluginComponent = React.ComponentType<{ pluginId: string }>;
+type PluginComponent = React.ComponentType<{
+  pluginId: string;
+  subpath?: string;
+  navigate?: (subpath: string) => void;
+}>;
 
 const PLUGINS: Record<string, PluginComponent> = {
   "io.mzhang.panorama.journal": JournalApp,

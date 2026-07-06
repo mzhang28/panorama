@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { queryNodes } from "../api/client";
-import { NodeStatsBar } from "./NodeStatsBar";
 import { NodeActivityChart } from "./NodeActivityChart";
+import { NodeStatsBar } from "./NodeStatsBar";
 import { NodeTableCondensed } from "./NodeTableCondensed";
 
 export function NodeExplorerHome() {

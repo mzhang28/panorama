@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 test.describe("Trip Planner Plugin UI", () => {
   test("opens trip planner and creates a trip", async ({ page }) => {

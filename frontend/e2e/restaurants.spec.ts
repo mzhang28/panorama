@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 test.describe("Restaurant Rankings Plugin UI", () => {
   test("opens restaurant rankings and shows explanation", async ({ page }) => {

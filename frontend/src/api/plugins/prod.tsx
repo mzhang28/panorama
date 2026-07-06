@@ -2,14 +2,18 @@
 // Plugins are loaded from .panoapp archives served by the backend at
 // /plugin/{pluginId}/ui/remoteEntry.js.
 
-import React from "react";
 import {
   init,
   loadRemote,
   registerRemotes,
 } from "@module-federation/enhanced/runtime";
+import type React from "react";
 
-type PluginComponent = React.ComponentType<{ pluginId: string }>;
+type PluginComponent = React.ComponentType<{
+  pluginId: string;
+  subpath?: string;
+  navigate?: (subpath: string) => void;
+}>;
 
 // Initialize the Module Federation runtime once at module load time
 init({

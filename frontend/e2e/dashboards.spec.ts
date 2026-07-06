@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 test.describe("Dashboards Plugin UI", () => {
   test("opens dashboards and shows home dashboard with panels", async ({

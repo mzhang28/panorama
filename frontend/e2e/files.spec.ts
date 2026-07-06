@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 test.describe("File Manager Plugin UI", () => {
   test("opens file manager and shows upload zone", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 test.describe("Coding Activity Plugin UI", () => {
   test("opens coding activity and shows heartbeat form", async ({ page }) => {
