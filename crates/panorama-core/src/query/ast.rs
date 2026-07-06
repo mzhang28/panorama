@@ -56,8 +56,6 @@ pub enum Predicate {
     field_path: FieldPath,
     op: CmpOp,
     value: Value,
-    /// True when wrapped in SCAN(...)
-    scan: bool,
   },
   /// `HAS_FIELD(n, "ns", "name")` or `HAS_FIELD(n, "*", "name")`
   HasField {
@@ -69,6 +67,8 @@ pub enum Predicate {
   And(Box<Predicate>, Box<Predicate>),
   Or(Box<Predicate>, Box<Predicate>),
   Not(Box<Predicate>),
+  /// `SCAN(inner)` — explicit opt-in to full scan on unindexed fields (§3.9)
+  Scan(Box<Predicate>),
   /// `n.foo IS NULL` / `IS NOT NULL`
   IsNull {
     field_path: FieldPath,
@@ -88,12 +88,26 @@ pub enum Predicate {
   },
 }
 
+/// CRDT view selector for a field path (§3.6).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum CrdtView {
+  /// `@merged` — the default merged current value
+  Merged,
+  /// `@ops` — op log (returns a sequence of ops, not a value)
+  Ops,
+  /// `@at(cursor)` — value at a specific causal cut
+  At(String),
+}
+
 /// A namespaced field path: `n."ns"."field"` or bare `n.field`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct FieldPath {
   pub variable: String,
   pub namespace: Option<String>,
   pub field: String,
+  /// CRDT view selector: `@merged`, `@ops`, or `@at(cursor)`.
+  /// `None` means the default (`@merged`).
+  pub view: Option<CrdtView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -154,7 +168,7 @@ pub struct OrderBy {
   pub direction: OrderDir,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OrderDir {
   Asc,
   Desc,

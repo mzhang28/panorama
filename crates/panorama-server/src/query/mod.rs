@@ -3,6 +3,7 @@
 
 pub mod cache;
 pub mod compiler;
+pub mod physical;
 
 pub use cache::StatementCache;
 pub use compiler::compile;

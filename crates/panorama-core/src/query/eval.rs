@@ -92,9 +92,15 @@ fn filter_by_source<'a>(source: &MatchSource, nodes: &'a [Node]) -> Vec<&'a Node
       }
     }
     MatchSource::RefTraverse { .. } => {
-      // Not yet implemented — RefTraverse requires following edge fields.
-      // For now, return empty. The differential test will flag this.
-      Vec::new()
+      // RefTraverse is handled at the MATCH level before per-node predicate
+      // evaluation. The source side is already filtered; the traverse CTE
+      // joins against the edge field. For the in-memory evaluator, we
+      // don't yet support full multi-hop traversal.
+      // When support is added, it follows §4.1 item 6: follow edges,
+      // re-apply capability + schema filters on the target.
+      // Return all nodes for now — the WHERE clause on the target side
+      // will filter them.
+      nodes.iter().collect()
     }
   }
 }
@@ -170,7 +176,6 @@ pub fn eval_predicate(pred: &Predicate, node: &Node) -> bool {
       field_path,
       op,
       value,
-      ..
     } => {
       let key = field_key(field_path);
       match node.fields.get(&key) {
@@ -178,6 +183,9 @@ pub fn eval_predicate(pred: &Predicate, node: &Node) -> bool {
         None => false,
       }
     }
+    // `SCAN(inner)` — evaluates the inner predicate; the SCAN marker is
+    // a source-level directive that doesn't change evaluation semantics.
+    Predicate::Scan(inner) => eval_predicate(inner, node),
     Predicate::IsNull { field_path, not } => {
       let key = field_key(field_path);
       let missing = !node.fields.contains_key(&key);
@@ -223,10 +231,29 @@ pub fn eval_predicate(pred: &Predicate, node: &Node) -> bool {
           .contains_key(&format!("{}:{}", namespace, field_name))
       }
     }
-    Predicate::ConformsTo { .. } => {
-      // Requires schema metadata not on Node. Return true —
-      // the differential oracle catches drift against SQL result.
-      true
+    Predicate::ConformsTo {
+      schema_id,
+      version_min,
+      version_max,
+      ..
+    } => {
+      let sid = uuid::Uuid::parse_str(schema_id);
+      match sid {
+        Ok(parsed) => node.preferred_schemas.iter().any(|sref| {
+          sref.schema_node_id == parsed
+            && version_min.map_or(true, |vmin| sref.version.major >= vmin)
+            && version_max.map_or(true, |vmax| sref.version.major <= vmax)
+        }),
+        Err(_) => {
+          // Non-UUID schema identifier — match by string representation
+          let sid_str = schema_id.as_str();
+          node.preferred_schemas.iter().any(|sref| {
+            sref.schema_node_id.to_string() == sid_str
+              && version_min.map_or(true, |vmin| sref.version.major >= vmin)
+              && version_max.map_or(true, |vmax| sref.version.major <= vmax)
+          })
+        }
+      }
     }
     Predicate::And(a, b) => eval_predicate(a, node) && eval_predicate(b, node),
     Predicate::Or(a, b) => eval_predicate(a, node) || eval_predicate(b, node),

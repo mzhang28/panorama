@@ -163,7 +163,7 @@ fn translate_instant_vector(
     match matcher.op {
       MatchOp::Eq => {
         predicates.push(format!(
-          "n.{}.{} = \"{}\"",
+          "SCAN(n.{}.{} = \"{}\")",
           mapping.namespace,
           matcher.label,
           escape_pql_string(&matcher.value)
@@ -171,7 +171,7 @@ fn translate_instant_vector(
       }
       MatchOp::NotEq => {
         predicates.push(format!(
-          "n.{}.{} != \"{}\"",
+          "SCAN(n.{}.{} != \"{}\")",
           mapping.namespace,
           matcher.label,
           escape_pql_string(&matcher.value)
@@ -183,7 +183,7 @@ fn translate_instant_vector(
         // post-filtering
         let like_pattern = regex_to_like(&matcher.value);
         predicates.push(format!(
-          "n.{}.{} LIKE \"{}\"",
+          "SCAN(n.{}.{} LIKE \"{}\")",
           mapping.namespace,
           matcher.label,
           escape_pql_string(&like_pattern)
@@ -210,15 +210,15 @@ fn translate_instant_vector(
       .unwrap_or_else(|_| chrono::Utc::now());
     let range_start = to_dt - chrono::Duration::milliseconds(dur.millis_i64());
     predicates.push(format!(
-      "n.{} >= \"{}\"",
+      "SCAN(n.{} >= \"{}\")",
       time_pql_path,
       range_start.to_rfc3339()
     ));
-    predicates.push(format!("n.{} <= \"{}\"", time_pql_path, ctx.to));
+    predicates.push(format!("SCAN(n.{} <= \"{}\")", time_pql_path, ctx.to));
   } else {
     // Dashboard time range — use as-is (already RFC 3339 strings)
-    predicates.push(format!("n.{} >= \"{}\"", time_pql_path, ctx.from));
-    predicates.push(format!("n.{} <= \"{}\"", time_pql_path, ctx.to));
+    predicates.push(format!("SCAN(n.{} >= \"{}\")", time_pql_path, ctx.from));
+    predicates.push(format!("SCAN(n.{} <= \"{}\")", time_pql_path, ctx.to));
   }
 
   // Collect all label fields for projection (unique, preserving order)

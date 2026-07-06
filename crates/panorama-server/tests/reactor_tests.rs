@@ -720,10 +720,10 @@ async fn test_reactor_with_filter_predicate() {
       variable: "n".into(),
       namespace: Some("journal".into()),
       field: "priority".into(),
+      view: None,
     },
     op: CmpOp::Gt,
     value: Value::Integer(5),
-    scan: false,
   };
 
   let mut reactor = mk_reactor(

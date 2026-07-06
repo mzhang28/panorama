@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use super::StorageBackend;
 use crate::meta::MetaStore;
-use crate::query::compiler::{compile, CompiledQuery, ParamValue};
+use crate::query::compiler::{compile, CompiledQuery};
 
 // ── Connection manager ──────────────────────────────────────────────────────
 

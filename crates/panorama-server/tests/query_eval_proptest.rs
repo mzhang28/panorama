@@ -1,10 +1,17 @@
 //! Property tests: the in-memory evaluator and the SQL compiler must agree.
 //!
-//! Strategy: generate random nodes, pick one of their fields to build a query
-//! around, then assert `eval_query(nodes)` == `compile → SQLite`.
+//! Two modes:
+//! 1. **No schema** — all fields are JSONB; queries use SCAN() for every field
+//!    predicate. The compiler must agree with the evaluator.
+//! 2. **With schema** — a schema table with promoted columns is set up; queries
+//!    with CONFORMS TO can use promoted columns without SCAN.
+//!
+//! Strategy: generate random nodes, build queries from their fields, then
+//! assert `eval_query(nodes)` == `compile → SQLite execution`.
 
 use panorama_core::query::{eval_query, parse_query};
-use panorama_core::types::{FieldValue, Node};
+use panorama_core::types::{FieldValue, Node, SchemaRef, SchemaVersion};
+use panorama_server::meta::MetaStore;
 use panorama_server::query::compiler::{compile, ParamValue};
 use proptest::prelude::*;
 use proptest::test_runner::Config as ProptestConfig;
@@ -12,7 +19,7 @@ use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-// ── Generators ───────────────────────────────────────────────────────────
+// ── Generators ──────────────────────────────────────────────────────────────────
 
 fn field_val() -> impl Strategy<Value = FieldValue> {
   prop_oneof![
@@ -27,9 +34,8 @@ fn field_val() -> impl Strategy<Value = FieldValue> {
   ]
 }
 
+/// Generate a node with fixed field names for stable property tests.
 fn gen_node() -> impl Strategy<Value = Node> {
-  // Each node has: title (string), app:count (int), app:score (float), app:active (bool)
-  // Same types per field name avoids ORDER BY mixed-type divergence.
   (any::<i64>(), (0.01f64..1_000_000.0f64), any::<bool>()).prop_map(|(count, score, active)| {
     let mut map: HashMap<String, FieldValue> = HashMap::new();
     map.insert("title".into(), FieldValue::String("hello".into()));
@@ -85,55 +91,85 @@ fn nodes_and_two_field_refs(
     .prop_map(|(nodes, (k1, v1), (k2, v2))| (nodes, k1, v1, k2, v2))
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
+// ── Test helpers ────────────────────────────────────────────────────────────────
 
-/// Create an in-memory SQLite connection with the same schema as SqliteBackend.
+/// Create an in-memory SQLite connection with the standard schema + meta tables.
 fn setup_conn() -> Connection {
   let conn = Connection::open_in_memory().unwrap();
   conn
     .execute_batch(
       "CREATE TABLE IF NOT EXISTS nodes (
-            id TEXT PRIMARY KEY,
-            space_id TEXT NOT NULL,
-            fields_json TEXT NOT NULL DEFAULT '{}',
-            preferred_schemas_json TEXT NOT NULL DEFAULT '[]',
-            app_managed_json TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_nodes_space ON nodes(space_id);",
+        id TEXT PRIMARY KEY,
+        space_id TEXT NOT NULL,
+        fields_json TEXT NOT NULL DEFAULT '{}',
+        preferred_schemas_json TEXT NOT NULL DEFAULT '[]',
+        app_managed_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_nodes_space ON nodes(space_id);",
     )
     .unwrap();
-  // Meta tables the compiler queries
-  conn
-    .execute_batch(
-      "CREATE TABLE IF NOT EXISTS namespaces (
-            ns_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            kind TEXT NOT NULL DEFAULT 'user',
-            app_id TEXT,
-            stable_identifier TEXT NOT NULL UNIQUE
-        );
-        CREATE TABLE IF NOT EXISTS field_presence (
-            node_id TEXT NOT NULL,
-            ns_id INTEGER NOT NULL,
-            field_name TEXT NOT NULL,
-            value_type TEXT NOT NULL,
-            PRIMARY KEY (node_id, ns_id, field_name)
-        );
-        CREATE TABLE IF NOT EXISTS node_schema_conformance (
-            node_id TEXT NOT NULL,
-            schema_id TEXT NOT NULL,
-            version_major INTEGER NOT NULL,
-            version_minor INTEGER NOT NULL,
-            PRIMARY KEY (node_id, schema_id)
-        );",
-    )
-    .unwrap();
+  MetaStore::initialize(&conn).unwrap();
   conn
 }
 
+/// Create a connection with a promoted schema table registered.
+/// Returns (conn, schema_id, schema_table_name).
+fn setup_conn_with_schema(field_mappings: serde_json::Value) -> (Connection, Uuid, String) {
+  let conn = setup_conn();
+  let schema_id = Uuid::new_v4();
+  let table_name = format!("schema_data_{}", schema_id.to_string().replace("-", ""));
+  let table_name_short = table_name[..40].to_string(); // safe length
+
+  // Create the physical schema data table with the promoted columns
+  let mut col_defs = Vec::new();
+  col_defs.push("node_id TEXT PRIMARY KEY".to_string());
+  if let Some(obj) = field_mappings.as_object() {
+    for (_, entry) in obj {
+      if let Some(col) = entry.get("column").and_then(|c| c.as_str()) {
+        let col_type = entry
+          .get("type")
+          .and_then(|t| t.as_str())
+          .map(sqlite_type)
+          .unwrap_or("TEXT");
+        col_defs.push(format!("{} {}", col, col_type));
+      }
+    }
+  }
+
+  conn
+    .execute_batch(&format!(
+      "CREATE TABLE IF NOT EXISTS {} ({});",
+      table_name_short,
+      col_defs.join(", ")
+    ))
+    .unwrap();
+
+  MetaStore::upsert_schema_table(
+    &conn,
+    &schema_id,
+    &table_name_short,
+    &field_mappings,
+    panorama_server::meta::StorageMode::Hybrid,
+    panorama_server::meta::MigrationState::Stable,
+  )
+  .unwrap();
+
+  (conn, schema_id, table_name_short)
+}
+
+fn sqlite_type(t: &str) -> &str {
+  match t {
+    "String" | "DateTime" => "TEXT",
+    "Integer" => "INTEGER",
+    "Float" => "REAL",
+    "Boolean" => "INTEGER",
+    _ => "TEXT",
+  }
+}
+
 fn insert_nodes(conn: &Connection, nodes: &[Node]) {
-  // Ensure namespaces exist and field_presence is populated (compiler needs them for HAS_FIELD)
   let mut ns_ids: HashMap<String, i64> = HashMap::new();
   for node in nodes {
     for key in node.fields.keys() {
@@ -159,10 +195,12 @@ fn insert_nodes(conn: &Connection, nodes: &[Node]) {
           ns_ids.insert(ns.to_string(), id);
           id
         };
-        conn.execute(
-                    "INSERT OR REPLACE INTO field_presence (node_id, ns_id, field_name, value_type) VALUES (?1, ?2, ?3, ?4)",
-                    params![node.id.to_string(), ns_id, field_name, "any"],
-                ).unwrap();
+        conn
+          .execute(
+            "INSERT OR REPLACE INTO field_presence (node_id, ns_id, field_name, value_type) VALUES (?1, ?2, ?3, ?4)",
+            params![node.id.to_string(), ns_id, field_name, "any"],
+          )
+          .unwrap();
       }
     }
   }
@@ -173,19 +211,21 @@ fn insert_nodes(conn: &Connection, nodes: &[Node]) {
       .app_managed
       .as_ref()
       .map(|a| serde_json::to_string(a).unwrap());
-    conn.execute(
-            "INSERT INTO nodes (id, space_id, fields_json, preferred_schemas_json, app_managed_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                node.id.to_string(),
-                node.space_id.to_string(),
-                fields_json,
-                schemas_json,
-                app_mgmt,
-                node.created_at.to_rfc3339(),
-                node.updated_at.to_rfc3339(),
-            ],
-        ).unwrap();
+    conn
+      .execute(
+        "INSERT INTO nodes (id, space_id, fields_json, preferred_schemas_json, app_managed_json, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+          node.id.to_string(),
+          node.space_id.to_string(),
+          fields_json,
+          schemas_json,
+          app_mgmt,
+          node.created_at.to_rfc3339(),
+          node.updated_at.to_rfc3339(),
+        ],
+      )
+      .unwrap();
   }
 }
 
@@ -233,13 +273,14 @@ fn ids_sorted(rows: &[serde_json::Value]) -> Vec<String> {
   ids
 }
 
-/// Convert a Node.fields key like `"app:count"` to PQL suffix `app.count`.
 fn key_to_pql(key: &str) -> String {
-  key.replace(':', ".")
+  if let Some(idx) = key.find(':') {
+    format!("\"{}\".{}", &key[..idx], &key[idx + 1..])
+  } else {
+    key.to_string()
+  }
 }
 
-/// Normalize Bool/Number mismatch: SQLite returns Number(0/1) for booleans,
-/// but the evaluator returns Bool(false/true). Convert both to i64 for comparison.
 fn normalize(v: Option<&serde_json::Value>) -> Option<serde_json::Value> {
   match v {
     Some(serde_json::Value::Bool(b)) => Some(serde_json::Value::Number((*b as i64).into())),
@@ -257,6 +298,7 @@ fn field_to_pql(v: &FieldValue) -> String {
   }
 }
 
+/// Compile a query, execute against SQLite, compare with in-memory evaluator.
 fn check(nodes: &[Node], pql: &str, conn: &Connection) {
   let ast = parse_query(pql).unwrap();
   let compiled = compile(&ast, conn).unwrap();
@@ -265,165 +307,324 @@ fn check(nodes: &[Node], pql: &str, conn: &Connection) {
   assert_eq!(
     ids_sorted(&sql_rows),
     ids_sorted(&mem_rows),
-    "\nPQL: {}\nsql:  {:?}\nmem:  {:?}\nnodes: {:?}",
+    "\nPQL: {}\nSQL: {}\nsql:  {:?}\nmem:  {:?}\nnodes: {:?}",
     pql,
+    compiled.sql,
     ids_sorted(&sql_rows),
     ids_sorted(&mem_rows),
     nodes.iter().map(|n| (n.id, &n.fields)).collect::<Vec<_>>(),
   );
 }
 
-// ── Property tests ───────────────────────────────────────────────────────
+// ── Mode 1: No-schema tests (all fields JSONB, use SCAN) ────────────────────────
 
 proptest! {
-    #![proptest_config(ProptestConfig { fork: false, cases: 256, ..ProptestConfig::default() })]
+  #![proptest_config(ProptestConfig { fork: false, cases: 256, ..ProptestConfig::default() })]
 
-    #[test]
-    fn insert_then_return_all(nodes in proptest::collection::vec(gen_node(), 1..10)) {
-        let conn = setup_conn();
-        insert_nodes(&conn, &nodes);
-        check(&nodes, r#"MATCH (n) IN space("default") RETURN n"#, &conn);
-    }
+  #[test]
+  fn insert_then_return_all(nodes in proptest::collection::vec(gen_node(), 1..10)) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    check(&nodes, r#"MATCH (n) IN space("default") RETURN n"#, &conn);
+  }
 
-    #[test]
-    fn where_field_compare(
-        (nodes, key, val) in nodes_and_field_ref(),
-    ) {
-        let conn = setup_conn();
-        insert_nodes(&conn, &nodes);
-        let field = key_to_pql(&key);
-        for op in &["=", "!=", "<", "<=", ">", ">="] {
-            let pql = format!(
-                r#"MATCH (n) IN space("default") WHERE n.{} {} {} RETURN n"#,
-                field, op, field_to_pql(&val)
-            );
-            check(&nodes, &pql, &conn);
-        }
+  #[test]
+  fn where_field_compare_scanned(
+    (nodes, key, val) in nodes_and_field_ref(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let field = key_to_pql(&key);
+    for op in &["=", "!=", "<", "<=", ">", ">="] {
+      let pql = format!(
+        r#"MATCH (n) IN space("default") WHERE SCAN(n.{} {} {}) RETURN n"#,
+        field, op, field_to_pql(&val)
+      );
+      check(&nodes, &pql, &conn);
     }
+  }
 
-    #[test]
-    fn where_and(
-        (nodes, k1, v1, k2, v2) in nodes_and_two_field_refs(),
-    ) {
-        let conn = setup_conn();
-        insert_nodes(&conn, &nodes);
-        let f1 = key_to_pql(&k1);
-        let f2 = key_to_pql(&k2);
-        let pql = format!(
-            r#"MATCH (n) IN space("default") WHERE n.{} = {} AND n.{} = {} RETURN n"#,
-            f1, field_to_pql(&v1), f2, field_to_pql(&v2)
-        );
-        check(&nodes, &pql, &conn);
-    }
+  #[test]
+  fn where_and_scanned(
+    (nodes, k1, v1, k2, v2) in nodes_and_two_field_refs(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let f1 = key_to_pql(&k1);
+    let f2 = key_to_pql(&k2);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") WHERE SCAN(n.{} = {}) AND SCAN(n.{} = {}) RETURN n"#,
+      f1, field_to_pql(&v1), f2, field_to_pql(&v2)
+    );
+    check(&nodes, &pql, &conn);
+  }
 
-    #[test]
-    fn where_or(
-        (nodes, k1, v1, k2, v2) in nodes_and_two_field_refs(),
-    ) {
-        let conn = setup_conn();
-        insert_nodes(&conn, &nodes);
-        let f1 = key_to_pql(&k1);
-        let f2 = key_to_pql(&k2);
-        let pql = format!(
-            r#"MATCH (n) IN space("default") WHERE n.{} = {} OR n.{} = {} RETURN n"#,
-            f1, field_to_pql(&v1), f2, field_to_pql(&v2)
-        );
-        check(&nodes, &pql, &conn);
-    }
+  #[test]
+  fn where_or_scanned(
+    (nodes, k1, v1, k2, v2) in nodes_and_two_field_refs(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let f1 = key_to_pql(&k1);
+    let f2 = key_to_pql(&k2);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") WHERE SCAN(n.{} = {}) OR SCAN(n.{} = {}) RETURN n"#,
+      f1, field_to_pql(&v1), f2, field_to_pql(&v2)
+    );
+    check(&nodes, &pql, &conn);
+  }
 
-    #[test]
-    fn where_is_null(
-        (nodes, key, _val) in nodes_and_field_ref(),
-    ) {
-        let conn = setup_conn();
-        insert_nodes(&conn, &nodes);
-        let field = key_to_pql(&key);
-        for not in &["IS NULL", "IS NOT NULL"] {
-            let pql = format!(
-                r#"MATCH (n) IN space("default") WHERE n.{} {} RETURN n"#,
-                field, not
-            );
-            check(&nodes, &pql, &conn);
-        }
+  #[test]
+  fn where_is_null_scanned(
+    (nodes, key, _val) in nodes_and_field_ref(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let field = key_to_pql(&key);
+    for pair in &[("IS NULL", "IS NULL"), ("IS NOT NULL", "IS NOT NULL")] {
+      let pql = format!(
+        r#"MATCH (n) IN space("default") WHERE SCAN(n.{} {}) RETURN n"#,
+        field, pair.0
+      );
+      check(&nodes, &pql, &conn);
     }
+  }
 
-    #[test]
-    fn where_has_field(
-        (nodes, key, _val) in nodes_and_field_ref(),
-    ) {
-        let conn = setup_conn();
-        insert_nodes(&conn, &nodes);
-        let (ns, name) = if let Some(idx) = key.find(':') {
-            (key[..idx].to_string(), key[idx+1..].to_string())
-        } else {
-            ("app".to_string(), key.clone())
-        };
-        for ns_str in &[&ns, &"*".to_string()] {
-            let pql = format!(
-                r#"MATCH (n) IN space("default") WHERE HAS_FIELD(n, "{}", "{}") RETURN n"#,
-                ns_str, name
-            );
-            check(&nodes, &pql, &conn);
-        }
+  #[test]
+  fn where_has_field(
+    (nodes, key, _val) in nodes_and_field_ref(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let (ns, name) = if let Some(idx) = key.find(':') {
+      (key[..idx].to_string(), key[idx+1..].to_string())
+    } else {
+      ("app".to_string(), key.clone())
+    };
+    for ns_str in &[&ns, &"*".to_string()] {
+      let pql = format!(
+        r#"MATCH (n) IN space("default") WHERE HAS_FIELD(n, "{}", "{}") RETURN n"#,
+        ns_str, name
+      );
+      check(&nodes, &pql, &conn);
     }
+  }
 
-    #[test]
-    fn where_in(
-        (nodes, key, val) in nodes_and_field_ref(),
-    ) {
-        let conn = setup_conn();
-        insert_nodes(&conn, &nodes);
-        let field = key_to_pql(&key);
-        let pql = format!(
-            r#"MATCH (n) IN space("default") WHERE n.{} IN [{}] RETURN n"#,
-            field, field_to_pql(&val)
-        );
-        check(&nodes, &pql, &conn);
-    }
+  #[test]
+  fn where_in_scanned(
+    (nodes, key, val) in nodes_and_field_ref(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let field = key_to_pql(&key);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") WHERE SCAN(n.{} IN [{}]) RETURN n"#,
+      field, field_to_pql(&val)
+    );
+    check(&nodes, &pql, &conn);
+  }
 
-    #[test]
-    fn where_like(
-        (nodes, key, val) in nodes_and_field_ref(),
-    ) {
-        let conn = setup_conn();
-        insert_nodes(&conn, &nodes);
-        let s = match &val {
-            FieldValue::String(s) | FieldValue::DateTime(s) => s.clone(),
-            _ => return Ok(()),
-        };
-        let pattern = if s.len() >= 3 {
-            format!("%{}%", &s[1..s.len()-1])
-        } else {
-            format!("%{}%", s)
-        };
-        let field = key_to_pql(&key);
-        let pql = format!(
-            r#"MATCH (n) IN space("default") WHERE n.{} LIKE "{}" RETURN n"#,
-            field, pattern
-        );
-        check(&nodes, &pql, &conn);
-    }
+  #[test]
+  fn where_like_scanned(
+    (nodes, key, val) in nodes_and_field_ref(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let s = match &val {
+      FieldValue::String(s) | FieldValue::DateTime(s) => s.clone(),
+      _ => return Ok(()),
+    };
+    let pattern = if s.len() >= 3 {
+      format!("%{}%", &s[1..s.len()-1])
+    } else {
+      format!("%{}%", s)
+    };
+    let field = key_to_pql(&key);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") WHERE SCAN(n.{} LIKE "{}") RETURN n"#,
+      field, pattern
+    );
+    check(&nodes, &pql, &conn);
+  }
 
-    #[test]
-    fn order_by_and_limit(
-        (nodes, key, _val) in nodes_and_field_ref(),
-    ) {
-        let conn = setup_conn();
-        insert_nodes(&conn, &nodes);
-        let field = key_to_pql(&key);
-        for dir in &["ASC", "DESC"] {
-            let pql = format!(
-                r#"MATCH (n) IN space("default") RETURN n.{} AS val ORDER BY n.{} {} LIMIT 3"#,
-                field, field, dir
-            );
-            let ast = parse_query(&pql).unwrap();
-            let compiled = compile(&ast, &conn).unwrap();
-            let sql_rows = execute_sql(&conn, &compiled.sql, &compiled.params);
-            let mem_rows = eval_query(&ast, &nodes);
-            let sql_vals: Vec<_> = sql_rows.iter().map(|r| normalize(r.get("val"))).collect();
-            let mem_vals: Vec<_> = mem_rows.iter().map(|r| normalize(r.get("val"))).collect();
-            assert_eq!(sql_vals, mem_vals,
-                "\nPQL: {}\nsql:  {:?}\nmem:  {:?}", pql, sql_vals, mem_vals);
-        }
+  #[test]
+  fn order_by_and_limit_scanned(
+    (nodes, key, _val) in nodes_and_field_ref(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let field = key_to_pql(&key);
+    for dir in &["ASC", "DESC"] {
+      let pql = format!(
+        r#"MATCH (n) IN space("default") RETURN n.{} AS val ORDER BY n.{} {} LIMIT 3"#,
+        field, field, dir
+      );
+      let ast = parse_query(&pql).unwrap();
+      let compiled = compile(&ast, &conn).unwrap();
+      let sql_rows = execute_sql(&conn, &compiled.sql, &compiled.params);
+      let mem_rows = eval_query(&ast, &nodes);
+      let sql_vals: Vec<_> = sql_rows.iter().map(|r| normalize(r.get("val"))).collect();
+      let mem_vals: Vec<_> = mem_rows.iter().map(|r| normalize(r.get("val"))).collect();
+      assert_eq!(sql_vals, mem_vals,
+        "\nPQL: {}\nsql:  {:?}\nmem:  {:?}", pql, sql_vals, mem_vals);
     }
+  }
+}
+
+// ── Mode 2: Schema-based tests (promoted columns + CONFORMS TO) ─────────────────
+
+#[cfg(test)]
+mod schema_tests {
+  use super::*;
+
+  /// Create a promoted schema that maps `app:count` to a column.
+  fn setup_schema_for_app_fields() -> (Connection, Uuid) {
+    let field_mappings = serde_json::json!({
+      "count": {"column": "count_col", "type": "Integer", "indexed": false},
+      "score": {"column": "score_col", "type": "Float", "indexed": true},
+    });
+    let (conn, sid, _table) = setup_conn_with_schema(field_mappings);
+    (conn, sid)
+  }
+
+  #[test]
+  fn test_promoted_field_no_scan_needed() {
+    let (conn, sid) = setup_schema_for_app_fields();
+
+    // Insert a node with schema conformance
+    let node = Node {
+      id: Uuid::new_v4(),
+      fields: {
+        let mut m = HashMap::new();
+        m.insert("app:count".into(), FieldValue::Integer(42));
+        m.insert("app:score".into(), FieldValue::Float(3.14));
+        m.insert("app:active".into(), FieldValue::Boolean(true));
+        m
+      },
+      space_id: Uuid::nil(),
+      preferred_schemas: vec![SchemaRef {
+        schema_node_id: sid,
+        version: SchemaVersion::new(1, 0),
+      }],
+      app_managed: None,
+      created_at: chrono::Utc::now(),
+      updated_at: chrono::Utc::now(),
+    };
+
+    // Insert into node_schema_conformance
+    conn
+      .execute(
+        "INSERT INTO node_schema_conformance (node_id, schema_id, version_major, version_minor) VALUES (?1, ?2, 1, 0)",
+        params![node.id.to_string(), sid.to_string()],
+      )
+      .unwrap();
+
+    // Insert the node data into the schema data table
+    let table_name = format!("schema_data_{}", sid.to_string().replace("-", ""));
+    let table_name_short = &table_name[..40];
+    conn
+      .execute(
+        &format!(
+          "INSERT INTO {} (node_id, count_col, score_col) VALUES (?1, 42, 3.14)",
+          table_name_short
+        ),
+        params![node.id.to_string()],
+      )
+      .unwrap();
+
+    let nodes = vec![node.clone()];
+    insert_nodes(&conn, &nodes);
+
+    // Query with CONFORMS TO, no SCAN needed for promoted fields.
+    // Use explicit namespace path for now; CONFORMS TO shorthand resolution
+    // (bare field → schema namespace) is a compiler feature tracked separately.
+    let pql = format!(
+      r#"MATCH (n) IN space("default") WHERE n CONFORMS TO schema("{}") AND n."app".count = 42 RETURN n."app".count AS c"#,
+      sid
+    );
+
+    let ast = parse_query(&pql).unwrap();
+    let compiled = compile(&ast, &conn).unwrap();
+    let sql_rows = execute_sql(&conn, &compiled.sql, &compiled.params);
+    let mem_rows = eval_query(&ast, &nodes);
+
+    assert_eq!(sql_rows.len(), 1, "SQL: {}", compiled.sql);
+    assert_eq!(mem_rows.len(), 1);
+  }
+
+  #[test]
+  fn test_unpromoted_field_still_needs_scan() {
+    let (conn, sid) = setup_schema_for_app_fields();
+
+    let node = Node {
+      id: Uuid::new_v4(),
+      fields: {
+        let mut m = HashMap::new();
+        m.insert("app:active".into(), FieldValue::Boolean(true));
+        m
+      },
+      space_id: Uuid::nil(),
+      preferred_schemas: vec![SchemaRef {
+        schema_node_id: sid,
+        version: SchemaVersion::new(1, 0),
+      }],
+      app_managed: None,
+      created_at: chrono::Utc::now(),
+      updated_at: chrono::Utc::now(),
+    };
+
+    conn
+      .execute(
+        "INSERT INTO node_schema_conformance (node_id, schema_id, version_major, version_minor) VALUES (?1, ?2, 1, 0)",
+        params![node.id.to_string(), sid.to_string()],
+      )
+      .unwrap();
+
+    // Also insert into schema data table
+    let table_name = format!("schema_data_{}", sid.to_string().replace("-", ""));
+    let table_name_short = &table_name[..40];
+    conn
+      .execute(
+        &format!("INSERT INTO {} (node_id) VALUES (?1)", table_name_short),
+        params![node.id.to_string()],
+      )
+      .unwrap();
+
+    let nodes = vec![node];
+    insert_nodes(&conn, &nodes);
+
+    // `active` is not a promoted column → needs SCAN
+    // But within CONFORMS TO, the field access falls back to Unpromoted JSONB:
+    // the compiler should still reject without SCAN
+    let pql = format!(
+      r#"MATCH (n) IN space("default") WHERE n CONFORMS TO schema("{}") AND n.active = true RETURN n"#,
+      sid
+    );
+
+    let ast = parse_query(&pql).unwrap();
+    let result = compile(&ast, &conn);
+    assert!(
+      result.is_err(),
+      "unpromoted field without SCAN should error"
+    );
+    assert!(result.unwrap_err().contains("SCAN"));
+  }
+
+  #[test]
+  fn test_scan_enforcement_no_conforms_to() {
+    let conn = setup_conn();
+    // No CONFORMS TO → all fields unpromoted → must use SCAN
+    let q = parse_query(r#"MATCH (n) IN space("default") WHERE n.foo = "bar" RETURN n"#).unwrap();
+    let err = compile(&q, &conn).unwrap_err();
+    assert!(err.contains("SCAN"), "error should mention SCAN: {}", err);
+  }
+
+  #[test]
+  fn test_scan_allows_no_conforms_to() {
+    let conn = setup_conn();
+    let q =
+      parse_query(r#"MATCH (n) IN space("default") WHERE SCAN(n.foo = "bar") RETURN n"#).unwrap();
+    // Should compile successfully
+    let _compiled = compile(&q, &conn).unwrap();
+  }
 }

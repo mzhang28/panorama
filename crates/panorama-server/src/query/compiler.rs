@@ -1,30 +1,40 @@
 //! Compiles a Panorama Query Language AST into parameterized SQL with CTEs.
 //!
-//! **Phase 1 (meta lookup):** resolves namespaces, schema IDs, and index
-//! availability from the meta tables (§7.1).
+//! ## Phase 1 (meta lookup, §7.1)
 //!
-//! **Phase 2 (SQL generation):** emits a single SQLite statement with CTEs,
-//! joining against `field_presence` and `node_schema_conformance` instead of
-//! extracting JSON for schema/presence predicates (§7.2).
+//! Resolves namespaces, schema IDs, physical tables, and field access strategies
+//! from the meta tables.
 //!
-//! The output is a `CompiledQuery` containing:
-//! - A SQL string with `?N` placeholders for SQLite
-//! - A `Vec<ParamValue>` of bound parameter values
+//! ## Phase 2 (SQL generation, §7.2)
+//!
+//! Emits a single SQLite statement:
+//! 1. CTE: `space_nodes` — filter by space_id only
+//! 2. CTE: `conforming_X` — semi-join on `node_schema_conformance` (per CONFORMS TO)
+//! 3. CTE: `schema_data_X` — join physical schema table (if promoted columns exist)
+//! 4. Final SELECT with `WHERE` clause containing field predicates, referencing
+//!    either `sd.column` (promoted) or `json_extract(n.fields_json, ...)` (unpromoted).
+//!
+//! ## SCAN enforcement (§3.9, §7.4)
+//!
+//! Field predicates against non-promoted, non-indexed fields without a `SCAN`
+//! marker produce a compile-time error.
 
 use panorama_core::query::ast::*;
 use rusqlite::Connection;
 use std::collections::HashMap;
+use uuid::Uuid;
 
+use super::physical::{resolve_physical_schema, FieldAccess, PhysicalSchema};
 use crate::meta::MetaStore;
 
-/// A compiled query ready for SQLite execution.
+// ── Output types ────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct CompiledQuery {
   pub sql: String,
   pub params: Vec<ParamValue>,
 }
 
-/// Simple parameter value wrapper.
 #[derive(Debug, Clone)]
 pub enum ParamValue {
   Text(String),
@@ -52,48 +62,114 @@ impl rusqlite::types::ToSql for ParamValue {
   }
 }
 
-/// Compile an AST query into parameterized SQL, performing Phase 1 meta
-/// lookups against the supplied connection.
+// ── Compilation context ─────────────────────────────────────────────────────────
+
+struct CompileCtx {
+  /// Maps variable names to their CTE names (the final CTE in the chain for each var).
+  var_cte: HashMap<String, String>,
+  /// Cached ns_id lookups.
+  ns_id_cache: HashMap<String, i64>,
+  /// Resolved physical schemas.
+  resolved_schemas: Vec<ResolvedSchema>,
+}
+
+struct ResolvedSchema {
+  variable: String,
+  schema_id: String,
+  physical: Option<PhysicalSchema>,
+  conformance_cte: String,
+  /// CTE alias for the schema data table (empty if no physical table).
+  data_cte: String,
+}
+
+// ── Public entry point ──────────────────────────────────────────────────────────
+
 pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String> {
   let mut ctx = CompileCtx::new();
+
+  // ── Phase 1: resolve physical schemas ────────────────────────────────────
+  for mc in &query.matches {
+    if let Some(wc) = &mc.where_clause {
+      extract_conforms_to(&wc.predicate, &mc.variable, conn, &mut ctx)?;
+    }
+  }
+
+  // ── Phase 2: generate SQL ─────────────────────────────────────────────────
   let mut ctes: Vec<String> = Vec::new();
   let mut params: Vec<ParamValue> = Vec::new();
   let mut param_idx = 1;
+  let mut added_ctes: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-  // Collect field accesses for Phase 1 resolution
-  // (We resolve ns_ids lazily as we encounter field paths.)
+  // Collect final WHERE predicates (field predicates that go in the top-level
+  // WHERE, not in intermediate CTEs).
+  let mut final_where_parts: Vec<String> = Vec::new();
 
-  // Process each MATCH clause
   for mc in &query.matches {
     match &mc.source {
       MatchSource::Space(space_name) => {
         let cte_name = format!("_match_{}", mc.variable);
-        ctx.var_cte.insert(mc.variable.clone(), cte_name.clone());
 
         let space_id_str = if space_name == "default" {
-          uuid::Uuid::nil().to_string()
+          Uuid::nil().to_string()
         } else {
           space_name.clone()
         };
 
-        let mut where_sqls = vec![format!("n.space_id = ?{}", param_idx)];
-        params.push(ParamValue::Text(space_id_str));
-        param_idx += 1;
+        // ── 1. Space CTE: only the space filter ────────────────────────────
+        let space_cte = format!("{}_space", cte_name);
+        if !added_ctes.contains(&space_cte) {
+          ctes.push(format!(
+            "{} AS (SELECT n.* FROM nodes n WHERE n.space_id = ?{})",
+            space_cte, param_idx
+          ));
+          params.push(ParamValue::Text(space_id_str));
+          param_idx += 1;
+          added_ctes.insert(space_cte.clone());
+        }
+        let mut pipeline_cte = space_cte.clone();
 
-        if let Some(wc) = &mc.where_clause {
-          let (pred_sql, pred_params) =
-            compile_predicate(&wc.predicate, &mc.variable, &mut ctx, conn, param_idx)?;
-          where_sqls.push(pred_sql);
-          param_idx += pred_params.len();
-          params.extend(pred_params);
+        // ── 2. Conformance + schema data CTEs ──────────────────────────────
+        let var_schemas: Vec<&ResolvedSchema> = ctx
+          .resolved_schemas
+          .iter()
+          .filter(|rs| rs.variable == mc.variable)
+          .collect();
+
+        for rs in &var_schemas {
+          if !added_ctes.contains(&rs.conformance_cte) {
+            ctes.push(format!(
+              "{} AS (SELECT n.id, n.space_id, n.fields_json, n.preferred_schemas_json, n.created_at, n.updated_at FROM {} n JOIN node_schema_conformance c ON n.id = c.node_id WHERE c.schema_id = ?{})",
+              rs.conformance_cte, pipeline_cte, param_idx
+            ));
+            params.push(ParamValue::Text(rs.schema_id.clone()));
+            param_idx += 1;
+            added_ctes.insert(rs.conformance_cte.clone());
+          }
+          pipeline_cte = rs.conformance_cte.clone();
+
+          if let Some(ref physical) = rs.physical {
+            if !rs.data_cte.is_empty() && !added_ctes.contains(&rs.data_cte) {
+              ctes.push(format!(
+                "{} AS (SELECT sd.*, c.fields_json FROM {} sd JOIN {} c ON c.id = sd.node_id)",
+                rs.data_cte, physical.table_name, rs.conformance_cte
+              ));
+              added_ctes.insert(rs.data_cte.clone());
+            }
+          }
         }
 
-        // CTEs select from the `nodes` table (aliased `n`)
-        ctes.push(format!(
-          "{} AS (SELECT n.* FROM nodes n WHERE {})",
-          cte_name,
-          where_sqls.join(" AND ")
-        ));
+        ctx.var_cte.insert(mc.variable.clone(), pipeline_cte);
+
+        // ── 3. Compile non-CONFORMS-TO predicates into final WHERE ─────────
+        if let Some(wc) = &mc.where_clause {
+          let (pred_sql, pred_params) =
+            compile_predicate_for_final(&wc.predicate, &mc.variable, &ctx, conn, param_idx)?;
+          if !pred_sql.is_empty() {
+            final_where_parts.push(pred_sql);
+            param_idx += pred_params.len();
+            params.extend(pred_params);
+          }
+        }
       }
       MatchSource::RefTraverse {
         edge_type,
@@ -105,12 +181,12 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
           .var_cte
           .get(&mc.variable)
           .cloned()
-          .unwrap_or_else(|| format!("_source_{}", mc.variable));
+          .unwrap_or_else(|| format!("_match_{}", mc.variable));
 
         let target_space = match target_source.as_ref() {
           MatchSource::Space(name) => {
             if name == "default" {
-              uuid::Uuid::nil().to_string()
+              Uuid::nil().to_string()
             } else {
               name.clone()
             }
@@ -121,14 +197,11 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
         let cte_name = format!("_traverse_{}", target_var);
         ctes.push(format!(
           "{} AS (
-                        SELECT n.* FROM nodes n
-                        JOIN {source} s ON n.id = json_extract(s.fields_json, '$.{edge_type}')
-                        WHERE n.space_id = ?{pi}
-                    )",
-          cte_name,
-          source = source_cte,
-          edge_type = edge_type,
-          pi = param_idx
+            SELECT t.* FROM nodes t
+            JOIN {} s ON t.id = json_extract(s.fields_json, '$.{}')
+            WHERE t.space_id = ?{}
+          )",
+          cte_name, source_cte, edge_type, param_idx
         ));
         params.push(ParamValue::Text(target_space));
         param_idx += 1;
@@ -137,56 +210,67 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
     }
   }
 
-  // Get the final CTE name
+  // Determine the final source CTE
   let final_var = &query
     .matches
     .last()
     .map(|m| m.variable.clone())
     .unwrap_or_else(|| "n".into());
+
   let final_cte = ctx
     .var_cte
     .get(final_var.as_str())
     .cloned()
     .unwrap_or_else(|| "nodes".into());
 
+  // Determine the best table alias for field access:
+  // If there's a schema data CTE for this variable → use it (for promoted columns)
+  // Otherwise → use the final CTE (json_extract)
+  let schema_data_alias = ctx
+    .resolved_schemas
+    .iter()
+    .find(|rs| rs.variable == *final_var && !rs.data_cte.is_empty())
+    .map(|rs| rs.data_cte.clone());
+
+  let from_table = schema_data_alias.as_ref().unwrap_or(&final_cte);
+
   // Build SELECT from RETURN clause
   let mut select_cols: Vec<String> = Vec::new();
   for col in &query.return_clause.columns {
     match &col.expression {
       ReturnExpr::Node(_) => {
-        select_cols.push(format!("{cte}.*", cte = final_cte));
+        select_cols.push(format!("{cte}.*", cte = from_table));
       }
       ReturnExpr::Field(fp) => {
         let col_alias = col.alias.clone().unwrap_or_else(|| fp.field.clone());
-        let key = field_path_to_json_key(fp);
-        select_cols.push(format!(
-          "json_extract({cte}.fields_json, '$.\"{key}\".value') AS {alias}",
-          cte = final_cte,
-          key = key,
-          alias = col_alias
-        ));
+        let expr = compile_field_access(fp, &ctx, from_table, &final_cte);
+        select_cols.push(format!("{} AS {}", expr, col_alias));
       }
     }
   }
 
-  // Assemble the full SQL with CTEs
+  // Assemble the full SQL
   let select_sql = select_cols.join(", ");
   let mut sql = String::from("WITH ");
   sql.push_str(&ctes.join(",\n  "));
   sql.push_str(&format!(
-    "\nSELECT {sel} FROM {cte}",
+    "\nSELECT {sel} FROM {src}",
     sel = select_sql,
-    cte = final_cte
+    src = from_table
   ));
+
+  // Final WHERE clause (field predicates)
+  if !final_where_parts.is_empty() {
+    sql.push_str(&format!(" WHERE {}", final_where_parts.join(" AND ")));
+  }
 
   // ORDER BY
   if let Some(ob) = &query.order_by {
-    let key = field_path_to_json_key(&ob.field);
+    let expr = compile_field_access(&ob.field, &ctx, from_table, &final_cte);
     sql.push_str(&format!(
-      " ORDER BY json_extract({cte}.fields_json, '$.\"{key}\".value') {dir}",
-      cte = final_cte,
-      key = key,
-      dir = match ob.direction {
+      " ORDER BY {} {}",
+      expr,
+      match ob.direction {
         OrderDir::Asc => "ASC",
         OrderDir::Desc => "DESC",
       }
@@ -210,141 +294,169 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
   Ok(CompiledQuery { sql, params })
 }
 
-// ── Compilation context ─────────────────────────────────────────────────────
+// ── Phase 1 helpers ────────────────────────────────────────────────────────────
 
-struct CompileCtx {
-  /// Maps variable names to their CTE names.
-  var_cte: HashMap<String, String>,
-  /// Cached ns_id lookups during this compilation.
-  ns_id_cache: HashMap<String, i64>,
+fn extract_conforms_to(
+  pred: &Predicate,
+  variable: &str,
+  conn: &Connection,
+  ctx: &mut CompileCtx,
+) -> Result<(), String> {
+  match pred {
+    Predicate::ConformsTo {
+      schema_id, field, ..
+    } => {
+      let sid = Uuid::parse_str(schema_id).unwrap_or_else(|_| Uuid::nil());
+      let physical = resolve_physical_schema(conn, &sid)?;
+
+      let data_cte = physical
+        .as_ref()
+        .map(|_| {
+          format!(
+            "_schema_data_{}",
+            schema_id.replace(|c: char| !c.is_alphanumeric(), "_")
+          )
+        })
+        .unwrap_or_default();
+
+      let conformance_cte = format!("_conforming_{}", variable);
+
+      ctx.resolved_schemas.push(ResolvedSchema {
+        variable: field.clone(),
+        schema_id: schema_id.clone(),
+        physical,
+        conformance_cte,
+        data_cte,
+      });
+      Ok(())
+    }
+    Predicate::And(a, b) | Predicate::Or(a, b) => {
+      extract_conforms_to(a, variable, conn, ctx)?;
+      extract_conforms_to(b, variable, conn, ctx)
+    }
+    Predicate::Not(inner) | Predicate::Scan(inner) => {
+      extract_conforms_to(inner, variable, conn, ctx)
+    }
+    _ => Ok(()),
+  }
 }
 
-impl CompileCtx {
-  fn new() -> Self {
-    Self {
-      var_cte: HashMap::new(),
-      ns_id_cache: HashMap::new(),
+// ── Field access compilation ────────────────────────────────────────────────────
+
+fn compile_field_access(
+  fp: &FieldPath,
+  ctx: &CompileCtx,
+  from_table: &str,
+  _node_cte: &str,
+) -> String {
+  let resolved = ctx
+    .resolved_schemas
+    .iter()
+    .find(|rs| rs.variable == fp.variable);
+
+  if let Some(rs) = resolved {
+    if let Some(ref physical) = rs.physical {
+      let access = physical.field_access(&fp.field, fp.namespace.as_deref());
+      return match access {
+        FieldAccess::Promoted { ref column, .. } => format!("{}.{}", from_table, column),
+        _ => {
+          let key = field_path_to_json_key(fp);
+          json_extract_expr(&format!("{}.fields_json", from_table), &key)
+        }
+      };
     }
   }
 
-  /// Resolve a namespace string to its ns_id (with caching for this compilation).
-  fn resolve_ns(&mut self, conn: &Connection, ns_str: &str) -> Result<i64, String> {
-    if let Some(id) = self.ns_id_cache.get(ns_str) {
-      return Ok(*id);
-    }
-    let id = MetaStore::resolve_ns_id(conn, ns_str)
-      .map_err(|e| format!("namespace resolve '{}': {}", ns_str, e))?;
-    self.ns_id_cache.insert(ns_str.to_string(), id);
-    Ok(id)
+  // Fallback: JSONB extraction from the CTE's fields_json column
+  let key = field_path_to_json_key(fp);
+  json_extract_expr("fields_json", &key)
+}
+
+fn field_path_to_json_key(fp: &FieldPath) -> String {
+  match &fp.namespace {
+    Some(ns) => format!("{}:{}", ns, fp.field),
+    None => fp.field.clone(),
   }
 }
 
-// ── Predicate compilation ───────────────────────────────────────────────────
+/// Build the JSON extraction expression for a field.
+/// Returns `json_extract(column, '$."key".value')` — extracting the `.value`
+/// subpath from the JSON envelope `{"type": "String", "value": ...}`.
+fn json_extract_expr(column_ref: &str, key: &str) -> String {
+  format!("json_extract({}, '$.\"{}\".value')", column_ref, key)
+}
 
-fn compile_predicate(
+// ── Predicate compilation (for final WHERE clause) ──────────────────────────────
+
+/// Like `compile_predicate` but skips CONFORMS TO (handled by CTEs) and
+/// formats field expressions for the final WHERE context.
+fn compile_predicate_for_final(
   pred: &Predicate,
   var: &str,
-  ctx: &mut CompileCtx,
+  ctx: &CompileCtx,
   conn: &Connection,
   start_param: usize,
+) -> Result<(String, Vec<ParamValue>), String> {
+  compile_predicate_inner(pred, var, ctx, conn, start_param, true, false)
+}
+
+fn compile_predicate_inner(
+  pred: &Predicate,
+  var: &str,
+  ctx: &CompileCtx,
+  conn: &Connection,
+  start_param: usize,
+  is_final: bool,
+  scan_allowed: bool,
 ) -> Result<(String, Vec<ParamValue>), String> {
   let mut pi = start_param;
 
   match pred {
-    Predicate::ConformsTo {
-      schema_id,
-      version_min,
-      version_max,
-      ..
-    } => {
-      // Phase 1: resolve the schema_id to a stable identifier.
-      // For now, treat the schema_id string as the schema identifier.
-      // The meta-table approach uses `node_schema_conformance` via a
-      // subquery or JOIN.
+    // CONFORMS TO: handled by CTEs, no output in WHERE
+    Predicate::ConformsTo { .. } => Ok((String::new(), vec![])),
 
-      // Strategy: use a semi-join on node_schema_conformance:
-      //   n.id IN (SELECT node_id FROM node_schema_conformance WHERE schema_id = ?)
-      let mut cond = format!(
-        "n.id IN (SELECT node_id FROM node_schema_conformance WHERE schema_id = ?{p})",
-        p = pi
-      );
-      let mut vals = vec![ParamValue::Text(schema_id.clone())];
-      pi += 1;
-
-      if let Some(vmin) = version_min {
-        cond.push_str(&format!(" AND version_major >= ?{}", pi));
-        vals.push(ParamValue::Integer(*vmin as i64));
-        pi += 1;
-      }
-      if let Some(vmax) = version_max {
-        cond.push_str(&format!(" AND version_major <= ?{}", pi));
-        vals.push(ParamValue::Integer(*vmax as i64));
-        pi += 1;
-      }
-
-      Ok((cond, vals))
+    // `SCAN(inner)` — passes through with scan allowed.
+    Predicate::Scan(inner) => {
+      compile_predicate_inner(inner, var, ctx, conn, start_param, is_final, true)
     }
+
     Predicate::FieldCompare {
       field_path,
       op,
       value,
-      scan,
     } => {
-      let key = field_path_to_json_key(field_path);
+      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final);
+      enforce_scan(field_path, requires_scan, scan_allowed)?;
+
       let val_param = value_to_param(value);
       let sql_op = cmp_sql(op);
-
-      if *scan {
-        // SCAN marker — emit json_extract and record scan stat
-        // Stats recording happens in the API layer after execution
-        Ok((
-          format!(
-            "json_extract(n.fields_json, '$.\"{key}\".value') {op} ?{p}",
-            key = key,
-            op = sql_op,
-            p = pi
-          ),
-          vec![val_param],
-        ))
-      } else {
-        // Check if this is a promoted column or JSONB extraction.
-        // For v0 (all JSONB), always use json_extract.
-        Ok((
-          format!(
-            "json_extract(n.fields_json, '$.\"{key}\".value') {op} ?{p}",
-            key = key,
-            op = sql_op,
-            p = pi
-          ),
-          vec![val_param],
-        ))
-      }
+      Ok((format!("{} {} ?{}", expr, sql_op, pi), vec![val_param]))
     }
+
     Predicate::HasField {
       namespace,
       field_name,
       ..
     } => {
-      // Phase 1: resolve namespace → ns_id
       let ns_id = ctx.resolve_ns(conn, namespace)?;
-
-      // Use field_presence table instead of JSON extraction:
-      //   n.id IN (SELECT node_id FROM field_presence WHERE ns_id = ? AND field_name = ?)
+      // Use the correct CTE alias for the id column.
+      // In the final WHERE, the outer table is from `from_table` — but
+      // the column is just `id` (no prefix needed in a single-table context).
+      let id_ref = if is_final { "id" } else { "n.id" };
       let cond = if namespace == "*" {
-        // Wildcard namespace — any ns_id
         format!(
-          "n.id IN (SELECT node_id FROM field_presence WHERE field_name = ?{p})",
+          "{id_ref} IN (SELECT node_id FROM field_presence WHERE field_name = ?{p})",
+          id_ref = id_ref,
           p = pi
         )
       } else {
         format!(
-          "n.id IN (SELECT node_id FROM field_presence WHERE ns_id = ?{p} AND field_name = ?{q})",
-          p = pi,
-          q = pi + 1
+          "{id_ref} IN (SELECT node_id FROM field_presence WHERE ns_id = ?{p} AND field_name = ?{q})",
+          id_ref = id_ref,
+          p = pi, q = pi + 1
         )
       };
-
-      let mut vals = if namespace == "*" {
+      let vals = if namespace == "*" {
         vec![ParamValue::Text(field_name.clone())]
       } else {
         vec![
@@ -352,26 +464,22 @@ fn compile_predicate(
           ParamValue::Text(field_name.clone()),
         ]
       };
-
-      pi += vals.len();
       Ok((cond, vals))
     }
+
     Predicate::IsNull { field_path, not } => {
-      let key = field_path_to_json_key(field_path);
-      let op = if *not { "IS NOT NULL" } else { "IS NULL" };
-      Ok((
-        format!(
-          "json_type(n.fields_json, '$.\"{key}\"') {op}",
-          key = key,
-          op = op
-        ),
-        vec![],
-      ))
+      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final);
+      enforce_scan(field_path, requires_scan, scan_allowed)?;
+      let null_op = if *not { "IS NOT NULL" } else { "IS NULL" };
+      Ok((format!("{} {}", expr, null_op), vec![]))
     }
+
     Predicate::In {
       field_path, values, ..
     } => {
-      let key = field_path_to_json_key(field_path);
+      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final);
+      enforce_scan(field_path, requires_scan, scan_allowed)?;
+
       let mut placeholders = Vec::new();
       let mut vals = Vec::new();
       for v in values {
@@ -379,60 +487,108 @@ fn compile_predicate(
         vals.push(value_to_param(v));
         pi += 1;
       }
-      Ok((
-        format!(
-          "json_extract(n.fields_json, '$.\"{key}\".value') IN ({phs})",
-          key = key,
-          phs = placeholders.join(", ")
-        ),
-        vals,
-      ))
+      Ok((format!("{} IN ({})", expr, placeholders.join(", ")), vals))
     }
+
     Predicate::Like {
       field_path,
       pattern,
       ..
     } => {
-      let key = field_path_to_json_key(field_path);
+      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final);
+      enforce_scan(field_path, requires_scan, scan_allowed)?;
       Ok((
-        format!(
-          "json_extract(n.fields_json, '$.\"{key}\".value') LIKE ?{p}",
-          key = key,
-          p = pi
-        ),
+        format!("{} LIKE ?{}", expr, pi),
         vec![ParamValue::Text(pattern.clone())],
       ))
     }
+
     Predicate::And(a, b) => {
-      let (sa, pa) = compile_predicate(a, var, ctx, conn, pi)?;
+      let (sa, pa) = compile_predicate_inner(a, var, ctx, conn, pi, is_final, scan_allowed)?;
       pi += pa.len();
-      let (sb, pb) = compile_predicate(b, var, ctx, conn, pi)?;
+      let (sb, pb) = compile_predicate_inner(b, var, ctx, conn, pi, is_final, scan_allowed)?;
       let mut params = pa;
       params.extend(pb);
-      Ok((format!("({} AND {})", sa, sb), params))
+      // Filter out empty sub-predicates (e.g., CONFORMS TO)
+      match (sa.is_empty(), sb.is_empty()) {
+        (true, true) => Ok((String::new(), params)),
+        (true, false) => Ok((sb, params)),
+        (false, true) => Ok((sa, params)),
+        (false, false) => Ok((format!("({} AND {})", sa, sb), params)),
+      }
     }
     Predicate::Or(a, b) => {
-      let (sa, pa) = compile_predicate(a, var, ctx, conn, pi)?;
+      let (sa, pa) = compile_predicate_inner(a, var, ctx, conn, pi, is_final, scan_allowed)?;
       pi += pa.len();
-      let (sb, pb) = compile_predicate(b, var, ctx, conn, pi)?;
+      let (sb, pb) = compile_predicate_inner(b, var, ctx, conn, pi, is_final, scan_allowed)?;
       let mut params = pa;
       params.extend(pb);
-      Ok((format!("({} OR {})", sa, sb), params))
+      match (sa.is_empty(), sb.is_empty()) {
+        (true, true) => Ok((String::new(), params)),
+        (true, false) => Ok((sb, params)),
+        (false, true) => Ok((sa, params)),
+        (false, false) => Ok((format!("({} OR {})", sa, sb), params)),
+      }
     }
     Predicate::Not(inner) => {
-      let (s, p) = compile_predicate(inner, var, ctx, conn, pi)?;
-      Ok((format!("NOT ({})", s), p))
+      let (s, p) = compile_predicate_inner(inner, var, ctx, conn, pi, is_final, scan_allowed)?;
+      if s.is_empty() {
+        Ok((String::new(), p))
+      } else {
+        Ok((format!("NOT ({})", s), p))
+      }
     }
   }
 }
 
-/// Convert a FieldPath to the JSON key format used in `fields_json`.
-fn field_path_to_json_key(fp: &FieldPath) -> String {
-  match &fp.namespace {
-    Some(ns) => format!("{}:{}", ns, fp.field),
-    None => fp.field.clone(),
+/// Return (SQL_expr, requires_scan) for a field path.
+fn field_sql_expr(fp: &FieldPath, _var: &str, ctx: &CompileCtx, is_final: bool) -> (String, bool) {
+  let resolved = ctx
+    .resolved_schemas
+    .iter()
+    .find(|rs| rs.variable == fp.variable);
+
+  if let Some(rs) = resolved {
+    if let Some(ref physical) = rs.physical {
+      let access = physical.field_access(&fp.field, fp.namespace.as_deref());
+      let requires_scan = access.requires_scan();
+      let key = field_path_to_json_key(fp);
+      let expr = if is_final && !requires_scan {
+        match &access {
+          FieldAccess::Promoted { column, .. } => format!("{}.{}", rs.data_cte, column),
+          _ => json_extract_expr("fields_json", &key),
+        }
+      } else if is_final {
+        json_extract_expr("fields_json", &key)
+      } else {
+        json_extract_expr("n.fields_json", &key)
+      };
+      return (expr, requires_scan);
+    }
   }
+
+  // No schema → everything is unpromoted JSONB
+  let key = field_path_to_json_key(fp);
+  let col_ref = if is_final {
+    "fields_json"
+  } else {
+    "n.fields_json"
+  };
+  (json_extract_expr(col_ref, &key), true)
 }
+
+fn enforce_scan(fp: &FieldPath, requires_scan: bool, scan_marker: bool) -> Result<(), String> {
+  if requires_scan && !scan_marker {
+    return Err(format!(
+      "field `{}`.`{}` is not indexed — wrap in SCAN(...) or add an index",
+      fp.variable,
+      field_path_to_json_key(fp),
+    ));
+  }
+  Ok(())
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────────
 
 fn cmp_sql(op: &CmpOp) -> &'static str {
   match op {
@@ -452,5 +608,127 @@ fn value_to_param(v: &Value) -> ParamValue {
     Value::Float(f) => ParamValue::Real(*f),
     Value::Boolean(b) => ParamValue::Integer(if *b { 1 } else { 0 }),
     Value::Null => ParamValue::Null,
+  }
+}
+
+// ── CompileCtx impl ─────────────────────────────────────────────────────────────
+
+impl CompileCtx {
+  fn new() -> Self {
+    Self {
+      var_cte: HashMap::new(),
+      ns_id_cache: HashMap::new(),
+      resolved_schemas: Vec::new(),
+    }
+  }
+
+  fn resolve_ns(&self, conn: &Connection, ns_str: &str) -> Result<i64, String> {
+    MetaStore::resolve_ns_id(conn, ns_str)
+      .map_err(|e| format!("namespace resolve '{}': {}", ns_str, e))
+  }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use panorama_core::query::parse_query;
+
+  fn setup_conn() -> Connection {
+    let conn = Connection::open_in_memory().unwrap();
+    conn
+      .execute_batch(
+        "CREATE TABLE IF NOT EXISTS nodes (
+          id TEXT PRIMARY KEY,
+          space_id TEXT NOT NULL,
+          fields_json TEXT NOT NULL DEFAULT '{}',
+          preferred_schemas_json TEXT NOT NULL DEFAULT '[]',
+          app_managed_json TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_nodes_space ON nodes(space_id);",
+      )
+      .unwrap();
+    MetaStore::initialize(&conn).unwrap();
+    conn
+  }
+
+  #[test]
+  fn test_compile_simple_return() {
+    let conn = setup_conn();
+    let q = parse_query(r#"MATCH (n) IN space("default") RETURN n"#).unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+    assert!(compiled.sql.contains("SELECT"));
+    assert!(compiled.sql.contains("nodes"));
+  }
+
+  #[test]
+  fn test_compile_with_field_projection() {
+    let conn = setup_conn();
+    let q = parse_query(r#"MATCH (n) IN space("default") RETURN n.title AS title"#).unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+    assert!(compiled.sql.contains("json_extract") || compiled.sql.contains("fields_json"));
+  }
+
+  #[test]
+  fn test_compile_with_conforms_to_and_promoted_schema() {
+    let conn = setup_conn();
+    let schema_id = Uuid::new_v4();
+
+    let table_name = format!("schema_data_{}", schema_id.to_string().replace("-", ""));
+    let tn = &table_name[..40];
+
+    conn
+      .execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS {} (node_id TEXT PRIMARY KEY, title_col TEXT, start_col TEXT);",
+        tn
+      ))
+      .unwrap();
+
+    MetaStore::upsert_schema_table(
+      &conn,
+      &schema_id,
+      tn,
+      &serde_json::json!({
+        "title": {"column": "title_col", "type": "String", "indexed": false},
+        "start_time": {"column": "start_col", "type": "DateTime", "indexed": true},
+      }),
+      crate::meta::StorageMode::Hybrid,
+      crate::meta::MigrationState::Stable,
+    )
+    .unwrap();
+
+    let q = parse_query(&format!(
+      r#"MATCH (n) IN space("default") WHERE n CONFORMS TO schema("{}") RETURN n.title AS title"#,
+      schema_id
+    ))
+    .unwrap();
+
+    let compiled = compile(&q, &conn).unwrap();
+    assert!(
+      compiled.sql.contains(tn),
+      "should use schema data table {}: {}",
+      tn,
+      compiled.sql
+    );
+  }
+
+  #[test]
+  fn test_scan_enforcement_without_conforms_to() {
+    let conn = setup_conn();
+    let q = parse_query(r#"MATCH (n) IN space("default") WHERE n.foo = "bar" RETURN n"#).unwrap();
+    let result = compile(&q, &conn);
+    assert!(result.is_err(), "should error");
+    assert!(result.unwrap_err().contains("SCAN"));
+  }
+
+  #[test]
+  fn test_scan_allows_access() {
+    let conn = setup_conn();
+    let q =
+      parse_query(r#"MATCH (n) IN space("default") WHERE SCAN(n.foo = "bar") RETURN n"#).unwrap();
+    let _compiled = compile(&q, &conn).unwrap();
   }
 }

@@ -230,7 +230,7 @@ async fn resolve_page_ref(
   let query = format!(
     "MATCH (n) IN space(\"default\") \
          WHERE HAS_FIELD(n, \"journal\", \"content\") \
-         AND n.system.node_title = \"{}\" \
+         AND SCAN(n.system.node_title = \"{}\") \
          RETURN n LIMIT 1",
     page_name.replace('"', "\\\"")
   );
@@ -488,14 +488,14 @@ impl Plugin for JournalPlugin {
         }
         if let Some(ref d) = date {
           preds.push(format!(
-            "n.journal.journal_day = \"{}\"",
+            "SCAN(n.journal.journal_day = \"{}\")",
             d.replace('"', "\\\"")
           ));
         }
         if let Some(ref t) = tag {
           // tags is a JSON array — use LIKE for simple matching
           preds.push(format!(
-            "n.journal.tags LIKE \"%{}%\"",
+            "SCAN(n.journal.tags LIKE \"%{}%\")",
             t.replace('"', "\\\"")
           ));
         }
@@ -535,7 +535,7 @@ impl Plugin for JournalPlugin {
         let query = format!(
           "MATCH (n) IN space(\"default\") \
                      WHERE HAS_FIELD(n, \"journal\", \"parent_id\") \
-                     AND n.journal.parent_id = \"{}\" \
+                     AND SCAN(n.journal.parent_id = \"{}\") \
                      RETURN n ORDER BY n.journal.order ASC",
           id
         );
@@ -662,10 +662,10 @@ impl Plugin for JournalPlugin {
         let mut preds = vec!["HAS_FIELD(n, \"journal\", \"content\")".to_string()];
 
         if journal_only {
-          preds.push("n.journal.journal_day IS NOT NULL".to_string());
+          preds.push("SCAN(n.journal.journal_day IS NOT NULL)".to_string());
         } else {
           // Pages have no parent_id
-          preds.push("n.journal.parent_id IS NULL".to_string());
+          preds.push("SCAN(n.journal.parent_id IS NULL)".to_string());
         }
 
         let query = format!(
@@ -684,7 +684,7 @@ impl Plugin for JournalPlugin {
         let query = format!(
           "MATCH (n) IN space(\"default\") \
                      WHERE HAS_FIELD(n, \"journal\", \"journal_day\") \
-                     AND n.journal.journal_day = \"{}\" \
+                     AND SCAN(n.journal.journal_day = \"{}\") \
                      RETURN n LIMIT 1",
           today
         );
@@ -728,7 +728,7 @@ impl Plugin for JournalPlugin {
         let query = format!(
           "MATCH (n) IN space(\"default\") \
                      WHERE HAS_FIELD(n, \"journal\", \"refs\") \
-                     AND n.journal.refs LIKE \"%{}%\" \
+                     AND SCAN(n.journal.refs LIKE \"%{}%\") \
                      RETURN n ORDER BY n.system.node_time DESC LIMIT 50",
           id
         );
