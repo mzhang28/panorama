@@ -5,17 +5,22 @@ use axum::{
   extract::{Path, Query, State},
   http::{header, StatusCode, Uri},
   response::{Json, Response},
-  routing::{get, post},
+  routing::{get, post, put},
   Router,
 };
 use bytes::Bytes;
 use panorama_core::plugin::HttpRequest;
+use panorama_core::reactor::HookPoint;
 use panorama_core::types::{FieldValue, Node};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::object_store::ObjectStorage;
 use crate::plugin_loader::PluginLoader;
+use crate::reactor::deferred::DeferredReactorEngine;
+use crate::reactor::eager::{EagerReactorPipeline, HookContext, HookResult};
+use crate::reactor::op_stream::OpStream;
+use crate::reactor::registry::ReactorRegistry;
 use crate::schema_registry::SchemaRegistry;
 use crate::storage::NodeStorage;
 
@@ -26,6 +31,10 @@ pub struct AppState {
   pub schema_registry: SchemaRegistry,
   pub object_storage: ObjectStorage,
   pub plugin_loader: Arc<PluginLoader>,
+  pub reactor_registry: Arc<ReactorRegistry>,
+  pub eager_pipeline: Arc<EagerReactorPipeline>,
+  pub op_stream: Arc<OpStream>,
+  pub deferred_engine: Arc<DeferredReactorEngine>,
 }
 
 // -- Error types --
@@ -87,6 +96,13 @@ pub fn build_router(state: AppState) -> Router {
     .route("/api/plugins/{id}", get(get_plugin))
     .route("/api/plugins/{id}/static", get(get_plugin_static_files))
     .route("/api/plugins/{id}/files", get(get_plugin_static_files))
+    // Reactor management endpoints
+    .route("/api/reactors", get(list_reactors).post(create_reactor))
+    .route(
+      "/api/reactors/{id}",
+      get(get_reactor).delete(delete_reactor),
+    )
+    .route("/api/reactors/{id}/status", put(update_reactor_status))
     // Plugin UI asset serving (must come before catch-all dispatch)
     .route("/plugin/{plugin_id}/ui/{*path}", get(plugin_ui_handler))
     // Plugin HTTP endpoint dispatch
@@ -158,11 +174,47 @@ async fn create_node(
     return Err(ApiError::bad_request(&errors.join("; ")));
   }
 
-  state
+  // ── Eager reactor hooks: before_node_create ──────────────────────────
+  let hook_ctx = HookContext {
+    hook_point: HookPoint::BeforeNodeCreate {
+      scope_schema_id: node.preferred_schemas.first().map(|s| s.schema_node_id),
+    },
+    node: Some(node.clone()),
+    node_id: None,
+    field_path: None,
+    current_value: None,
+    previous_value: None,
+    schema_id: node.preferred_schemas.first().map(|s| s.schema_node_id),
+    space_id: Some(node.space_id),
+    authorized_by: None,
+  };
+
+  match state.eager_pipeline.execute_hook(&hook_ctx).await {
+    HookResult::Rejected { reason, .. } => {
+      return Err(ApiError::bad_request(&format!("Reactor rejected: {}", reason)));
+    }
+    HookResult::Approved { computed_fields, .. } => {
+      for (key, value) in &computed_fields {
+        node.set_field(key, value.clone());
+      }
+    }
+  }
+
+  let created = state
     .storage
     .create(node)
-    .map(Json)
-    .map_err(|e| ApiError::internal(e))
+    .map_err(|e| ApiError::internal(e))?;
+
+  // ── Op stream: record the creation ───────────────────────────────────
+  let _ = state.op_stream.append_sync(
+    panorama_core::reactor::OpType::NodeCreated,
+    Some(created.id),
+    created.preferred_schemas.first().map(|s| s.schema_node_id),
+    created.space_id,
+    None, None, None, None, None,
+  );
+
+  Ok(Json(created))
 }
 
 async fn get_node(
@@ -206,22 +258,97 @@ async fn update_node(
     return Err(ApiError::bad_request(&errors.join("; ")));
   }
 
-  state
+  // ── Eager reactor hooks: before_field_write per field ────────────────
+  let mut final_fields = req.fields.clone();
+  for (field_path, new_value) in &req.fields {
+    let prev = existing.fields.get(field_path).cloned();
+    let hook_ctx = HookContext {
+      hook_point: HookPoint::BeforeFieldWrite {
+        field_path: field_path.clone(),
+        scope_schema_id: schemas.first().map(|s| s.schema_node_id),
+      },
+      node: Some(existing.clone()),
+      node_id: Some(id),
+      field_path: Some(field_path.clone()),
+      current_value: Some(new_value.clone()),
+      previous_value: prev,
+      schema_id: schemas.first().map(|s| s.schema_node_id),
+      space_id: Some(existing.space_id),
+      authorized_by: None,
+    };
+
+    match state.eager_pipeline.execute_hook(&hook_ctx).await {
+      HookResult::Rejected { reason, .. } => {
+        return Err(ApiError::bad_request(&format!(
+          "Reactor rejected field '{}': {}", field_path, reason
+        )));
+      }
+      HookResult::Approved { transformed_value, computed_fields } => {
+        if let Some(tv) = transformed_value {
+          final_fields.insert(field_path.clone(), tv);
+        }
+        for (key, value) in &computed_fields {
+          final_fields.insert(key.clone(), value.clone());
+        }
+      }
+    }
+  }
+
+  let updated = state
     .storage
-    .update(id, req.fields)
-    .map(Json)
-    .map_err(|e| ApiError::internal(e))
+    .update(id, final_fields)
+    .map_err(|e| ApiError::internal(e))?;
+
+  // ── Op stream: record the update ────────────────────────────────────
+  let _ = state.op_stream.append_sync(
+    panorama_core::reactor::OpType::NodeUpdated,
+    Some(updated.id),
+    updated.preferred_schemas.first().map(|s| s.schema_node_id),
+    updated.space_id,
+    None, None, None, None, None,
+  );
+
+  Ok(Json(updated))
 }
 
 async fn delete_node(
   State(state): State<Arc<AppState>>,
   Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, Json<ApiError>)> {
-  state
-    .storage
-    .delete(id)
-    .map(|_| StatusCode::NO_CONTENT)
-    .map_err(|e| ApiError::internal(e))
+  let existing = state.storage.get(id).map_err(|e| ApiError::internal(e))?;
+
+  // ── Eager reactor hooks: before_node_delete ──────────────────────────
+  let hook_ctx = HookContext {
+    hook_point: HookPoint::BeforeNodeDelete {
+      scope_schema_id: existing.as_ref().and_then(|n| n.preferred_schemas.first().map(|s| s.schema_node_id)),
+    },
+    node: existing.clone(),
+    node_id: Some(id),
+    field_path: None,
+    current_value: None,
+    previous_value: None,
+    schema_id: existing.as_ref().and_then(|n| n.preferred_schemas.first().map(|s| s.schema_node_id)),
+    space_id: existing.as_ref().map(|n| n.space_id),
+    authorized_by: None,
+  };
+
+  match state.eager_pipeline.execute_hook(&hook_ctx).await {
+    HookResult::Rejected { reason, .. } => {
+      return Err(ApiError::bad_request(&format!("Reactor rejected delete: {}", reason)));
+    }
+    HookResult::Approved { .. } => {}
+  }
+
+  let space_id = existing.as_ref().map(|n| n.space_id).unwrap_or_else(Uuid::nil);
+
+  state.storage.delete(id).map(|_| {
+    let _ = state.op_stream.append_sync(
+      panorama_core::reactor::OpType::NodeDeleted,
+      Some(id), None, space_id,
+      None, None, None, None, None,
+    );
+    StatusCode::NO_CONTENT
+  }).map_err(|e| ApiError::internal(e))
 }
 
 async fn query_nodes(
@@ -577,4 +704,131 @@ async fn query_handler(
   Json(req): Json<QueryRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
   execute_query(&state, &req.query).map(Json)
+}
+
+// ── Reactor management handlers ──────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct CreateReactorRequest {
+  pub defined_by_app: Option<Uuid>,
+  pub owner_schema_id: Option<Uuid>,
+  pub mode: String,
+  pub trigger: serde_json::Value,
+  pub filter: Option<serde_json::Value>,
+  pub action_kind: String,
+  pub action_target: Option<String>,
+  pub action_ref: serde_json::Value,
+  #[serde(default)]
+  pub priority: i32,
+  #[serde(default)]
+  pub capabilities: Vec<serde_json::Value>,
+  #[serde(default = "default_status")]
+  pub status: String,
+  pub retry_policy: Option<serde_json::Value>,
+  pub authorized_by: Option<String>,
+}
+
+fn default_status() -> String { "active".into() }
+
+#[derive(Debug, Deserialize)]
+struct UpdateReactorStatusRequest {
+  pub status: String,
+}
+
+async fn list_reactors(
+  State(state): State<Arc<AppState>>,
+) -> Json<Vec<serde_json::Value>> {
+  let reactors: Vec<serde_json::Value> = state.reactor_registry.list_all()
+    .iter().map(|r| serde_json::to_value(r).unwrap_or_default()).collect();
+  Json(reactors)
+}
+
+async fn get_reactor(
+  State(state): State<Arc<AppState>>,
+  Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+  let reactor = state.reactor_registry.get(&id)
+    .ok_or_else(|| ApiError::not_found("Reactor not found"))?;
+  Ok(Json(serde_json::to_value(reactor).unwrap_or_default()))
+}
+
+async fn create_reactor(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<CreateReactorRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+  use panorama_core::reactor::{
+    ActionKind, CapRef, Reactor, ReactorMode, ReactorStatus, ReactorTrigger,
+    RetryPolicy, WasmRef,
+  };
+
+  let mode = match req.mode.as_str() {
+    "eager" => ReactorMode::Eager,
+    "deferred" => ReactorMode::Deferred,
+    _ => return Err(ApiError::bad_request("mode must be 'eager' or 'deferred'")),
+  };
+  let trigger: ReactorTrigger = serde_json::from_value(req.trigger)
+    .map_err(|e| ApiError::bad_request(&format!("Invalid trigger: {}", e)))?;
+  let action_kind = match req.action_kind.as_str() {
+    "validate" => ActionKind::Validate,
+    "transform" => ActionKind::Transform,
+    "compute_field" => ActionKind::ComputeField,
+    "side_effect" => ActionKind::SideEffect,
+    "internal_write" => ActionKind::InternalWrite,
+    _ => return Err(ApiError::bad_request("Invalid action_kind")),
+  };
+  let action_ref: WasmRef = serde_json::from_value(req.action_ref)
+    .map_err(|e| ApiError::bad_request(&format!("Invalid action_ref: {}", e)))?;
+  let capabilities: Vec<CapRef> = req.capabilities.iter()
+    .filter_map(|c| serde_json::from_value(c.clone()).ok()).collect();
+  let status = match req.status.as_str() {
+    "active" => ReactorStatus::Active,
+    "disabled" => ReactorStatus::Disabled,
+    "error_quarantined" => ReactorStatus::ErrorQuarantined,
+    _ => return Err(ApiError::bad_request("Invalid status")),
+  };
+  let retry_policy: Option<RetryPolicy> = req.retry_policy
+    .and_then(|rp| serde_json::from_value(rp).ok());
+  let filter = req.filter.and_then(|f| serde_json::from_value(f).ok());
+
+  let reactor = Reactor {
+    id: Uuid::new_v4(),
+    defined_by_app: req.defined_by_app,
+    owner_schema_id: req.owner_schema_id,
+    mode, trigger, filter, action_kind,
+    action_target: req.action_target,
+    action_ref, priority: req.priority,
+    capabilities, status, retry_policy,
+    authorized_by: req.authorized_by,
+    created_at: chrono::Utc::now().to_rfc3339(),
+  };
+
+  let registered = state.reactor_registry.register(reactor).await
+    .map_err(|e| ApiError::bad_request(e.as_str()))?;
+  Ok(Json(serde_json::to_value(registered).unwrap_or_default()))
+}
+
+async fn delete_reactor(
+  State(state): State<Arc<AppState>>,
+  Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, Json<ApiError>)> {
+  state.reactor_registry.delete(id).await
+    .map(|_| StatusCode::NO_CONTENT)
+    .map_err(|e| ApiError::internal(e))
+}
+
+async fn update_reactor_status(
+  State(state): State<Arc<AppState>>,
+  Path(id): Path<Uuid>,
+  Json(req): Json<UpdateReactorStatusRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ApiError>)> {
+  use panorama_core::reactor::ReactorStatus;
+  let status = match req.status.as_str() {
+    "active" => ReactorStatus::Active,
+    "disabled" => ReactorStatus::Disabled,
+    "error_quarantined" => ReactorStatus::ErrorQuarantined,
+    _ => return Err(ApiError::bad_request("Invalid status")),
+  };
+  state.reactor_registry.update_status(id, status).await
+    .map(|_| StatusCode::OK)
+    .map_err(|e| ApiError::internal(e))
 }

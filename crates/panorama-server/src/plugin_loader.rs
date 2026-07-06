@@ -290,6 +290,100 @@ impl PluginLoader {
       ))),
     }
   }
+
+  /// Execute a reactor action via WASM.
+  ///
+  /// Reuses the existing `execute_wasm_handler` infrastructure — the reactor
+  /// input is serialized as an HTTP-like request body and dispatched to the
+  /// WASM module's `_start` entry point. The module reads stdin, processes,
+  /// and writes the result to stdout.
+  ///
+  /// The WASM module sees the full `ReactorActionInput` serialized as the
+  /// request body, with the function name as the "endpoint". This allows
+  /// the module to dispatch to different internal functions based on the
+  /// endpoint name.
+  ///
+  /// Returns `Ok(None)` if the plugin is not a WASM plugin. Returns the
+  /// reactor's output on success, or an error string on failure.
+  pub async fn execute_reactor_action(
+    &self,
+    plugin_id: &str,
+    function_name: &str,
+    input: &panorama_core::reactor::ReactorActionInput,
+  ) -> Result<Option<panorama_core::reactor::ReactorActionOutput>, String> {
+    use panorama_core::reactor::ReactorActionOutput;
+
+    let wasm_plugin = { self.wasm_plugins.read().await.get(plugin_id).cloned() };
+
+    let wp = match wasm_plugin {
+      Some(wp) => wp,
+      None => return Ok(None),
+    };
+
+    // Serialize the reactor input as the request body
+    let body_json = serde_json::to_vec(input)
+      .map_err(|e| format!("Failed to serialize reactor input: {}", e))?;
+
+    // Build an HTTP-like request that carries the reactor payload
+    let request = panorama_core::plugin::HttpRequest {
+      method: "POST".into(),
+      path: format!("__reactor__/{}", function_name),
+      query_params: std::collections::HashMap::new(),
+      headers: std::collections::HashMap::from([
+        ("Content-Type".into(), "application/json".into()),
+      ]),
+      body: Some(bytes::Bytes::from(body_json)),
+    };
+
+    // Clone everything needed by the 'static spawn_blocking closure
+    let engine = wp._engine.clone();
+    let module = wp.compiled.clone();
+    let capabilities = wp.info.capabilities.clone();
+    let plugin_id_owned = plugin_id.to_string();
+    let storage = self.storage.clone();
+    let schema_registry = self.schema_registry.clone();
+    let object_storage = self.object_storage.clone();
+    let path = request.path.clone();
+
+    // Execute via the same WASM runtime used for HTTP handlers.
+    // This gives reactors access to all host functions (create_nodes,
+    // query, etc.) subject to the plugin's capability grants.
+    let result = tokio::task::spawn_blocking(move || {
+      pollster::block_on(crate::wasm_runtime::execute_wasm_handler(
+        &engine,
+        &module,
+        &path,
+        &request,
+        &plugin_id_owned,
+        &capabilities,
+        &storage,
+        &schema_registry,
+        &object_storage,
+      ))
+    })
+    .await
+    .map_err(|e| format!("WASM spawn_blocking panic: {}", e))?;
+
+    match result {
+      Ok(response) => {
+        if response.body.is_empty() {
+          return Ok(None);
+        }
+        let output: ReactorActionOutput = serde_json::from_slice(&response.body)
+          .map_err(|e| format!(
+            "Failed to parse reactor output: {} (body: {})",
+            e,
+            String::from_utf8_lossy(&response.body[..response.body.len().min(200)])
+          ))?;
+        Ok(Some(output))
+      }
+      Err(e) => {
+        // WASM execution failed — this is a runtime error, not a validation
+        // rejection. The caller should handle this based on quarantine policy.
+        Err(format!("WASM execution error: {}", e))
+      }
+    }
+  }
 }
 
 /// Map a file path to its MIME type based on extension.

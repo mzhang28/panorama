@@ -10,7 +10,7 @@ pub mod ir;
 pub mod parser;
 
 pub use ast::Query;
-pub use eval::eval_query;
+pub use eval::{eval_predicate, eval_query};
 pub use parser::{parse_query, ParseError};
 
 /// Parse a single JSON row from `RETURN n` back into a `Node`.

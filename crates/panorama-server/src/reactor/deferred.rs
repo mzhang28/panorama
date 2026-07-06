@@ -295,12 +295,29 @@ impl DeferredReactorEngine {
     }
 
     /// Check if an entry matches a reactor's filter predicate.
-    fn filter_matches(&self, _reactor: &Reactor, _entry: &OpStreamEntry) -> bool {
-        // Filter evaluation against the Predicate AST would be done here.
-        // For now, absence of a filter means "match everything".
-        // When a filter is present, it would be evaluated against the
-        // triggering node's fields using `panorama_core::query::eval::eval_predicate`.
-        true
+    ///
+    /// When a filter is present, it is evaluated against the triggering node's
+    /// fields using the same `eval_predicate` function used by the query engine
+    /// (HOOK_DESIGN §3.1: "filter predicates reuse the query language's WHERE
+    /// grammar exactly"). When no filter is present, everything matches.
+    fn filter_matches(&self, reactor: &Reactor, entry: &OpStreamEntry) -> bool {
+        let filter = match &reactor.filter {
+            Some(f) => f,
+            None => return true, // No filter = match everything
+        };
+
+        // Fetch the triggering node to evaluate the filter against
+        let node = match entry.node_id {
+            Some(node_id) => match self.registry.storage.get(node_id) {
+                Ok(Some(n)) => n,
+                _ => return false, // Node not found → filter can't match
+            },
+            None => return false, // No node in entry → can't evaluate field predicates
+        };
+
+        // Evaluate the predicate against the node's fields using
+        // the shared query-language WHERE evaluator (HOOK_DESIGN §3.1).
+        panorama_core::query::eval_predicate(filter, &node)
     }
 
     /// Execute a reactor's action for a given op stream entry.

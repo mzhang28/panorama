@@ -5,6 +5,10 @@ use std::sync::Arc;
 use panorama_server::api::{build_router, AppState};
 use panorama_server::object_store::ObjectStorage;
 use panorama_server::plugin_loader::PluginLoader;
+use panorama_server::reactor::deferred::DeferredReactorEngine;
+use panorama_server::reactor::eager::EagerReactorPipeline;
+use panorama_server::reactor::op_stream::OpStream;
+use panorama_server::reactor::registry::ReactorRegistry;
 use panorama_server::schema_registry::SchemaRegistry;
 use panorama_server::storage::{sqlite::SqliteBackend, NodeStorage};
 
@@ -71,11 +75,47 @@ async fn main() {
     tracing::warn!("Plugins directory does not exist");
   }
 
+  // ── Reactor subsystem ──────────────────────────────────────────────────
+  let reactor_registry = Arc::new(ReactorRegistry::new(
+    storage.clone(),
+    schema_registry.clone(),
+  ));
+  let op_stream = Arc::new(OpStream::new(storage.clone()));
+  let eager_pipeline = Arc::new(
+    EagerReactorPipeline::new(reactor_registry.clone())
+      .with_plugin_loader(plugin_loader.clone()),
+  );
+  let deferred_engine = Arc::new(DeferredReactorEngine::new(
+    reactor_registry.clone(),
+    op_stream.clone(),
+  ));
+
+  if let Err(e) = reactor_registry.initialize().await {
+    tracing::error!(error = %e, "Failed to initialize reactor registry");
+  }
+  if let Err(e) = op_stream.initialize().await {
+    tracing::error!(error = %e, "Failed to initialize op stream");
+  }
+  if let Err(e) = deferred_engine.initialize().await {
+    tracing::error!(error = %e, "Failed to initialize deferred reactor engine");
+  }
+
+  // Start deferred reactor polling loop in background
+  let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+  let deferred_engine_bg = deferred_engine.clone();
+  tokio::spawn(async move {
+    deferred_engine_bg.run_polling_loop(cancel_rx).await;
+  });
+
   let state = AppState {
     storage,
     schema_registry,
     object_storage,
     plugin_loader,
+    reactor_registry,
+    eager_pipeline,
+    op_stream,
+    deferred_engine,
   };
   let app = build_router(state);
 

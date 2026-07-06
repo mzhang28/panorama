@@ -160,7 +160,11 @@ fn cmp_json(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering 
 
 // ── Predicate evaluation ─────────────────────────────────────────────────
 
-fn eval_predicate(pred: &Predicate, node: &Node) -> bool {
+/// Evaluate a single predicate against a node's fields.
+/// Public so the reactor subsystem can reuse filter predicates
+/// per HOOK_DESIGN §3.1 ("filter predicates reuse the query language's
+/// WHERE grammar exactly").
+pub fn eval_predicate(pred: &Predicate, node: &Node) -> bool {
   match pred {
     Predicate::FieldCompare {
       field_path,

@@ -11,8 +11,10 @@
 //! - **Auto-quarantine (§2.6)**: After N consecutive failures, reactor transitions
 //!   to `error_quarantined` and stops blocking writes.
 
+use std::sync::Arc;
+
 use panorama_core::reactor::{
-    ActionKind, HookPoint, Reactor, ReactorExecutionContext,
+    ActionKind, HookPoint, Reactor, ReactorActionInput, ReactorExecutionContext,
     ReactorMode, ReactorStatus,
 };
 use panorama_core::types::{FieldValue, Node};
@@ -79,13 +81,22 @@ pub enum HookResult {
 ///    - `compute_field` reactors: accumulate computed values.
 /// 4. On failure: records the failure and auto-quarantines if threshold exceeded.
 pub struct EagerReactorPipeline {
-    registry: std::sync::Arc<ReactorRegistry>,
+    registry: Arc<ReactorRegistry>,
+    /// Optional reference to the plugin loader for WASM execution.
+    /// When `None`, reactors default to approve/no-op (useful for testing).
+    plugin_loader: Option<Arc<crate::plugin_loader::PluginLoader>>,
 }
 
 impl EagerReactorPipeline {
     /// Create a new eager reactor pipeline backed by the given registry.
-    pub fn new(registry: std::sync::Arc<ReactorRegistry>) -> Self {
-        Self { registry }
+    pub fn new(registry: Arc<ReactorRegistry>) -> Self {
+        Self { registry, plugin_loader: None }
+    }
+
+    /// Set the plugin loader for WASM execution.
+    pub fn with_plugin_loader(mut self, loader: Arc<crate::plugin_loader::PluginLoader>) -> Self {
+        self.plugin_loader = Some(loader);
+        self
     }
 
     /// Execute all active eager reactors for the given hook point.
@@ -270,57 +281,122 @@ impl EagerReactorPipeline {
 
     // ── Individual action executors ─────────────────────────────────────────
 
-    /// Execute a validate reactor. Returns true if the write is approved.
+    /// Execute a validate reactor via WASM. Returns true if the write is approved.
     async fn execute_validate(
         &self,
         reactor: &Reactor,
         ctx: &ReactorExecutionContext,
         current_value: &Option<FieldValue>,
     ) -> Result<bool, String> {
-        // For now, validate reactors are simple: they run WASM that returns
-        // Approved or Rejected. Without WASM execution wired up (depends on
-        // PluginLoader availability), we default to Approved.
-        //
-        // Full WASM execution will be wired in the integration phase.
-        tracing::debug!(
-            reactor_id = %reactor.id,
-            action_ref = ?reactor.action_ref,
-            "Executing validate reactor (WASM execution pending full integration)"
-        );
-        let _ = (reactor, ctx, current_value);
-        Ok(true) // Default approve
+        let input = ReactorActionInput {
+            context: ctx.clone(),
+            current_value: current_value.as_ref().map(|v| serde_json::to_value(v).unwrap_or_default()),
+            node: ctx.triggering_node.clone(),
+        };
+
+        let loader = match &self.plugin_loader {
+            Some(l) => l,
+            None => {
+                tracing::debug!(reactor_id = %reactor.id, "No plugin loader — defaulting to approve");
+                return Ok(true);
+            }
+        };
+
+        match loader.execute_reactor_action(
+            &reactor.action_ref.plugin_id,
+            &reactor.action_ref.function_name,
+            &input,
+        ).await {
+            Ok(Some(output)) => {
+                match output.result {
+                    panorama_core::reactor::EagerReactorResult::Approved => Ok(true),
+                    panorama_core::reactor::EagerReactorResult::Rejected { reason } => {
+                        Err(format!("Rejected: {}", reason))
+                    }
+                    _ => Ok(true), // Non-validate results treated as approve
+                }
+            }
+            Ok(None) => {
+                // No WASM module or empty output → default approve
+                Ok(true)
+            }
+            Err(e) => Err(e),
+        }
     }
 
-    /// Execute a transform reactor. Returns the transformed value, if any.
+    /// Execute a transform reactor via WASM. Returns the transformed value, if any.
     async fn execute_transform(
         &self,
         reactor: &Reactor,
         ctx: &ReactorExecutionContext,
         current_value: &Option<FieldValue>,
     ) -> Result<Option<FieldValue>, String> {
-        tracing::debug!(
-            reactor_id = %reactor.id,
-            action_ref = ?reactor.action_ref,
-            "Executing transform reactor (WASM execution pending full integration)"
-        );
-        let _ = (reactor, ctx, current_value);
-        Ok(None) // Default: no transformation
+        let input = ReactorActionInput {
+            context: ctx.clone(),
+            current_value: current_value.as_ref().map(|v| serde_json::to_value(v).unwrap_or_default()),
+            node: ctx.triggering_node.clone(),
+        };
+
+        let loader = match &self.plugin_loader {
+            Some(l) => l,
+            None => return Ok(None),
+        };
+
+        match loader.execute_reactor_action(
+            &reactor.action_ref.plugin_id,
+            &reactor.action_ref.function_name,
+            &input,
+        ).await {
+            Ok(Some(output)) => {
+                match output.result {
+                    panorama_core::reactor::EagerReactorResult::Transformed { new_value } => {
+                        let fv: FieldValue = serde_json::from_value(new_value)
+                            .map_err(|e| format!("Invalid transform output: {}", e))?;
+                        Ok(Some(fv))
+                    }
+                    _ => Ok(None),
+                }
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
-    /// Execute a compute_field reactor. Returns the computed field key and value.
+    /// Execute a compute_field reactor via WASM. Returns the computed field key and value.
     async fn execute_compute(
         &self,
         reactor: &Reactor,
         ctx: &ReactorExecutionContext,
         current_value: &Option<FieldValue>,
     ) -> Result<Option<(String, FieldValue)>, String> {
-        tracing::debug!(
-            reactor_id = %reactor.id,
-            action_ref = ?reactor.action_ref,
-            target = ?reactor.action_target,
-            "Executing compute_field reactor (WASM execution pending full integration)"
-        );
-        let _ = (reactor, ctx, current_value);
-        Ok(None) // Default: no computed value
+        let input = ReactorActionInput {
+            context: ctx.clone(),
+            current_value: current_value.as_ref().map(|v| serde_json::to_value(v).unwrap_or_default()),
+            node: ctx.triggering_node.clone(),
+        };
+
+        let loader = match &self.plugin_loader {
+            Some(l) => l,
+            None => return Ok(None),
+        };
+
+        match loader.execute_reactor_action(
+            &reactor.action_ref.plugin_id,
+            &reactor.action_ref.function_name,
+            &input,
+        ).await {
+            Ok(Some(output)) => {
+                match output.result {
+                    panorama_core::reactor::EagerReactorResult::Computed { field_key, value } => {
+                        let fv: FieldValue = serde_json::from_value(value)
+                            .map_err(|e| format!("Invalid computed value: {}", e))?;
+                        Ok(Some((field_key, fv)))
+                    }
+                    _ => Ok(None),
+                }
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 }
