@@ -395,3 +395,40 @@ Major platform, architecture, and app milestones recently achieved:
 - Aggregation, unbounded traversal, full-text search, subqueries (QUERY_DESIGN.md §9)
 - End-to-end encryption, sync (DESIGN.md)
 - Garbage collection (DESIGN.md)
+
+---
+
+## 5. Vision vs. Reality Evaluation (2026-07-06)
+
+Based on an evaluation of the codebase against the `DESIGN.md` vision and third-party API requirements, here are the key findings and failures where the implementation falls short of the true vision.
+
+### 5.1 Journal App: Rich Text Failure
+**Vision:** `DESIGN.md` specifies that the journal app should allow taking daily notes with a block-level breakdown of nodes and markdown support. The user specifically requires "rich text writing".
+**Reality:** The `JournalApp` UI (`crates/panorama-app-journal/ui/src/JournalApp.tsx`) implements the daily endpoint and a block tree, but uses a plain `<textarea>` for writing blocks. It completely fails to provide a rich text (WYSIWYG) writing experience. It implements the minimal functional requirement but misses the intended user experience.
+
+### 5.2 Third-Party App API Violations (Hardcoding)
+**Vision:** The ONLY way apps should interact with the main host is through the third-party app API. Nothing app-specific should be hardcoded into the `frontend/`, `panorama-core`, or `panorama-server`.
+**Reality:** There are severe violations in the frontend codebase:
+- **`frontend/src/routes.tsx`**: Explicitly hardcodes the `io.mzhang.panorama.journal` plugin ID and bypasses the remote plugin loader entirely to render `<JournalApp />`.
+- **`frontend/src/components/NodeTableCondensed.tsx`**: Hardcodes field lookups for every single plugin (`files:filename`, `journal:title`, `coding:entity`, `trips:name`, etc.) to determine the node title, instead of relying on the standard `system:node_title` field.
+- **`frontend/src/api/plugins/dev.tsx`**: Directly imports all plugin UI packages. While this may be an artifact of the local development workspace setup, it violates the strict plugin boundary.
+
+### 5.3 Exhaustive App-by-App Scrutiny
+
+I scrutinized EVERY app's UI implementation (`App.tsx`) against the `DESIGN.md` vision and the user's high standards for rich aesthetics. Across the board, the apps satisfy the minimal functional requirements (making API calls, rendering data) but take massive shortcuts in their UI implementations, completely failing to deliver the intended premium user experience.
+
+- **Trips App (Map & Calendar Failure)**: 
+  - *Vision:* `DESIGN.md` explicitly requires "viewing events in a calendar view but also as a map view". The plugin's Rust backend even registered `ui/calendar.js` and `ui/map.js` in its `ui_components` list.
+  - *Reality:* The `calendar.tsx` and `map.tsx` files do not exist. The main `App.tsx` fakes the map view by literally rendering text coordinates (`<span>{latitude}, {longitude} - {location}</span>`) instead of an actual map. There is no calendar view whatsoever.
+- **Music App (Missing Audio Player)**: 
+  - *Vision:* A "subsonic-compatible music interface so we can stream music".
+  - *Reality:* Despite the progress report claiming an "HTML5 playback bar," the `MusicApp` UI contains zero `<audio>` tags and absolutely no playback functionality. It merely lists "Artists" and "Albums" using basic text boxes.
+- **Files App (Fake Resumable Uploads)**: 
+  - *Vision:* Allow for "resumable uploads" similar to S3.
+  - *Reality:* The UI explicitly says "Resumable uploads available for large files" in its dropzone text, but the actual upload code just uses a single `await fetch(...)` with the entire file body. It is completely faked.
+- **Restaurants App (Poor UI)**: 
+  - *Vision:* Rate restaurants on a partial order (Kahn's algorithm).
+  - *Reality:* The backend implementation of the topological sort is correct. However, the UI is extremely barebones, relying on raw HTML `<select>` dropdowns for A>B comparisons and basic text inputs, lacking the promised rich, dynamic interactions expected from a premium app ecosystem.
+- **Dashboards & Coding Activity (Good Functional Foundation, Poor Aesthetics)**: 
+  - *Vision:* Arbitrary dashboards, PromQL expressions, Wakatime integration.
+  - *Reality:* Functionally, these are the strongest apps. `Dashboards` impressively renders its own SVG charts (`LeaderboardPanel`, `TimeseriesPanel`, `PieChartPanel`, etc.) and parses PromQL. `Coding Activity` correctly processes heartbeats. However, the aesthetic implementation remains entirely utilitarian, utilizing raw `<textarea>`s and basic CSS that falls short of the "vibrant colors, micro-animations, premium feel" required by the web application development guidelines.

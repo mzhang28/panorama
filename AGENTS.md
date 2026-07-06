@@ -6,6 +6,9 @@
   - e2e test runs are expensive
     - think before you run the test
     - get the most out of each test by adding lots of debug prints so you know what happened
+- we are doing a layout where the ONLY way any of the individual apps interact with the main host is through the third party app API.
+  - DO NOT HARDCODE ANY APP SPECIFIC THINGS INTO `frontend/` or `crates/panorama-core` or `crates/panorama-server`.
+  - if something is not possible via the third party app API, flag it to me and we will discuss how to amend tahe third party app API such that it is.
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
