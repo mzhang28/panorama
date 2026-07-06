@@ -335,7 +335,12 @@ proptest! {
     let conn = setup_conn();
     insert_nodes(&conn, &nodes);
     let field = key_to_pql(&key);
+    // For boolean fields, skip ordering operators (§3.7: "No ordering")
+    let is_bool = matches!(val, FieldValue::Boolean(_));
     for op in &["=", "!=", "<", "<=", ">", ">="] {
+      if is_bool && (*op == "<" || *op == "<=" || *op == ">" || *op == ">=") {
+        continue;
+      }
       let pql = format!(
         r#"MATCH (n) IN space("default") WHERE SCAN(n.{} {} {}) RETURN n"#,
         field, op, field_to_pql(&val)

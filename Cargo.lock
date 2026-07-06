@@ -2085,6 +2085,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "panorama-app-test-reactor"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "panorama-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "panorama-app-trips"
 version = "0.1.0"
 dependencies = [

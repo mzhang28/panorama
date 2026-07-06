@@ -434,6 +434,7 @@ fn field_expr(s: &str) -> IResult<&str, Predicate> {
     is_null_expr(fp.clone()),
     in_set_expr(fp.clone()),
     like_expr(fp.clone()),
+    contains_expr(fp.clone()),
     comparison_expr(fp),
   ))(s)
 }
@@ -480,6 +481,20 @@ fn like_expr(fp: FieldPath) -> impl FnMut(&str) -> IResult<&str, Predicate> {
         field_path: fp.clone(),
         pattern,
         not: false,
+      },
+    ))
+  }
+}
+
+fn contains_expr(fp: FieldPath) -> impl FnMut(&str) -> IResult<&str, Predicate> {
+  move |s: &str| {
+    let (s, _) = keyword("CONTAINS")(s)?;
+    let (s, val) = value(s)?;
+    Ok((
+      s,
+      Predicate::Contains {
+        field_path: fp.clone(),
+        value: val,
       },
     ))
   }

@@ -33,6 +33,8 @@ use crate::meta::MetaStore;
 pub struct CompiledQuery {
   pub sql: String,
   pub params: Vec<ParamValue>,
+  /// Unique query ID for tracing (§8).
+  pub query_id: Uuid,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +87,14 @@ struct ResolvedSchema {
 // ── Public entry point ──────────────────────────────────────────────────────────
 
 pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String> {
+  let query_id = Uuid::new_v4();
+
+  // ── AST → IR lowering (§5) ──────────────────────────────────────────────
+  // The IR captures the query structure independent of parameter values,
+  // providing a stable key for the prepared-statement cache (§7.3) and
+  // an attachment point for query tracing (§8).
+  let _ir = panorama_core::query::ir::lower_to_ir(query);
+
   let mut ctx = CompileCtx::new();
 
   // ── Phase 1: resolve physical schemas ────────────────────────────────────
@@ -175,6 +185,8 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
         edge_type,
         target_var,
         target_source,
+        min_depth,
+        max_depth,
         ..
       } => {
         let source_cte = ctx
@@ -194,69 +206,124 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
           _ => return Err("nested RefTraverse not yet supported".into()),
         };
 
-        let cte_name = format!("_traverse_{}", target_var);
-        ctes.push(format!(
-          "{} AS (
-            SELECT t.* FROM nodes t
-            JOIN {} s ON t.id = json_extract(s.fields_json, '$.{}')
-            WHERE t.space_id = ?{}
-          )",
-          cte_name, source_cte, edge_type, param_idx
-        ));
-        params.push(ParamValue::Text(target_space));
-        param_idx += 1;
-        ctx.var_cte.insert(target_var.clone(), cte_name);
+        // Build the traversal join condition using the same json_extract
+        // helper as all other field accesses — quoted key with .value unwrap.
+        let edge_json_path = format!("\"{}\"", edge_type);
+        let join_condition = format!(
+          "t.id = json_extract(s.fields_json, '$.{}.value')",
+          edge_json_path
+        );
+
+        // Emit CTEs for each hop up to max_depth.
+        // Single-hop (depth=1) is the common case.
+        let mut prev_cte = source_cte.clone();
+        for depth in 0..*max_depth {
+          let hop_cte = if *max_depth > 1 {
+            format!("_traverse_{}_hop{}", target_var, depth)
+          } else {
+            format!("_traverse_{}", target_var)
+          };
+          if !added_ctes.contains(&hop_cte) {
+            ctes.push(format!(
+              "{} AS (SELECT t.* FROM nodes t JOIN {} s ON {} WHERE t.space_id = ?{})",
+              hop_cte, prev_cte, join_condition, param_idx
+            ));
+            params.push(ParamValue::Text(target_space.clone()));
+            param_idx += 1;
+            added_ctes.insert(hop_cte.clone());
+            // For the first hop that meets min_depth, register this CTE
+            // as the target_var's CTE. Later hops override, so the
+            // final hop is the one RETURN reads from.
+            if depth + 1 >= *min_depth {
+              ctx.var_cte.insert(target_var.clone(), hop_cte.clone());
+            }
+          }
+          prev_cte = hop_cte;
+        }
+
+        // Also register source variable's CTE name so RETURN can
+        // reference both sides of the traversal.
+        ctx.var_cte.insert(mc.variable.clone(), source_cte);
+
+        // Compile WHERE clause for the target side of the traversal.
+        // The source side's WHERE was already compiled when the source
+        // MATCH clause was processed.
+        if let Some(wc) = &mc.where_clause {
+          let (pred_sql, pred_params) =
+            compile_predicate_for_final(&wc.predicate, &target_var, &ctx, conn, param_idx)?;
+          if !pred_sql.is_empty() {
+            final_where_parts.push(pred_sql);
+            param_idx += pred_params.len();
+            params.extend(pred_params);
+          }
+        }
       }
     }
   }
 
-  // Determine the final source CTE
-  let final_var = &query
-    .matches
-    .last()
-    .map(|m| m.variable.clone())
-    .unwrap_or_else(|| "n".into());
-
-  let final_cte = ctx
-    .var_cte
-    .get(final_var.as_str())
-    .cloned()
-    .unwrap_or_else(|| "nodes".into());
-
-  // Determine the best table alias for field access:
-  // If there's a schema data CTE for this variable → use it (for promoted columns)
-  // Otherwise → use the final CTE (json_extract)
-  let schema_data_alias = ctx
-    .resolved_schemas
-    .iter()
-    .find(|rs| rs.variable == *final_var && !rs.data_cte.is_empty())
-    .map(|rs| rs.data_cte.clone());
-
-  let from_table = schema_data_alias.as_ref().unwrap_or(&final_cte);
-
-  // Build SELECT from RETURN clause
+  // Build SELECT from RETURN clause. Each column may reference a different
+  // variable (e.g. `RETURN a.title, b.name` in a RefTraverse). Determine
+  // the FROM table per-column.
   let mut select_cols: Vec<String> = Vec::new();
+  let mut from_tables: Vec<String> = Vec::new();
+  let mut from_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+
   for col in &query.return_clause.columns {
     match &col.expression {
-      ReturnExpr::Node(_) => {
-        select_cols.push(format!("{cte}.*", cte = from_table));
+      ReturnExpr::Node(var) => {
+        let cte = ctx
+          .var_cte
+          .get(var)
+          .cloned()
+          .unwrap_or_else(|| "nodes".into());
+        let schema_alias = ctx
+          .resolved_schemas
+          .iter()
+          .find(|rs| rs.variable == *var && !rs.data_cte.is_empty())
+          .map(|rs| rs.data_cte.clone());
+        let src = schema_alias.as_ref().unwrap_or(&cte);
+        select_cols.push(format!("{cte}.*", cte = src));
+        if from_set.insert(src.clone()) {
+          from_tables.push(src.clone());
+        }
       }
       ReturnExpr::Field(fp) => {
         let col_alias = col.alias.clone().unwrap_or_else(|| fp.field.clone());
-        let expr = compile_field_access(fp, &ctx, from_table, &final_cte);
+        let var_cte = ctx
+          .var_cte
+          .get(&fp.variable)
+          .cloned()
+          .unwrap_or_else(|| "nodes".into());
+        let schema_alias = ctx
+          .resolved_schemas
+          .iter()
+          .find(|rs| rs.variable == fp.variable && !rs.data_cte.is_empty())
+          .map(|rs| rs.data_cte.clone());
+        let from_table = schema_alias.as_ref().unwrap_or(&var_cte);
+        let expr = compile_field_access(fp, &ctx, from_table, &var_cte)?;
         select_cols.push(format!("{} AS {}", expr, col_alias));
+        if from_set.insert(from_table.clone()) {
+          from_tables.push(from_table.clone());
+        }
       }
     }
   }
 
-  // Assemble the full SQL
+  // Assemble the full SQL.
+  // Multi-table (RefTraverse) uses FROM cte_a, cte_b (cross join — the CTEs
+  // already embed the join condition). Single-table uses FROM cte.
   let select_sql = select_cols.join(", ");
+  let from_clause = if from_tables.is_empty() {
+    "nodes".to_string()
+  } else {
+    from_tables.join(", ")
+  };
   let mut sql = String::from("WITH ");
   sql.push_str(&ctes.join(",\n  "));
   sql.push_str(&format!(
     "\nSELECT {sel} FROM {src}",
     sel = select_sql,
-    src = from_table
+    src = from_clause
   ));
 
   // Final WHERE clause (field predicates)
@@ -266,7 +333,12 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
 
   // ORDER BY
   if let Some(ob) = &query.order_by {
-    let expr = compile_field_access(&ob.field, &ctx, from_table, &final_cte);
+    let ob_cte = ctx
+      .var_cte
+      .get(&ob.field.variable)
+      .cloned()
+      .unwrap_or_else(|| "nodes".into());
+    let expr = compile_field_access(&ob.field, &ctx, &ob_cte, &ob_cte)?;
     sql.push_str(&format!(
       " ORDER BY {} {}",
       expr,
@@ -291,7 +363,13 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
     param_idx += 1;
   }
 
-  Ok(CompiledQuery { sql, params })
+  // Prepend query_id as a SQL comment for debugging (§8)
+  let sql = format!("/* query_id: {} */\n{}", query_id, sql);
+  Ok(CompiledQuery {
+    sql,
+    params,
+    query_id,
+  })
 }
 
 // ── Phase 1 helpers ────────────────────────────────────────────────────────────
@@ -348,7 +426,18 @@ fn compile_field_access(
   ctx: &CompileCtx,
   from_table: &str,
   _node_cte: &str,
-) -> String {
+) -> Result<String, String> {
+  // Reject unsupported CRDT view selectors (§3.6)
+  match &fp.view {
+    Some(CrdtView::Ops) => {
+      return Err("CRDT op-stream view (@ops) is not yet supported — cannot compile".into());
+    }
+    Some(CrdtView::At(_)) => {
+      return Err("CRDT at-view (@at) is not yet supported — cannot compile".into());
+    }
+    _ => {} // @merged (or None) is the default
+  }
+
   let resolved = ctx
     .resolved_schemas
     .iter()
@@ -357,19 +446,19 @@ fn compile_field_access(
   if let Some(rs) = resolved {
     if let Some(ref physical) = rs.physical {
       let access = physical.field_access(&fp.field, fp.namespace.as_deref());
-      return match access {
+      return Ok(match access {
         FieldAccess::Promoted { ref column, .. } => format!("{}.{}", from_table, column),
         _ => {
           let key = field_path_to_json_key(fp);
           json_extract_expr(&format!("{}.fields_json", from_table), &key)
         }
-      };
+      });
     }
   }
 
   // Fallback: JSONB extraction from the CTE's fields_json column
   let key = field_path_to_json_key(fp);
-  json_extract_expr("fields_json", &key)
+  Ok(json_extract_expr("fields_json", &key))
 }
 
 fn field_path_to_json_key(fp: &FieldPath) -> String {
@@ -417,7 +506,12 @@ fn compile_predicate_inner(
 
     // `SCAN(inner)` — passes through with scan allowed.
     Predicate::Scan(inner) => {
-      compile_predicate_inner(inner, var, ctx, conn, start_param, is_final, true)
+      let (sql, params) =
+        compile_predicate_inner(inner, var, ctx, conn, start_param, is_final, true)?;
+      // Record field_stats for SCAN — extract the field path from the inner
+      // predicate and increment scan_count.
+      record_scan_stat(inner, ctx, conn);
+      Ok((sql, params))
     }
 
     Predicate::FieldCompare {
@@ -425,8 +519,13 @@ fn compile_predicate_inner(
       op,
       value,
     } => {
-      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final);
+      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final)?;
       enforce_scan(field_path, requires_scan, scan_allowed)?;
+
+      // Type checking: validate operator against field type if known
+      if let Some(type_tag) = ctx.field_type_for(field_path) {
+        check_type_validity(field_path, op, type_tag)?;
+      }
 
       let val_param = value_to_param(value);
       let sql_op = cmp_sql(op);
@@ -468,7 +567,7 @@ fn compile_predicate_inner(
     }
 
     Predicate::IsNull { field_path, not } => {
-      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final);
+      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final)?;
       enforce_scan(field_path, requires_scan, scan_allowed)?;
       let null_op = if *not { "IS NOT NULL" } else { "IS NULL" };
       Ok((format!("{} {}", expr, null_op), vec![]))
@@ -477,7 +576,7 @@ fn compile_predicate_inner(
     Predicate::In {
       field_path, values, ..
     } => {
-      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final);
+      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final)?;
       enforce_scan(field_path, requires_scan, scan_allowed)?;
 
       let mut placeholders = Vec::new();
@@ -495,11 +594,32 @@ fn compile_predicate_inner(
       pattern,
       ..
     } => {
-      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final);
+      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final)?;
       enforce_scan(field_path, requires_scan, scan_allowed)?;
       Ok((
         format!("{} LIKE ?{}", expr, pi),
         vec![ParamValue::Text(pattern.clone())],
+      ))
+    }
+
+    Predicate::Contains {
+      field_path, value, ..
+    } => {
+      let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final)?;
+      enforce_scan(field_path, requires_scan, scan_allowed)?;
+      // For v0, CONTAINS compiles to a LIKE check on the JSON array
+      // representation. A proper array-membership index would replace this.
+      let val_str = value_to_param(value);
+      let pattern = match value {
+        Value::String(s) => format!("%\"{}\"%", s),
+        Value::Integer(i) => format!("%{}%", i),
+        Value::Float(f) => format!("%{}%", f),
+        Value::Boolean(b) => format!("%{}%", b),
+        Value::Null => "%null%".into(),
+      };
+      Ok((
+        format!("{} LIKE ?{}", expr, pi),
+        vec![ParamValue::Text(pattern)],
       ))
     }
 
@@ -542,7 +662,22 @@ fn compile_predicate_inner(
 }
 
 /// Return (SQL_expr, requires_scan) for a field path.
-fn field_sql_expr(fp: &FieldPath, _var: &str, ctx: &CompileCtx, is_final: bool) -> (String, bool) {
+fn field_sql_expr(
+  fp: &FieldPath,
+  _var: &str,
+  ctx: &CompileCtx,
+  is_final: bool,
+) -> Result<(String, bool), String> {
+  // Reject unsupported CRDT view selectors in predicates (§3.6)
+  match &fp.view {
+    Some(CrdtView::Ops) => {
+      return Err("CRDT op-stream view (@ops) is not yet supported".into());
+    }
+    Some(CrdtView::At(_)) => {
+      return Err("CRDT at-view (@at) is not yet supported".into());
+    }
+    _ => {}
+  }
   let resolved = ctx
     .resolved_schemas
     .iter()
@@ -563,7 +698,7 @@ fn field_sql_expr(fp: &FieldPath, _var: &str, ctx: &CompileCtx, is_final: bool) 
       } else {
         json_extract_expr("n.fields_json", &key)
       };
-      return (expr, requires_scan);
+      return Ok((expr, requires_scan));
     }
   }
 
@@ -574,7 +709,55 @@ fn field_sql_expr(fp: &FieldPath, _var: &str, ctx: &CompileCtx, is_final: bool) 
   } else {
     "n.fields_json"
   };
-  (json_extract_expr(col_ref, &key), true)
+  Ok((json_extract_expr(col_ref, &key), true))
+}
+
+/// Validate that an operator is compatible with a field's declared type
+/// per QUERY_DESIGN.md §3.7 type compatibility table.
+fn check_type_validity(fp: &FieldPath, op: &CmpOp, type_tag: &str) -> Result<(), String> {
+  let valid = match type_tag {
+    "String" | "DateTime" | "RgaText" => matches!(
+      op,
+      CmpOp::Eq | CmpOp::Neq | CmpOp::Lt | CmpOp::Lte | CmpOp::Gt | CmpOp::Gte
+    ),
+    "Integer" | "Float" | "Counter" | "Timestamp" => matches!(
+      op,
+      CmpOp::Eq | CmpOp::Neq | CmpOp::Lt | CmpOp::Lte | CmpOp::Gt | CmpOp::Gte
+    ),
+    "Boolean" | "NodeRef" => matches!(op, CmpOp::Eq | CmpOp::Neq),
+    "Array" | "OrSet" => false, // only CONTAINS and IS NULL are valid
+    _ => true,                  // unknown types → allow (checked at runtime)
+  };
+  if !valid {
+    return Err(format!(
+      "operator {:?} is not valid for field `{}`.`{}` of type {}",
+      op,
+      fp.variable,
+      field_path_to_json_key(fp),
+      type_tag
+    ));
+  }
+  Ok(())
+}
+
+/// Record a field_stats.scan_count increment for the field referenced by
+/// a predicate (called when SCAN is used on an unindexed field).
+fn record_scan_stat(pred: &Predicate, ctx: &CompileCtx, conn: &Connection) {
+  let fp = match pred {
+    Predicate::FieldCompare { field_path, .. }
+    | Predicate::IsNull { field_path, .. }
+    | Predicate::In { field_path, .. }
+    | Predicate::Like { field_path, .. }
+    | Predicate::Contains { field_path, .. } => field_path,
+    _ => return,
+  };
+  // Extract ns and field name for stats recording
+  if let Some(ns) = &fp.namespace {
+    let field_name = &fp.field;
+    if let Ok(ns_id) = MetaStore::resolve_ns_id(conn, ns) {
+      let _ = MetaStore::record_field_scan(conn, ns_id, field_name);
+    }
+  }
 }
 
 fn enforce_scan(fp: &FieldPath, requires_scan: bool, scan_marker: bool) -> Result<(), String> {
@@ -625,6 +808,16 @@ impl CompileCtx {
   fn resolve_ns(&self, conn: &Connection, ns_str: &str) -> Result<i64, String> {
     MetaStore::resolve_ns_id(conn, ns_str)
       .map_err(|e| format!("namespace resolve '{}': {}", ns_str, e))
+  }
+
+  /// Look up the declared type for a field path from resolved schemas.
+  fn field_type_for(&self, fp: &FieldPath) -> Option<&str> {
+    self
+      .resolved_schemas
+      .iter()
+      .find(|rs| rs.variable == fp.variable)
+      .and_then(|rs| rs.physical.as_ref())
+      .and_then(|p| p.field_type(&fp.field))
   }
 }
 
@@ -730,5 +923,27 @@ mod tests {
     let q =
       parse_query(r#"MATCH (n) IN space("default") WHERE SCAN(n.foo = "bar") RETURN n"#).unwrap();
     let _compiled = compile(&q, &conn).unwrap();
+  }
+
+  #[test]
+  fn test_crdt_ops_rejected() {
+    let conn = setup_conn();
+    let q = parse_query(r#"MATCH (n) IN space("default") RETURN n.event.attendees@ops"#).unwrap();
+    let err = compile(&q, &conn).unwrap_err();
+    assert!(
+      err.contains("@ops") || err.contains("op-stream"),
+      "should mention @ops: {}",
+      err
+    );
+  }
+
+  #[test]
+  fn test_contains_compiles() {
+    let conn = setup_conn();
+    let q =
+      parse_query(r#"MATCH (n) IN space("default") WHERE SCAN(n.tags CONTAINS "urgent") RETURN n"#)
+        .unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+    assert!(compiled.sql.contains("LIKE"));
   }
 }

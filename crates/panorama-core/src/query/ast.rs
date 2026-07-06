@@ -86,6 +86,11 @@ pub enum Predicate {
     pattern: String,
     not: bool,
   },
+  /// Set/array membership: `n.foo CONTAINS value` (§3.7)
+  Contains {
+    field_path: FieldPath,
+    value: Value,
+  },
 }
 
 /// CRDT view selector for a field path (§3.6).

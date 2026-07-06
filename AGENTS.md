@@ -13,6 +13,11 @@
 - we are doing a structure where the ONLY way any of the individual apps interact with the main host is through the third party app API.
   - DO NOT HARDCODE ANY APP SPECIFIC THINGS INTO `frontend/` or `crates/panorama-core` or `crates/panorama-server`.
   - if something is not possible via the third party app API, flag it to me and we will discuss how to amend tahe third party app API such that it is.
+- never touch git unless commanded to
+  - do not dig into git history of files
+  - do not commit unless asked to
+  - do not use git in any way unless explicitly directed
+  - in case of ambiguity, do not use it
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands

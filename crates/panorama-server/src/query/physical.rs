@@ -63,6 +63,8 @@ pub struct PhysicalSchema {
   /// Map from logical field name (e.g. `"title"`) to its physical access strategy.
   /// Fields not in this map are treated as `Unpromoted`.
   pub fields: HashMap<String, FieldAccess>,
+  /// Map from logical field name to its declared type tag.
+  pub field_types: HashMap<String, String>,
 }
 
 /// A single entry in the `field_mappings` JSON column.
@@ -70,12 +72,17 @@ pub struct PhysicalSchema {
 struct FieldMappingEntry {
   column: String,
   #[serde(rename = "type")]
-  _type: Option<String>,
+  field_type: Option<String>,
   #[serde(default)]
   indexed: bool,
 }
 
 impl PhysicalSchema {
+  /// Return the declared type tag for a field, if known from the schema.
+  pub fn field_type(&self, field_name: &str) -> Option<&str> {
+    self.field_types.get(field_name).map(|s| s.as_str())
+  }
+
   /// Look up the access strategy for a field. Returns `Unpromoted` for unknown fields.
   pub fn field_access(&self, field_name: &str, ns: Option<&str>) -> FieldAccess {
     // Build the lookup key: for now, field names in the mapping are bare (no
@@ -115,6 +122,7 @@ pub fn resolve_physical_schema(
     serde_json::from_value(st.field_mappings.clone()).unwrap_or_default();
 
   let mut fields: HashMap<String, FieldAccess> = HashMap::new();
+  let mut field_types: HashMap<String, String> = HashMap::new();
 
   // Also look up ready indexes for this schema
   let indexes = MetaStore::get_ready_indexes(conn, Some(schema_id))
@@ -126,6 +134,9 @@ pub fn resolve_physical_schema(
       column: entry.column.clone(),
     };
     fields.insert(field_name.clone(), access);
+    if let Some(ref t) = entry.field_type {
+      field_types.insert(field_name.clone(), t.clone());
+    }
   }
 
   // For any fields that have expression indexes but are NOT promoted,
@@ -147,6 +158,7 @@ pub fn resolve_physical_schema(
     table_name: st.physical_table_name,
     storage_mode: st.storage_mode.as_str().to_string(),
     fields,
+    field_types,
   }))
 }
 

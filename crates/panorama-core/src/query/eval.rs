@@ -14,13 +14,12 @@ use crate::types::Node;
 /// `Vec<serde_json::Value>` where each row has keys matching RETURN columns.
 pub fn eval_query(query: &Query, nodes: &[Node]) -> Vec<serde_json::Value> {
   let mut rows: Vec<serde_json::Value> = Vec::new();
+  // Track which nodes matched each variable for RefTraverse.
+  let mut var_matches: std::collections::HashMap<String, Vec<&Node>> =
+    std::collections::HashMap::new();
 
-  // For now: process each MATCH clause independently.
-  // Multi-MATCH with RefTraverse joins across them — not yet implemented here.
-  // When added, the structure becomes: for each combination of bindings
-  // across MATCH clauses, check all WHEREs, then project.
   for mc in &query.matches {
-    let candidates = filter_by_source(&mc.source, nodes);
+    let candidates = filter_by_source(&mc.source, nodes, &var_matches);
 
     let matched: Vec<&Node> = if let Some(wc) = &mc.where_clause {
       candidates
@@ -30,6 +29,9 @@ pub fn eval_query(query: &Query, nodes: &[Node]) -> Vec<serde_json::Value> {
     } else {
       candidates
     };
+
+    // Store matched nodes for this variable for downstream RefTraverse.
+    var_matches.insert(mc.variable.clone(), matched.clone());
 
     for node in matched {
       let row = project_return(&query.return_clause, &mc.variable, node);
@@ -79,28 +81,44 @@ pub fn eval_query(query: &Query, nodes: &[Node]) -> Vec<serde_json::Value> {
 
 // ── Source filtering ─────────────────────────────────────────────────────
 
-fn filter_by_source<'a>(source: &MatchSource, nodes: &'a [Node]) -> Vec<&'a Node> {
+fn filter_by_source<'a>(
+  source: &MatchSource,
+  nodes: &'a [Node],
+  var_matches: &std::collections::HashMap<String, Vec<&'a Node>>,
+) -> Vec<&'a Node> {
   match source {
     MatchSource::Space(space_name) => {
       if space_name == "default" {
         nodes.iter().collect()
       } else {
-        // The SQL compiler uses space_id. Here we can't filter by
-        // space name without a space registry, so return all nodes.
-        // The differential test controls which nodes are in the set.
         nodes.iter().collect()
       }
     }
-    MatchSource::RefTraverse { .. } => {
-      // RefTraverse is handled at the MATCH level before per-node predicate
-      // evaluation. The source side is already filtered; the traverse CTE
-      // joins against the edge field. For the in-memory evaluator, we
-      // don't yet support full multi-hop traversal.
-      // When support is added, it follows §4.1 item 6: follow edges,
-      // re-apply capability + schema filters on the target.
-      // Return all nodes for now — the WHERE clause on the target side
-      // will filter them.
-      nodes.iter().collect()
+    MatchSource::RefTraverse {
+      edge_type,
+      target_var: _,
+      target_source: _,
+      ..
+    } => {
+      // For RefTraverse, the source variable's matched nodes are in
+      // var_matches. Follow the edge field from each source node to
+      // find the target nodes.
+      let mut target_nodes: Vec<&'a Node> = Vec::new();
+      // The edge field key follows the same format as other fields:
+      // "ns:field" or bare "field". For now, edge_type is a bare field
+      // name that maps to a NodeRef value.
+      for source_node in nodes {
+        let edge_key = edge_type.as_str();
+        if let Some(fv) = source_node.fields.get(edge_key) {
+          if let crate::types::FieldValue::NodeRef(target_id) = fv {
+            // Find the target node by ID
+            if let Some(target) = nodes.iter().find(|n| n.id == *target_id) {
+              target_nodes.push(target);
+            }
+          }
+        }
+      }
+      target_nodes
     }
   }
 }
@@ -215,6 +233,15 @@ pub fn eval_predicate(pred: &Predicate, node: &Node) -> bool {
         None => false,
       }
     }
+    Predicate::Contains {
+      field_path, value, ..
+    } => {
+      let key = field_key(field_path);
+      match node.fields.get(&key) {
+        Some(fv) => contains_match(fv, value),
+        None => false,
+      }
+    }
     Predicate::HasField {
       namespace,
       field_name,
@@ -283,11 +310,10 @@ fn field_matches_cmp(fv: &crate::types::FieldValue, op: &CmpOp, qv: &Value) -> b
     (FieldValue::Boolean(a), Value::Boolean(b)) => match op {
       CmpOp::Eq => a == b,
       CmpOp::Neq => a != b,
-      // false < true
-      CmpOp::Lt => !a && *b,
-      CmpOp::Lte => !a || *b,
-      CmpOp::Gt => *a && !b,
-      CmpOp::Gte => *a || !b,
+      // Boolean has no ordering (§3.7): ordering ops return false at
+      // runtime when the type is known (compile-time error when schema
+      // is available).
+      CmpOp::Lt | CmpOp::Lte | CmpOp::Gt | CmpOp::Gte => false,
     },
     _ => false,
   }
@@ -323,6 +349,41 @@ fn cmp_f64(a: f64, b: f64, op: &CmpOp) -> bool {
     CmpOp::Lte => a <= b,
     CmpOp::Gt => a > b,
     CmpOp::Gte => a >= b,
+  }
+}
+
+fn contains_match(fv: &crate::types::FieldValue, qv: &Value) -> bool {
+  match fv {
+    crate::types::FieldValue::Array(arr) => arr
+      .iter()
+      .any(|elem| field_matches_cmp(elem, &CmpOp::Eq, qv)),
+    crate::types::FieldValue::Json(v) => {
+      if let Some(arr) = v.as_array() {
+        arr.iter().any(|elem| {
+          // Convert serde_json::Value to Value for comparison
+          let elem_val = json_to_ast_value(elem);
+          field_matches_cmp(fv, &CmpOp::Eq, &elem_val)
+        })
+      } else {
+        false
+      }
+    }
+    _ => false,
+  }
+}
+
+fn json_to_ast_value(v: &serde_json::Value) -> Value {
+  match v {
+    serde_json::Value::String(s) => Value::String(s.clone()),
+    serde_json::Value::Number(n) => {
+      if let Some(i) = n.as_i64() {
+        Value::Integer(i)
+      } else {
+        Value::Float(n.as_f64().unwrap_or(0.0))
+      }
+    }
+    serde_json::Value::Bool(b) => Value::Boolean(*b),
+    _ => Value::Null,
   }
 }
 

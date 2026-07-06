@@ -1,22 +1,26 @@
-//! LRU cache for tracking hot compiled SQL strings.
+//! LRU cache for compiled SQL statements.
 //!
-//! SQLite already caches prepared statements internally (sqlite3_stmt cache).
-//! This module tracks which SQL strings are frequently prepared so we can
-//! skip the parser→IR→SQL compilation step for hot queries.
+//! Keyed on the IR plan shape hash (QUERY_DESIGN.md §7.3: "the IR shape (query
+//! structure minus parameter values)" rather than the raw source string.
+//! Two queries that differ only in a literal value (`WHERE n.foo = "bar"` vs
+//! `WHERE n.foo = "baz"`) share the same cache entry.
 //!
-//! Keyed on the AST query string hash. Invalidation: `clear()` after schema
-//! migrations or index changes.
+//! Invalidation triggers (§7.3):
+//! - Schema migration bumps `physical_table_name` or `field_mappings`
+//! - `managed_indexes` status change
+//! - Field promotion (JSONB → column)
 
 use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Mutex;
+
+use crate::query::compiler::ParamValue;
 
 /// Thread-safe query cache with LRU eviction (max 256 entries).
 pub struct StatementCache {
-  /// Cached compiled queries keyed by source query hash.
+  /// Cached compiled SQL keyed by query hash.
   entries: Mutex<HashMap<u64, CachedEntry>>,
-  /// LRU tracking — most recent at front.  Stores hash + use count.
-  lru: Mutex<Vec<(u64, u64)>>,
+  /// LRU tracking — most recent at front.
+  lru: Mutex<Vec<u64>>,
   max_entries: usize,
 }
 
@@ -24,7 +28,7 @@ pub struct StatementCache {
 #[derive(Clone)]
 pub struct CachedEntry {
   pub sql: String,
-  pub param_count: usize,
+  pub params: Vec<ParamValue>,
 }
 
 impl StatementCache {
@@ -36,40 +40,38 @@ impl StatementCache {
     }
   }
 
-  /// Look up a compiled query by source query text.
-  pub fn get(&self, source_query: &str) -> Option<CachedEntry> {
-    let hash = hash_str(source_query);
+  /// Look up a compiled query by IR shape hash.
+  pub fn get(&self, cache_key: u64) -> Option<CachedEntry> {
     let entries = self.entries.lock().unwrap();
-    let result = entries.get(&hash).cloned();
+    let result = entries.get(&cache_key).cloned();
     if result.is_some() {
-      self.touch(hash);
+      self.touch(cache_key);
     }
     result
   }
 
-  /// Store a compiled query, keyed by source query text.
-  pub fn insert(&self, source_query: &str, entry: CachedEntry) {
-    let hash = hash_str(source_query);
+  /// Store a compiled query keyed by IR shape hash.
+  pub fn insert(&self, cache_key: u64, entry: CachedEntry) {
     let mut entries = self.entries.lock().unwrap();
-    entries.insert(hash, entry);
-    self.touch(hash);
+    entries.insert(cache_key, entry);
+    self.touch(cache_key);
   }
 
-  /// Record a hit on the given hash (promote to front of LRU).
-  fn touch(&self, hash: u64) {
+  /// Record a cache hit (promote to front of LRU).
+  fn touch(&self, key: u64) {
     let mut lru = self.lru.lock().unwrap();
-    lru.retain(|(h, _)| *h != hash);
-    lru.insert(0, (hash, 1));
+    lru.retain(|k| *k != key);
+    lru.insert(0, key);
     // Evict if over max
     if lru.len() > self.max_entries {
-      if let Some((evicted_hash, _)) = lru.pop() {
+      if let Some(evicted_key) = lru.pop() {
         let mut entries = self.entries.lock().unwrap();
-        entries.remove(&evicted_hash);
+        entries.remove(&evicted_key);
       }
     }
   }
 
-  /// Clear all cached entries.
+  /// Clear all cached entries (e.g. after schema migration or index change).
   pub fn clear(&self) {
     self.entries.lock().unwrap().clear();
     self.lru.lock().unwrap().clear();
@@ -80,8 +82,8 @@ impl StatementCache {
   }
 }
 
-fn hash_str(s: &str) -> u64 {
-  let mut h = DefaultHasher::new();
-  s.hash(&mut h);
-  h.finish()
+impl Default for StatementCache {
+  fn default() -> Self {
+    Self::new()
+  }
 }
