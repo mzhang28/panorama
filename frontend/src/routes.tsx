@@ -15,7 +15,7 @@ import { NodeExplorerHome } from "./components/NodeExplorerHome";
 import { AppShell } from "./components/AppShell";
 import { PluginPanel } from "./components/PluginPanel";
 import { SchemaViewer } from "./components/SchemaViewer";
-import { JournalApp } from "./components/JournalApp";
+import { JournalApp } from "../../crates/panorama-app-journal/ui/src/JournalApp";
 import { loadPluginComponent } from "./api/plugin-loader";
 
 // ── Route definitions ─────────────────────────────────────────────────────────

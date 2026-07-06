@@ -1,9 +1,7 @@
 /// <reference types="vite/client" />
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { callPluginEndpoint } from "../api/client";
-import { useState, useMemo } from "react";
-import { marked } from "marked";
+import { useState } from "react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,12 +22,26 @@ interface BlockNode {
 
 const PLUGIN_ID = "io.mzhang.panorama.journal";
 
+// ── Self-contained API helper ─────────────────────────────────────────────────
+
+async function callPluginEndpoint(
+  pluginId: string,
+  endpoint: string,
+  method = "GET",
+  body?: unknown,
+): Promise<Response> {
+  const opts: RequestInit = {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  };
+  return fetch(`/plugin/${pluginId}/${endpoint}`, opts);
+}
+
 // ── Field helpers ─────────────────────────────────────────────────────────────
 
 function f(node: BlockNode, key: string): any {
-  const n = node?.n || node;
-  const fields = n?.fields ?? {};
-  return fields[key]?.value;
+  return (node?.n || node)?.fields?.[key]?.value;
 }
 
 function fStr(node: BlockNode, key: string): string {
@@ -62,19 +74,8 @@ function normalizeBlock(raw: any): Block {
 
 async function api(path: string, method = "GET", body?: any): Promise<any> {
   const res = await callPluginEndpoint(PLUGIN_ID, path, method, body);
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err);
-  }
+  if (!res.ok) throw new Error(await res.text());
   return res.json();
-}
-
-async function listBlocks(
-  params: Record<string, string> = {},
-): Promise<Block[]> {
-  const qs = new URLSearchParams(params).toString();
-  const data = await api(`blocks?${qs}`);
-  return (Array.isArray(data) ? data : (data?.rows ?? [])).map(normalizeBlock);
 }
 
 async function listPages(): Promise<Block[]> {
@@ -101,9 +102,27 @@ async function getBacklinks(pageId: string): Promise<Block[]> {
 }
 
 async function renderMarkdown(content: string): Promise<string> {
-  const data = await api("blocks/render", "POST", { content });
-  return data.html ?? marked.parse(content) ?? "";
+  try {
+    const data = await api("blocks/render", "POST", { content });
+    return data.html ?? "";
+  } catch {
+    return "";
+  }
 }
+
+// ── Shared UnoCSS strings ─────────────────────────────────────────────────────
+
+const sidebarLink =
+  "flex items-center gap-[var(--space-2)] w-full text-left text-[13px] " +
+  "px-[var(--space-2)] py-[var(--space-1)] rounded-[var(--radius-sm)] " +
+  "border-none bg-transparent text-[var(--text)] cursor-pointer " +
+  "hover:bg-[var(--bg-hover)]";
+
+const sidebarLinkActive = "!bg-[var(--accent)] !text-[var(--accent-text)]";
+
+const iconBtnSm =
+  "bg-transparent border-none cursor-pointer text-xs " +
+  "px-[var(--space-1)] py-0 min-h-0 leading-none";
 
 // ── Journal App ───────────────────────────────────────────────────────────────
 
@@ -115,8 +134,6 @@ export function JournalApp() {
   const [showNewBlock, setShowNewBlock] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
-
-  // ── Queries ────────────────────────────────────────────────────────────
 
   const { data: pages = [], isLoading: pagesLoading } = useQuery({
     queryKey: ["journal-pages"],
@@ -147,28 +164,19 @@ export function JournalApp() {
     enabled: !!selectedPageId && showBacklinks,
   });
 
-  // ── Mutations ──────────────────────────────────────────────────────────
-
   const createBlock = useMutation({
     mutationFn: (body: any) => api("blocks", "POST", body),
     onSuccess: (data: any, vars: any) => {
       const block = normalizeBlock(data);
-      // Immediately populate caches so the UI is instant
-      if (block.id) {
-        queryClient.setQueryData(["journal-page", block.id], block);
-      }
+      if (block.id) queryClient.setQueryData(["journal-page", block.id], block);
       queryClient.invalidateQueries({ queryKey: ["journal-pages"] });
       queryClient.invalidateQueries({ queryKey: ["journal-children"] });
       setShowNewBlock(false);
-      // Manually add the new page to the cached pages list so the sidebar updates
       queryClient.setQueryData(["journal-pages"], (old: any) => {
         const oldPages = Array.isArray(old) ? old : (old?.rows ?? []);
         return [block, ...oldPages];
       });
-      // Navigate to newly created root page (not child blocks)
-      if (!vars.parent_id && block.id) {
-        setSelectedPageId(block.id);
-      }
+      if (!vars.parent_id && block.id) setSelectedPageId(block.id);
     },
   });
 
@@ -176,9 +184,7 @@ export function JournalApp() {
     mutationFn: ({ id, ...body }: any) => api(`blocks/${id}`, "PUT", body),
     onSuccess: (data: any) => {
       const block = normalizeBlock(data);
-      if (block.id) {
-        queryClient.setQueryData(["journal-page", block.id], block);
-      }
+      if (block.id) queryClient.setQueryData(["journal-page", block.id], block);
       queryClient.invalidateQueries({ queryKey: ["journal-pages"] });
       queryClient.invalidateQueries({ queryKey: ["journal-children"] });
       setEditingBlockId(null);
@@ -193,22 +199,18 @@ export function JournalApp() {
     },
   });
 
-  // ── Determine active page ──────────────────────────────────────────────
-
   const activePageId = selectedPageId || (todayPage as any)?.id;
   const activePage = selectedPageId
     ? selectedPage
     : (todayPage as Block | null);
 
-  // ── Render ─────────────────────────────────────────────────────────────
-
   return (
-    <div className="journal-layout">
-      {/* Left sidebar: page list */}
-      <aside className="journal-sidebar">
-        <div className="journal-sidebar-section">
+    <div className="journal-layout flex h-[calc(100vh-100px)] gap-0">
+      {/* ── Sidebar ──────────────────────────────────────────────────── */}
+      <aside className="journal-sidebar w-[220px] min-w-[180px] border-r border-[var(--border)] p-[var(--space-3)] overflow-y-auto bg-[var(--bg-card)]">
+        <div className="journal-sidebar-section flex flex-col gap-[var(--space-2)] mb-[var(--space-4)]">
           <button
-            className="journal-today-btn"
+            className={`journal-today-btn ${sidebarLink}`}
             onClick={() => {
               setSelectedPageId(null);
               queryClient.invalidateQueries({ queryKey: ["journal-today"] });
@@ -217,7 +219,7 @@ export function JournalApp() {
             📅 Today
           </button>
           <button
-            className="journal-new-page-btn"
+            className={`journal-new-page-btn ${sidebarLink}`}
             onClick={() => {
               setSelectedPageId(null);
               setShowNewBlock(true);
@@ -227,40 +229,36 @@ export function JournalApp() {
           </button>
         </div>
 
-        <h3 className="journal-sidebar-heading">All Pages</h3>
+        <h3 className="journal-sidebar-heading text-[11px] uppercase text-[var(--text-muted)] mb-[var(--space-2)] tracking-wide font-semibold">
+          All Pages
+        </h3>
         {pagesLoading ? (
-          <p className="text-muted" style={{ fontSize: 13 }}>
-            Loading...
-          </p>
+          <p className="text-[var(--text-muted)] text-[13px]">Loading...</p>
         ) : pages.length === 0 ? (
-          <p className="text-muted" style={{ fontSize: 13 }}>
-            No pages yet
-          </p>
+          <p className="text-[var(--text-muted)] text-[13px]">No pages yet</p>
         ) : (
-          <div className="journal-page-list">
+          <div className="journal-page-list flex flex-col gap-0.5">
             {pages.map((p) => {
               const title = fStr(p, "system:node_title") || "Untitled";
               const day = fStr(p, "journal:journal_day");
               const isDeleted = fBool(p, "journal:deleted");
+              const active = activePageId === normalizeBlock(p).id;
               return (
                 <button
                   key={normalizeBlock(p).id || title}
-                  className={`journal-page-link${activePageId === normalizeBlock(p).id ? " active" : ""}${isDeleted ? " deleted" : ""}`}
+                  className={`journal-page-link ${sidebarLink}${active ? ` active ${sidebarLinkActive}` : ""}${isDeleted ? " deleted opacity-50 line-through" : ""}`}
                   onClick={() => {
                     setSelectedPageId(normalizeBlock(p).id);
                     setShowBacklinks(false);
                   }}
                   title={day || undefined}
                 >
-                  <span className="journal-page-link-icon">
+                  <span className="journal-page-link-icon text-[14px] flex-shrink-0">
                     {day ? "📅" : "📄"}
                   </span>
-                  <span className="journal-page-link-title">
+                  <span className="journal-page-link-title overflow-hidden text-ellipsis whitespace-nowrap">
                     {title || "Untitled"}
                   </span>
-                  {isDeleted && (
-                    <span className="journal-deleted-badge">deleted</span>
-                  )}
                 </button>
               );
             })}
@@ -268,8 +266,8 @@ export function JournalApp() {
         )}
       </aside>
 
-      {/* Main content */}
-      <main className="journal-main">
+      {/* ── Main content ─────────────────────────────────────────────── */}
+      <main className="journal-main flex-1 overflow-y-auto p-[var(--space-6)] min-w-0">
         {showNewBlock ? (
           <NewBlockForm
             parentId={null}
@@ -285,47 +283,43 @@ export function JournalApp() {
           />
         ) : activePage ? (
           <>
-            {/* Page header */}
-            <div className="journal-page-header">
-              <h2 className="journal-page-title">
+            <div className="journal-page-header mb-[var(--space-6)]">
+              <h2 className="journal-page-title text-[22px] font-bold text-[var(--text)] m-0 mb-[var(--space-2)]">
                 {fStr(activePage, "system:node_title") || "Untitled"}
               </h2>
-              <div className="journal-page-meta">
+              <div className="journal-page-meta flex items-center gap-[var(--space-3)] text-[13px] text-[var(--text-muted)] mb-[var(--space-2)]">
                 {fStr(activePage, "journal:journal_day") && (
-                  <span className="journal-date-badge">
+                  <span className="journal-date-badge inline-flex items-center gap-[var(--space-1)] bg-[var(--badge-bg)] px-[var(--space-2)] py-[var(--space-1)] rounded-[var(--radius-sm)] text-xs">
                     📅 {fStr(activePage, "journal:journal_day")}
                   </span>
                 )}
                 <button
-                  className="journal-icon-btn"
+                  className={`${iconBtnSm} text-[var(--text-muted)] hover:text-[var(--text)]`}
                   onClick={() => setShowBacklinks(!showBacklinks)}
-                  title="Toggle backlinks"
                 >
                   🔗 Backlinks
                 </button>
                 <button
-                  className="journal-icon-btn"
+                  className={`${iconBtnSm} text-[var(--danger)] hover:text-[var(--danger-hover)]`}
                   onClick={() => {
-                    if (activePageId) {
-                      if (confirm("Delete this page?")) {
-                        deleteBlock.mutate(activePageId);
-                      }
-                    }
+                    if (activePageId && confirm("Delete this page?"))
+                      deleteBlock.mutate(activePageId);
                   }}
                   title="Delete page"
-                  data-active-page-id={activePageId || ""}
                 >
                   🗑️
                 </button>
               </div>
-              {/* Tags */}
               {fJson(activePage, "journal:tags") && (
-                <div className="journal-tags">
+                <div className="journal-tags flex flex-wrap gap-[var(--space-1)]">
                   {(Array.isArray(fJson(activePage, "journal:tags"))
                     ? fJson(activePage, "journal:tags")
                     : []
                   ).map((tag: string) => (
-                    <span key={tag} className="journal-tag">
+                    <span
+                      key={tag}
+                      className="journal-tag text-[11px] text-[var(--accent)] bg-[var(--accent-subtle)] px-[var(--space-2)] py-[var(--space-1)] rounded-[var(--radius-sm)]"
+                    >
                       #{tag}
                     </span>
                   ))}
@@ -333,29 +327,24 @@ export function JournalApp() {
               )}
             </div>
 
-            {/* Properties */}
             {fJson(activePage, "journal:properties") && (
               <PropertiesBlock
                 properties={fJson(activePage, "journal:properties")}
               />
             )}
 
-            {/* Page content block */}
             <BlockView
               block={activePage as BlockNode}
               depth={0}
               onEdit={(id) => setEditingBlockId(id)}
               editingBlockId={editingBlockId}
-              onSave={(id, content) => {
-                updateBlock.mutate({ id, content });
-              }}
+              onSave={(id, content) => updateBlock.mutate({ id, content })}
               onCancel={() => setEditingBlockId(null)}
               onDelete={(id) => {
                 if (confirm("Delete this block?")) deleteBlock.mutate(id);
               }}
             />
 
-            {/* Child blocks (tree) */}
             {pageChildren.map((child: BlockNode) => (
               <BlockView
                 key={
@@ -366,9 +355,7 @@ export function JournalApp() {
                 depth={1}
                 onEdit={(id) => setEditingBlockId(id)}
                 editingBlockId={editingBlockId}
-                onSave={(id, content) => {
-                  updateBlock.mutate({ id, content });
-                }}
+                onSave={(id, content) => updateBlock.mutate({ id, content })}
                 onCancel={() => setEditingBlockId(null)}
                 onDelete={(id) => {
                   if (confirm("Delete this block?")) deleteBlock.mutate(id);
@@ -376,7 +363,6 @@ export function JournalApp() {
               />
             ))}
 
-            {/* New child block */}
             <NewBlockForm
               parentId={activePageId}
               pageId={activePageId}
@@ -390,24 +376,25 @@ export function JournalApp() {
               }}
             />
 
-            {/* Backlinks panel */}
             {showBacklinks && (
-              <div className="journal-backlinks">
-                <h3>🔗 Backlinks</h3>
+              <div className="journal-backlinks mt-[var(--space-6)] p-[var(--space-4)] bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-md)]">
+                <h3 className="text-[14px] font-semibold text-[var(--text)] mb-[var(--space-3)]">
+                  🔗 Backlinks
+                </h3>
                 {backlinks.length === 0 ? (
-                  <p className="text-muted">
+                  <p className="text-[var(--text-muted)] text-[13px]">
                     No backlinks yet. Link to this page with [[page name]].
                   </p>
                 ) : (
                   backlinks.map((bl: BlockNode) => (
                     <div
                       key={normalizeBlock(bl as any).id}
-                      className="journal-backlink-item"
+                      className="journal-backlink-item p-[var(--space-3)] border border-[var(--border)] rounded-[var(--radius-sm)] mb-[var(--space-2)] bg-[var(--bg)]"
                     >
-                      <div className="journal-backlink-title">
+                      <div className="journal-backlink-title font-semibold text-[var(--text)] text-[13px] mb-[var(--space-1)]">
                         {fStr(bl, "system:node_title") || "Untitled"}
                       </div>
-                      <div className="journal-backlink-preview">
+                      <div className="journal-backlink-preview text-[var(--text-muted)] text-[12px]">
                         {(fStr(bl, "journal:content") || "").slice(0, 200)}
                       </div>
                     </div>
@@ -417,8 +404,10 @@ export function JournalApp() {
             )}
           </>
         ) : (
-          <div className="journal-empty">
-            <p className="text-muted">Select a page or create a new one.</p>
+          <div className="journal-empty flex items-center justify-center py-[var(--space-8)]">
+            <p className="text-[var(--text-dim)]">
+              Select a page or create a new one.
+            </p>
           </div>
         )}
       </main>
@@ -426,9 +415,9 @@ export function JournalApp() {
   );
 }
 
-// ── Block View (Logseq-style bullet + indentation) ───────────────────────────
+// ── Block View ────────────────────────────────────────────────────────────────
 
-function BlockView({
+export function BlockView({
   block,
   depth,
   onEdit,
@@ -450,26 +439,23 @@ function BlockView({
   const title = fStr(block, "system:node_title") || "";
   const isEditing = editingBlockId === id;
   const isDeleted = fBool(block, "journal:deleted");
-
   const [editContent, setEditContent] = useState(content);
   const [previewHtml, setPreviewHtml] = useState("");
   const [showPreview, setShowPreview] = useState(false);
 
-  const indent = depth * 28;
-
-  // Render [[links]] as styled spans
-  const renderContent = (text: string) => {
-    return text.replace(
+  const renderContent = (text: string) =>
+    text.replace(
       /\[\[([^\]]+)\]\]/g,
-      '<span class="journal-ref">$1</span>',
+      '<span class="journal-ref text-[var(--accent)] bg-[var(--accent-subtle)] px-[var(--space-1)] rounded-[var(--radius-sm)]">$1</span>',
     );
-  };
 
   if (isDeleted) {
     return (
-      <div className="journal-block deleted" style={{ marginLeft: indent }}>
-        <span className="journal-bullet">·</span>
-        <span className="text-muted" style={{ textDecoration: "line-through" }}>
+      <div className="journal-block deleted" style={{ marginLeft: depth * 28 }}>
+        <span className="journal-bullet text-[var(--text-dim)] mr-[var(--space-2)]">
+          ·
+        </span>
+        <span className="text-[var(--text-dim)] line-through">
           {title || content.slice(0, 80)}
         </span>
       </div>
@@ -477,21 +463,21 @@ function BlockView({
   }
 
   return (
-    <div className="journal-block" style={{ marginLeft: indent }}>
-      {/* Bullet + content */}
-      <div className="journal-block-row">
-        <span className="journal-bullet">{depth === 0 ? "◆" : "•"}</span>
-
+    <div className="journal-block" style={{ marginLeft: depth * 28 }}>
+      <div className="journal-block-row flex items-start gap-[var(--space-2)] group py-[var(--space-1)]">
+        <span className="journal-bullet text-[var(--text-dim)] mt-[var(--space-1)] flex-shrink-0">
+          {depth === 0 ? "◆" : "•"}
+        </span>
         {isEditing ? (
-          <div className="journal-block-editor">
+          <div className="journal-block-editor flex-1">
             <textarea
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
               rows={Math.max(3, editContent.split("\n").length)}
-              className="journal-block-textarea"
+              className="journal-block-textarea w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] p-[var(--space-2)] text-[var(--text)] text-[14px] resize-vertical font-mono"
               autoFocus
             />
-            <div className="journal-block-editor-actions">
+            <div className="journal-block-editor-actions flex gap-[var(--space-2)] mt-[var(--space-2)]">
               <button onClick={() => onSave(id, editContent)}>Save</button>
               <button onClick={onCancel}>Cancel</button>
               <button
@@ -506,40 +492,30 @@ function BlockView({
             </div>
             {showPreview && (
               <div
-                className="journal-markdown-preview"
+                className="journal-markdown-preview mt-[var(--space-2)] p-[var(--space-3)] bg-[var(--bg)] border border-[var(--border)] rounded-[var(--radius-sm)] text-[14px]"
                 dangerouslySetInnerHTML={{ __html: previewHtml }}
               />
             )}
           </div>
         ) : (
-          <div className="journal-block-content" onClick={() => onEdit(id)}>
-            {title && depth === 0 ? (
-              <div
-                className="journal-markdown-body"
-                dangerouslySetInnerHTML={{
-                  __html:
-                    renderContent(content) ||
-                    '<span class="text-muted">Empty page — click to edit</span>',
-                }}
-              />
-            ) : (
-              <div
-                className="journal-block-text"
-                dangerouslySetInnerHTML={{
-                  __html:
-                    renderContent(content) ||
-                    '<span class="text-muted">Click to edit</span>',
-                }}
-              />
-            )}
+          <div
+            className="journal-block-content flex-1 cursor-pointer min-h-[24px]"
+            onClick={() => onEdit(id)}
+          >
+            <div
+              className="journal-block-text text-[var(--text)] text-[15px] leading-relaxed"
+              dangerouslySetInnerHTML={{
+                __html:
+                  renderContent(content) ||
+                  `<span class="text-[var(--text-dim)]">${depth === 0 ? "Empty page — click to edit" : "Click to edit"}</span>`,
+              }}
+            />
           </div>
         )}
-
-        {/* Hover actions */}
         {!isEditing && (
-          <div className="journal-block-actions">
+          <div className="journal-block-actions hidden group-hover:flex items-center gap-[var(--space-1)]">
             <button
-              className="journal-icon-btn-sm"
+              className={`journal-icon-btn-sm ${iconBtnSm}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onEdit(id);
@@ -549,7 +525,7 @@ function BlockView({
               ✏️
             </button>
             <button
-              className="journal-icon-btn-sm"
+              className={`journal-icon-btn-sm ${iconBtnSm}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete(id);
@@ -567,9 +543,8 @@ function BlockView({
 
 // ── New Block Form ────────────────────────────────────────────────────────────
 
-function NewBlockForm({
+export function NewBlockForm({
   parentId,
-  pageId,
   onCreated,
   createBlock,
   isPending,
@@ -584,7 +559,6 @@ function NewBlockForm({
   const [content, setContent] = useState("");
   const [tags, setTags] = useState("");
   const [journalDay, setJournalDay] = useState(parentId === null ? TODAY : "");
-
   const isPage = parentId === null;
 
   const handleSubmit = async () => {
@@ -598,16 +572,13 @@ function NewBlockForm({
         .map((t) => t.trim())
         .filter(Boolean);
     if (journalDay) body.journal_day = journalDay;
-
     try {
       const data = await createBlock(body);
       setTitle("");
       setContent("");
       setTags("");
       onCreated(data);
-    } catch (e: any) {
-      // Error handling via mutation
-    }
+    } catch (_e) {}
   };
 
   return (
@@ -615,53 +586,56 @@ function NewBlockForm({
       className="journal-new-block"
       style={{ marginLeft: parentId ? 28 : 0 }}
     >
-      <span className="journal-bullet">{isPage ? "◆" : "•"}</span>
-      <div className="journal-new-block-form">
-        {isPage && (
-          <input
-            type="text"
-            placeholder="Page title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="journal-new-title-input"
-          />
-        )}
-        <textarea
-          placeholder={isPage ? "Start writing..." : "New block..."}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={2}
-          className="journal-new-textarea"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmit();
-            }
-          }}
-        />
-        <div className="journal-new-block-meta">
-          <input
-            type="text"
-            placeholder="tags (comma-separated)"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            style={{ flex: 1, fontSize: 11, padding: "2px 6px" }}
-          />
+      <div className="flex items-start gap-[var(--space-2)]">
+        <span className="journal-bullet text-[var(--text-dim)] mt-[var(--space-2)]">
+          {isPage ? "◆" : "•"}
+        </span>
+        <div className="journal-new-block-form flex-1 flex flex-col gap-[var(--space-2)]">
           {isPage && (
             <input
-              type="date"
-              value={journalDay}
-              onChange={(e) => setJournalDay(e.target.value)}
-              style={{ fontSize: 11, padding: "2px 6px" }}
+              type="text"
+              placeholder="Page title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="journal-new-title-input w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text)] text-[14px]"
             />
           )}
-          <button
-            onClick={handleSubmit}
-            className="primary"
-            style={{ fontSize: 12 }}
-          >
-            {isPage ? "Create Page" : "Add Block"}
-          </button>
+          <textarea
+            placeholder={isPage ? "Start writing..." : "New block..."}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            rows={2}
+            className="journal-new-textarea w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text)] text-[14px] resize-vertical font-mono"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+          />
+          <div className="journal-new-block-meta flex gap-[var(--space-2)] items-center">
+            <input
+              type="text"
+              placeholder="tags (comma-separated)"
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              className="flex-1 text-[11px] px-[var(--space-2)] py-[var(--space-1)] bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] text-[var(--text)]"
+            />
+            {isPage && (
+              <input
+                type="date"
+                value={journalDay}
+                onChange={(e) => setJournalDay(e.target.value)}
+                className="text-[11px] px-[var(--space-2)] py-[var(--space-1)] bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] text-[var(--text)]"
+              />
+            )}
+            <button
+              onClick={handleSubmit}
+              className="bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-text)] text-[12px] px-[var(--space-3)] py-[var(--space-1)] rounded-[var(--radius-sm)] hover:bg-[var(--accent-hover)]"
+            >
+              {isPage ? "Create Page" : "Add Block"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -670,15 +644,23 @@ function NewBlockForm({
 
 // ── Properties Block ──────────────────────────────────────────────────────────
 
-function PropertiesBlock({ properties }: { properties: Record<string, any> }) {
+export function PropertiesBlock({
+  properties,
+}: {
+  properties: Record<string, any>;
+}) {
   if (!properties || Object.keys(properties).length === 0) return null;
-
   return (
-    <div className="journal-properties">
+    <div className="journal-properties mb-[var(--space-4)] p-[var(--space-3)] bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-md)]">
       {Object.entries(properties).map(([key, value]) => (
-        <div key={key} className="journal-property-row">
-          <span className="journal-property-key">{key}</span>
-          <span className="journal-property-value">
+        <div
+          key={key}
+          className="journal-property-row flex gap-[var(--space-3)] py-[var(--space-1)] text-[13px]"
+        >
+          <span className="journal-property-key font-semibold text-[var(--text-muted)] min-w-[80px]">
+            {key}
+          </span>
+          <span className="journal-property-value text-[var(--text)]">
             {typeof value === "boolean" ? (value ? "✅" : "⬜") : String(value)}
           </span>
         </div>
