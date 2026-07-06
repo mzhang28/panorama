@@ -33,6 +33,9 @@ async fn main() {
 
   schema_registry.register(panorama_core::schema::system_schemas::node_time_schema());
   schema_registry.register(panorama_core::schema::system_schemas::node_info_schema());
+  schema_registry.register(panorama_core::schema::system_schemas::reactors_schema());
+  schema_registry.register(panorama_core::schema::system_schemas::op_stream_schema());
+  schema_registry.register(panorama_core::schema::system_schemas::reactor_state_schema());
 
   let plugin_loader = Arc::new(PluginLoader::new(
     storage.clone(),
@@ -82,13 +85,12 @@ async fn main() {
   ));
   let op_stream = Arc::new(OpStream::new(storage.clone()));
   let eager_pipeline = Arc::new(
-    EagerReactorPipeline::new(reactor_registry.clone())
+    EagerReactorPipeline::new(reactor_registry.clone()).with_plugin_loader(plugin_loader.clone()),
+  );
+  let deferred_engine = Arc::new(
+    DeferredReactorEngine::new(reactor_registry.clone(), op_stream.clone())
       .with_plugin_loader(plugin_loader.clone()),
   );
-  let deferred_engine = Arc::new(DeferredReactorEngine::new(
-    reactor_registry.clone(),
-    op_stream.clone(),
-  ));
 
   if let Err(e) = reactor_registry.initialize().await {
     tracing::error!(error = %e, "Failed to initialize reactor registry");

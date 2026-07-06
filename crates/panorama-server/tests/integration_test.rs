@@ -22,6 +22,9 @@ fn setup_test_env() -> (PluginLoader, tempfile::TempDir) {
   // Register system schemas
   schema_registry.register(panorama_core::schema::system_schemas::node_time_schema());
   schema_registry.register(panorama_core::schema::system_schemas::node_info_schema());
+  schema_registry.register(panorama_core::schema::system_schemas::reactors_schema());
+  schema_registry.register(panorama_core::schema::system_schemas::op_stream_schema());
+  schema_registry.register(panorama_core::schema::system_schemas::reactor_state_schema());
 
   let loader = PluginLoader::new(storage, schema_registry, object_storage);
   (loader, tmp)

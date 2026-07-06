@@ -26,7 +26,9 @@ test.describe("Journal Plugin UI", () => {
     // Fill the title input
     await page.locator(".journal-new-title-input").fill(pageTitle);
     // Fill the Tiptap editor (contenteditable div)
-    await page.locator(NEW_BLOCK_EDITOR).fill("Hello world from the new journal!");
+    await page
+      .locator(NEW_BLOCK_EDITOR)
+      .fill("Hello world from the new journal!");
     await page.click('button:has-text("Create Page")');
     // Page title should appear in sidebar
     await expect(

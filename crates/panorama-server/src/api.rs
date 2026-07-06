@@ -191,9 +191,14 @@ async fn create_node(
 
   match state.eager_pipeline.execute_hook(&hook_ctx).await {
     HookResult::Rejected { reason, .. } => {
-      return Err(ApiError::bad_request(&format!("Reactor rejected: {}", reason)));
+      return Err(ApiError::bad_request(&format!(
+        "Reactor rejected: {}",
+        reason
+      )));
     }
-    HookResult::Approved { computed_fields, .. } => {
+    HookResult::Approved {
+      computed_fields, ..
+    } => {
       for (key, value) in &computed_fields {
         node.set_field(key, value.clone());
       }
@@ -211,7 +216,11 @@ async fn create_node(
     Some(created.id),
     created.preferred_schemas.first().map(|s| s.schema_node_id),
     created.space_id,
-    None, None, None, None, None,
+    None,
+    None,
+    None,
+    None,
+    None,
   );
 
   Ok(Json(created))
@@ -280,10 +289,14 @@ async fn update_node(
     match state.eager_pipeline.execute_hook(&hook_ctx).await {
       HookResult::Rejected { reason, .. } => {
         return Err(ApiError::bad_request(&format!(
-          "Reactor rejected field '{}': {}", field_path, reason
+          "Reactor rejected field '{}': {}",
+          field_path, reason
         )));
       }
-      HookResult::Approved { transformed_value, computed_fields } => {
+      HookResult::Approved {
+        transformed_value,
+        computed_fields,
+      } => {
         if let Some(tv) = transformed_value {
           final_fields.insert(field_path.clone(), tv);
         }
@@ -305,7 +318,11 @@ async fn update_node(
     Some(updated.id),
     updated.preferred_schemas.first().map(|s| s.schema_node_id),
     updated.space_id,
-    None, None, None, None, None,
+    None,
+    None,
+    None,
+    None,
+    None,
   );
 
   Ok(Json(updated))
@@ -320,35 +337,55 @@ async fn delete_node(
   // ── Eager reactor hooks: before_node_delete ──────────────────────────
   let hook_ctx = HookContext {
     hook_point: HookPoint::BeforeNodeDelete {
-      scope_schema_id: existing.as_ref().and_then(|n| n.preferred_schemas.first().map(|s| s.schema_node_id)),
+      scope_schema_id: existing
+        .as_ref()
+        .and_then(|n| n.preferred_schemas.first().map(|s| s.schema_node_id)),
     },
     node: existing.clone(),
     node_id: Some(id),
     field_path: None,
     current_value: None,
     previous_value: None,
-    schema_id: existing.as_ref().and_then(|n| n.preferred_schemas.first().map(|s| s.schema_node_id)),
+    schema_id: existing
+      .as_ref()
+      .and_then(|n| n.preferred_schemas.first().map(|s| s.schema_node_id)),
     space_id: existing.as_ref().map(|n| n.space_id),
     authorized_by: None,
   };
 
   match state.eager_pipeline.execute_hook(&hook_ctx).await {
     HookResult::Rejected { reason, .. } => {
-      return Err(ApiError::bad_request(&format!("Reactor rejected delete: {}", reason)));
+      return Err(ApiError::bad_request(&format!(
+        "Reactor rejected delete: {}",
+        reason
+      )));
     }
     HookResult::Approved { .. } => {}
   }
 
-  let space_id = existing.as_ref().map(|n| n.space_id).unwrap_or_else(Uuid::nil);
+  let space_id = existing
+    .as_ref()
+    .map(|n| n.space_id)
+    .unwrap_or_else(Uuid::nil);
 
-  state.storage.delete(id).map(|_| {
-    let _ = state.op_stream.append_sync(
-      panorama_core::reactor::OpType::NodeDeleted,
-      Some(id), None, space_id,
-      None, None, None, None, None,
-    );
-    StatusCode::NO_CONTENT
-  }).map_err(|e| ApiError::internal(e))
+  state
+    .storage
+    .delete(id)
+    .map(|_| {
+      let _ = state.op_stream.append_sync(
+        panorama_core::reactor::OpType::NodeDeleted,
+        Some(id),
+        None,
+        space_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+      );
+      StatusCode::NO_CONTENT
+    })
+    .map_err(|e| ApiError::internal(e))
 }
 
 async fn query_nodes(
@@ -711,6 +748,7 @@ async fn query_handler(
 #[derive(Debug, Deserialize)]
 struct CreateReactorRequest {
   pub defined_by_app: Option<Uuid>,
+  pub registered_by_plugin: Option<String>,
   pub owner_schema_id: Option<Uuid>,
   pub mode: String,
   pub trigger: serde_json::Value,
@@ -728,18 +766,22 @@ struct CreateReactorRequest {
   pub authorized_by: Option<String>,
 }
 
-fn default_status() -> String { "active".into() }
+fn default_status() -> String {
+  "active".into()
+}
 
 #[derive(Debug, Deserialize)]
 struct UpdateReactorStatusRequest {
   pub status: String,
 }
 
-async fn list_reactors(
-  State(state): State<Arc<AppState>>,
-) -> Json<Vec<serde_json::Value>> {
-  let reactors: Vec<serde_json::Value> = state.reactor_registry.list_all()
-    .iter().map(|r| serde_json::to_value(r).unwrap_or_default()).collect();
+async fn list_reactors(State(state): State<Arc<AppState>>) -> Json<Vec<serde_json::Value>> {
+  let reactors: Vec<serde_json::Value> = state
+    .reactor_registry
+    .list_all()
+    .iter()
+    .map(|r| serde_json::to_value(r).unwrap_or_default())
+    .collect();
   Json(reactors)
 }
 
@@ -747,7 +789,9 @@ async fn get_reactor(
   State(state): State<Arc<AppState>>,
   Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-  let reactor = state.reactor_registry.get(&id)
+  let reactor = state
+    .reactor_registry
+    .get(&id)
     .ok_or_else(|| ApiError::not_found("Reactor not found"))?;
   Ok(Json(serde_json::to_value(reactor).unwrap_or_default()))
 }
@@ -757,8 +801,7 @@ async fn create_reactor(
   Json(req): Json<CreateReactorRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
   use panorama_core::reactor::{
-    ActionKind, CapRef, Reactor, ReactorMode, ReactorStatus, ReactorTrigger,
-    RetryPolicy, WasmRef,
+    ActionKind, CapRef, Reactor, ReactorMode, ReactorStatus, ReactorTrigger, RetryPolicy, WasmRef,
   };
 
   let mode = match req.mode.as_str() {
@@ -778,31 +821,45 @@ async fn create_reactor(
   };
   let action_ref: WasmRef = serde_json::from_value(req.action_ref)
     .map_err(|e| ApiError::bad_request(&format!("Invalid action_ref: {}", e)))?;
-  let capabilities: Vec<CapRef> = req.capabilities.iter()
-    .filter_map(|c| serde_json::from_value(c.clone()).ok()).collect();
+  let capabilities: Vec<CapRef> = req
+    .capabilities
+    .iter()
+    .filter_map(|c| serde_json::from_value(c.clone()).ok())
+    .collect();
   let status = match req.status.as_str() {
     "active" => ReactorStatus::Active,
     "disabled" => ReactorStatus::Disabled,
     "error_quarantined" => ReactorStatus::ErrorQuarantined,
     _ => return Err(ApiError::bad_request("Invalid status")),
   };
-  let retry_policy: Option<RetryPolicy> = req.retry_policy
+  let retry_policy: Option<RetryPolicy> = req
+    .retry_policy
     .and_then(|rp| serde_json::from_value(rp).ok());
   let filter = req.filter.and_then(|f| serde_json::from_value(f).ok());
 
   let reactor = Reactor {
     id: Uuid::new_v4(),
     defined_by_app: req.defined_by_app,
+    registered_by_plugin: req.registered_by_plugin,
     owner_schema_id: req.owner_schema_id,
-    mode, trigger, filter, action_kind,
+    mode,
+    trigger,
+    filter,
+    action_kind,
     action_target: req.action_target,
-    action_ref, priority: req.priority,
-    capabilities, status, retry_policy,
+    action_ref,
+    priority: req.priority,
+    capabilities,
+    status,
+    retry_policy,
     authorized_by: req.authorized_by,
     created_at: chrono::Utc::now().to_rfc3339(),
   };
 
-  let registered = state.reactor_registry.register(reactor).await
+  let registered = state
+    .reactor_registry
+    .register(reactor)
+    .await
     .map_err(|e| ApiError::bad_request(e.as_str()))?;
   Ok(Json(serde_json::to_value(registered).unwrap_or_default()))
 }
@@ -811,7 +868,10 @@ async fn delete_reactor(
   State(state): State<Arc<AppState>>,
   Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, Json<ApiError>)> {
-  state.reactor_registry.delete(id).await
+  state
+    .reactor_registry
+    .delete(id)
+    .await
     .map(|_| StatusCode::NO_CONTENT)
     .map_err(|e| ApiError::internal(e))
 }
@@ -828,7 +888,10 @@ async fn update_reactor_status(
     "error_quarantined" => ReactorStatus::ErrorQuarantined,
     _ => return Err(ApiError::bad_request("Invalid status")),
   };
-  state.reactor_registry.update_status(id, status).await
+  state
+    .reactor_registry
+    .update_status(id, status)
+    .await
     .map(|_| StatusCode::OK)
     .map_err(|e| ApiError::internal(e))
 }

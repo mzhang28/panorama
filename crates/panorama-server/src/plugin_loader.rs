@@ -321,17 +321,18 @@ impl PluginLoader {
     };
 
     // Serialize the reactor input as the request body
-    let body_json = serde_json::to_vec(input)
-      .map_err(|e| format!("Failed to serialize reactor input: {}", e))?;
+    let body_json =
+      serde_json::to_vec(input).map_err(|e| format!("Failed to serialize reactor input: {}", e))?;
 
     // Build an HTTP-like request that carries the reactor payload
     let request = panorama_core::plugin::HttpRequest {
       method: "POST".into(),
       path: format!("__reactor__/{}", function_name),
       query_params: std::collections::HashMap::new(),
-      headers: std::collections::HashMap::from([
-        ("Content-Type".into(), "application/json".into()),
-      ]),
+      headers: std::collections::HashMap::from([(
+        "Content-Type".into(),
+        "application/json".into(),
+      )]),
       body: Some(bytes::Bytes::from(body_json)),
     };
 
@@ -369,12 +370,13 @@ impl PluginLoader {
         if response.body.is_empty() {
           return Ok(None);
         }
-        let output: ReactorActionOutput = serde_json::from_slice(&response.body)
-          .map_err(|e| format!(
+        let output: ReactorActionOutput = serde_json::from_slice(&response.body).map_err(|e| {
+          format!(
             "Failed to parse reactor output: {} (body: {})",
             e,
             String::from_utf8_lossy(&response.body[..response.body.len().min(200)])
-          ))?;
+          )
+        })?;
         Ok(Some(output))
       }
       Err(e) => {

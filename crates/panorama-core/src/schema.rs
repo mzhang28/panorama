@@ -273,6 +273,349 @@ pub mod system_schemas {
     }
   }
 
+  /// The "Reactors" system schema — reactor & hook subsystem metadata.
+  /// See `design/HOOK_DESIGN.md` §1 for the full data model.
+  pub fn reactors_schema() -> Schema {
+    Schema {
+      node_id: Uuid::nil(),
+      name: "Reactors".into(),
+      version: SchemaVersion::new(1, 0),
+      fields: vec![
+        SchemaField {
+          name: "reactor_name".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "String".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("Human-readable name".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "defined_by_app".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "NodeRef".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("The app that defined this reactor".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "registered_by_plugin".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "String".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Plugin ID of the registering app".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "owner_schema_id".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "NodeRef".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Schema this reactor is scoped to".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "reactor_mode".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "String".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("'eager' or 'deferred'".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "reactor_trigger".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Json".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("Trigger configuration".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "reactor_filter".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Json".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Optional filter predicate".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "action_kind".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "String".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("validate/transform/compute_field/side_effect/internal_write".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "action_target".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "String".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Target field path for compute_field".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "action_ref".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Json".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("WASM reference: plugin_id + function_name".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "reactor_priority".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Integer".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: Some(FieldValue::Integer(0)),
+          description: Some("Execution priority (lower first)".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "reactor_capabilities".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Json".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Capability grants".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "reactor_status".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "String".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: Some(FieldValue::String("active".into())),
+          description: Some("active/disabled/error_quarantined".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "retry_policy".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Json".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Retry policy for deferred reactors".into()),
+          computed: None,
+        },
+      ],
+      schema_mode: SchemaMode::Preferred,
+      previous_versions: vec![],
+      migrations: vec![],
+    }
+  }
+
+  /// The "OpStream" system schema — durable operation stream entries.
+  pub fn op_stream_schema() -> Schema {
+    Schema {
+      node_id: Uuid::nil(),
+      name: "OpStream".into(),
+      version: SchemaVersion::new(1, 0),
+      fields: vec![
+        SchemaField {
+          name: "op_sequence".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Integer".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("Monotonic sequence number".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "op_type".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "String".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("Operation type".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "op_node_id".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "NodeRef".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Node affected".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "op_space_id".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "String".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("Space ID".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "op_field_path".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "String".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Field path written".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "op_data".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Json".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Additional op data".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "op_committed_at".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "DateTime".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("Commit timestamp".into()),
+          computed: None,
+        },
+      ],
+      schema_mode: SchemaMode::Preferred,
+      previous_versions: vec![],
+      migrations: vec![],
+    }
+  }
+
+  /// The "ReactorState" system schema — deferred reactor delivery state.
+  pub fn reactor_state_schema() -> Schema {
+    Schema {
+      node_id: Uuid::nil(),
+      name: "ReactorState".into(),
+      version: SchemaVersion::new(1, 0),
+      fields: vec![
+        SchemaField {
+          name: "rs_reactor_id".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "NodeRef".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: None,
+          description: Some("Reactor ID".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "rs_last_sequence".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Integer".into(),
+            element_type: None,
+          }),
+          required: true,
+          default: Some(FieldValue::Integer(0)),
+          description: Some("Last processed sequence".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "rs_consecutive_failures".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Integer".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: Some(FieldValue::Integer(0)),
+          description: Some("Consecutive failures".into()),
+          computed: None,
+        },
+        SchemaField {
+          name: "rs_dead_letters".into(),
+          namespace: "system".into(),
+          field_type: Some(FieldTypeConstraint {
+            type_tag: "Json".into(),
+            element_type: None,
+          }),
+          required: false,
+          default: None,
+          description: Some("Dead-lettered events".into()),
+          computed: None,
+        },
+      ],
+      schema_mode: SchemaMode::Preferred,
+      previous_versions: vec![],
+      migrations: vec![],
+    }
+  }
+
   /// The "Node Info" system schema - basic human-readable metadata
   pub fn node_info_schema() -> Schema {
     Schema {

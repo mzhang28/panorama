@@ -144,7 +144,12 @@ pub fn detect_cycles(
   // For each dependency of field_name, check if there's a path back to field_name.
   // If dep can reach field_name through any chain, we have: field_name → dep → ... → field_name.
   for dep in dependencies {
-    if has_path_to(dep, field_name, &adjacency, &mut std::collections::HashSet::new()) {
+    if has_path_to(
+      dep,
+      field_name,
+      &adjacency,
+      &mut std::collections::HashSet::new(),
+    ) {
       return true;
     }
   }
@@ -190,9 +195,7 @@ mod tests {
 
   #[test]
   fn test_simple_cycle_detected() {
-    let all = vec![
-      ("A".into(), vec!["B".into()]),
-    ];
+    let all = vec![("A".into(), vec!["B".into()])];
     // Adding B -> A would create cycle A -> B -> A
     assert!(detect_cycles("B", &["A".into()], &all));
   }
