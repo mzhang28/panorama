@@ -7,6 +7,7 @@
     "crates/panorama-app-*/ui"
   ],
   "devDependencies": {
+    "@biomejs/biome": "^2.5.2",
     "cmd-ts": "^0.15.0",
     "jszip": "^3.10.1",
     "nx": "^23.0.1"

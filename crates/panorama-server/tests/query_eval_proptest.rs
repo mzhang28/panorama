@@ -8,88 +8,91 @@ use panorama_core::types::{FieldValue, Node};
 use panorama_server::query::compiler::{compile, ParamValue};
 use proptest::prelude::*;
 use proptest::test_runner::Config as ProptestConfig;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use uuid::Uuid;
 
 // ── Generators ───────────────────────────────────────────────────────────
 
 fn field_val() -> impl Strategy<Value = FieldValue> {
-    prop_oneof![
-        any::<String>().prop_filter("ascii, no quote/backslash", |s| {
-            s.is_ascii() && !s.contains('"') && !s.contains('\\')
-        }).prop_map(FieldValue::String),
-        any::<i64>().prop_map(FieldValue::Integer),
-        (0.01f64..1_000_000.0f64).prop_map(FieldValue::Float),
-        any::<bool>().prop_map(FieldValue::Boolean),
-    ]
+  prop_oneof![
+    any::<String>()
+      .prop_filter("ascii, no quote/backslash", |s| {
+        s.is_ascii() && !s.contains('"') && !s.contains('\\')
+      })
+      .prop_map(FieldValue::String),
+    any::<i64>().prop_map(FieldValue::Integer),
+    (0.01f64..1_000_000.0f64).prop_map(FieldValue::Float),
+    any::<bool>().prop_map(FieldValue::Boolean),
+  ]
 }
 
 fn gen_node() -> impl Strategy<Value = Node> {
-    // Each node has: title (string), app:count (int), app:score (float), app:active (bool)
-    // Same types per field name avoids ORDER BY mixed-type divergence.
-    (
-        any::<i64>(),
-        (0.01f64..1_000_000.0f64),
-        any::<bool>(),
-    ).prop_map(|(count, score, active)| {
-        let mut map: HashMap<String, FieldValue> = HashMap::new();
-        map.insert("title".into(), FieldValue::String("hello".into()));
-        map.insert("app:count".into(), FieldValue::Integer(count));
-        map.insert("app:score".into(), FieldValue::Float(score));
-        map.insert("app:active".into(), FieldValue::Boolean(active));
-        Node {
-            id: Uuid::new_v4(),
-            fields: map,
-            space_id: Uuid::nil(),
-            preferred_schemas: vec![],
-            app_managed: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        }
-    })
+  // Each node has: title (string), app:count (int), app:score (float), app:active (bool)
+  // Same types per field name avoids ORDER BY mixed-type divergence.
+  (any::<i64>(), (0.01f64..1_000_000.0f64), any::<bool>()).prop_map(|(count, score, active)| {
+    let mut map: HashMap<String, FieldValue> = HashMap::new();
+    map.insert("title".into(), FieldValue::String("hello".into()));
+    map.insert("app:count".into(), FieldValue::Integer(count));
+    map.insert("app:score".into(), FieldValue::Float(score));
+    map.insert("app:active".into(), FieldValue::Boolean(active));
+    Node {
+      id: Uuid::new_v4(),
+      fields: map,
+      space_id: Uuid::nil(),
+      preferred_schemas: vec![],
+      app_managed: None,
+      created_at: chrono::Utc::now(),
+      updated_at: chrono::Utc::now(),
+    }
+  })
 }
 
 /// Generates nodes and picks one (key, value) from them.
 fn nodes_and_field_ref() -> impl Strategy<Value = (Vec<Node>, String, FieldValue)> {
-    proptest::collection::vec(gen_node(), 2..8)
-        .prop_flat_map(|nodes| {
-            let mut choices: Vec<(String, FieldValue)> = Vec::new();
-            for n in &nodes {
-                for (k, v) in &n.fields {
-                    choices.push((k.clone(), v.clone()));
-                }
-            }
-            choices.sort_by(|a, b| a.0.cmp(&b.0));
-            (Just(nodes), proptest::sample::select(choices))
-        })
-        .prop_map(|(nodes, (key, val))| (nodes, key, val))
+  proptest::collection::vec(gen_node(), 2..8)
+    .prop_flat_map(|nodes| {
+      let mut choices: Vec<(String, FieldValue)> = Vec::new();
+      for n in &nodes {
+        for (k, v) in &n.fields {
+          choices.push((k.clone(), v.clone()));
+        }
+      }
+      choices.sort_by(|a, b| a.0.cmp(&b.0));
+      (Just(nodes), proptest::sample::select(choices))
+    })
+    .prop_map(|(nodes, (key, val))| (nodes, key, val))
 }
 
 /// Generates nodes and picks two (key, value) pairs for AND/OR queries.
 fn nodes_and_two_field_refs(
 ) -> impl Strategy<Value = (Vec<Node>, String, FieldValue, String, FieldValue)> {
-    proptest::collection::vec(gen_node(), 3..10)
-        .prop_flat_map(|nodes| {
-            let mut choices: Vec<(String, FieldValue)> = Vec::new();
-            for n in &nodes {
-                for (k, v) in &n.fields {
-                    choices.push((k.clone(), v.clone()));
-                }
-            }
-            choices.sort_by(|a, b| a.0.cmp(&b.0));
-            (Just(nodes), proptest::sample::select(choices.clone()), proptest::sample::select(choices))
-        })
-        .prop_map(|(nodes, (k1, v1), (k2, v2))| (nodes, k1, v1, k2, v2))
+  proptest::collection::vec(gen_node(), 3..10)
+    .prop_flat_map(|nodes| {
+      let mut choices: Vec<(String, FieldValue)> = Vec::new();
+      for n in &nodes {
+        for (k, v) in &n.fields {
+          choices.push((k.clone(), v.clone()));
+        }
+      }
+      choices.sort_by(|a, b| a.0.cmp(&b.0));
+      (
+        Just(nodes),
+        proptest::sample::select(choices.clone()),
+        proptest::sample::select(choices),
+      )
+    })
+    .prop_map(|(nodes, (k1, v1), (k2, v2))| (nodes, k1, v1, k2, v2))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /// Create an in-memory SQLite connection with the same schema as SqliteBackend.
 fn setup_conn() -> Connection {
-    let conn = Connection::open_in_memory().unwrap();
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS nodes (
+  let conn = Connection::open_in_memory().unwrap();
+  conn
+    .execute_batch(
+      "CREATE TABLE IF NOT EXISTS nodes (
             id TEXT PRIMARY KEY,
             space_id TEXT NOT NULL,
             fields_json TEXT NOT NULL DEFAULT '{}',
@@ -98,11 +101,13 @@ fn setup_conn() -> Connection {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_nodes_space ON nodes(space_id);"
-    ).unwrap();
-    // Meta tables the compiler queries
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS namespaces (
+        CREATE INDEX IF NOT EXISTS idx_nodes_space ON nodes(space_id);",
+    )
+    .unwrap();
+  // Meta tables the compiler queries
+  conn
+    .execute_batch(
+      "CREATE TABLE IF NOT EXISTS namespaces (
             ns_id INTEGER PRIMARY KEY AUTOINCREMENT,
             kind TEXT NOT NULL DEFAULT 'user',
             app_id TEXT,
@@ -121,47 +126,54 @@ fn setup_conn() -> Connection {
             version_major INTEGER NOT NULL,
             version_minor INTEGER NOT NULL,
             PRIMARY KEY (node_id, schema_id)
-        );"
-    ).unwrap();
-    conn
+        );",
+    )
+    .unwrap();
+  conn
 }
 
 fn insert_nodes(conn: &Connection, nodes: &[Node]) {
-    // Ensure namespaces exist and field_presence is populated (compiler needs them for HAS_FIELD)
-    let mut ns_ids: HashMap<String, i64> = HashMap::new();
-    for node in nodes {
-        for key in node.fields.keys() {
-            if let Some(idx) = key.find(':') {
-                let ns = &key[..idx];
-                let field_name = &key[idx+1..];
-                let ns_id = if let Some(id) = ns_ids.get(ns) {
-                    *id
-                } else {
-                    conn.execute(
-                        "INSERT OR IGNORE INTO namespaces (stable_identifier, kind) VALUES (?1, 'app')",
-                        params![ns],
-                    ).unwrap();
-                    let id: i64 = conn.query_row(
-                        "SELECT ns_id FROM namespaces WHERE stable_identifier = ?1",
-                        params![ns],
-                        |row| row.get(0),
-                    ).unwrap();
-                    ns_ids.insert(ns.to_string(), id);
-                    id
-                };
-                conn.execute(
+  // Ensure namespaces exist and field_presence is populated (compiler needs them for HAS_FIELD)
+  let mut ns_ids: HashMap<String, i64> = HashMap::new();
+  for node in nodes {
+    for key in node.fields.keys() {
+      if let Some(idx) = key.find(':') {
+        let ns = &key[..idx];
+        let field_name = &key[idx + 1..];
+        let ns_id = if let Some(id) = ns_ids.get(ns) {
+          *id
+        } else {
+          conn
+            .execute(
+              "INSERT OR IGNORE INTO namespaces (stable_identifier, kind) VALUES (?1, 'app')",
+              params![ns],
+            )
+            .unwrap();
+          let id: i64 = conn
+            .query_row(
+              "SELECT ns_id FROM namespaces WHERE stable_identifier = ?1",
+              params![ns],
+              |row| row.get(0),
+            )
+            .unwrap();
+          ns_ids.insert(ns.to_string(), id);
+          id
+        };
+        conn.execute(
                     "INSERT OR REPLACE INTO field_presence (node_id, ns_id, field_name, value_type) VALUES (?1, ?2, ?3, ?4)",
                     params![node.id.to_string(), ns_id, field_name, "any"],
                 ).unwrap();
-            }
-        }
+      }
     }
-    for node in nodes {
-        let fields_json = serde_json::to_string(&node.fields).unwrap();
-        let schemas_json = serde_json::to_string(&node.preferred_schemas).unwrap();
-        let app_mgmt = node.app_managed.as_ref()
-            .map(|a| serde_json::to_string(a).unwrap());
-        conn.execute(
+  }
+  for node in nodes {
+    let fields_json = serde_json::to_string(&node.fields).unwrap();
+    let schemas_json = serde_json::to_string(&node.preferred_schemas).unwrap();
+    let app_mgmt = node
+      .app_managed
+      .as_ref()
+      .map(|a| serde_json::to_string(a).unwrap());
+    conn.execute(
             "INSERT INTO nodes (id, space_id, fields_json, preferred_schemas_json, app_managed_json, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
@@ -174,84 +186,91 @@ fn insert_nodes(conn: &Connection, nodes: &[Node]) {
                 node.updated_at.to_rfc3339(),
             ],
         ).unwrap();
-    }
+  }
 }
 
 fn execute_sql(conn: &Connection, sql: &str, params: &[ParamValue]) -> Vec<serde_json::Value> {
-    let mut stmt = conn.prepare(sql).unwrap();
-    let cols: Vec<String> = stmt.column_names().iter().map(|c| c.to_string()).collect();
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-        params.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+  let mut stmt = conn.prepare(sql).unwrap();
+  let cols: Vec<String> = stmt.column_names().iter().map(|c| c.to_string()).collect();
+  let param_refs: Vec<&dyn rusqlite::types::ToSql> = params
+    .iter()
+    .map(|p| p as &dyn rusqlite::types::ToSql)
+    .collect();
 
-    stmt.query_map(param_refs.as_slice(), |row| {
-        let mut obj = serde_json::Map::new();
-        for (i, col) in cols.iter().enumerate() {
-            let val: Result<rusqlite::types::Value, _> = row.get(i);
-            obj.insert(col.clone(), match val {
-                Ok(rusqlite::types::Value::Null) => serde_json::Value::Null,
-                Ok(rusqlite::types::Value::Integer(n)) => serde_json::Value::Number(n.into()),
-                Ok(rusqlite::types::Value::Real(f)) => {
-                    serde_json::Number::from_f64(f)
-                        .map(serde_json::Value::Number)
-                        .unwrap_or(serde_json::Value::Null)
-                }
-                Ok(rusqlite::types::Value::Text(s)) => {
-                    serde_json::from_str(&s).unwrap_or(serde_json::Value::String(s))
-                }
-                _ => serde_json::Value::Null,
-            });
-        }
-        Ok(serde_json::Value::Object(obj))
-    }).unwrap().flatten().collect()
+  stmt
+    .query_map(param_refs.as_slice(), |row| {
+      let mut obj = serde_json::Map::new();
+      for (i, col) in cols.iter().enumerate() {
+        let val: Result<rusqlite::types::Value, _> = row.get(i);
+        obj.insert(
+          col.clone(),
+          match val {
+            Ok(rusqlite::types::Value::Null) => serde_json::Value::Null,
+            Ok(rusqlite::types::Value::Integer(n)) => serde_json::Value::Number(n.into()),
+            Ok(rusqlite::types::Value::Real(f)) => serde_json::Number::from_f64(f)
+              .map(serde_json::Value::Number)
+              .unwrap_or(serde_json::Value::Null),
+            Ok(rusqlite::types::Value::Text(s)) => {
+              serde_json::from_str(&s).unwrap_or(serde_json::Value::String(s))
+            }
+            _ => serde_json::Value::Null,
+          },
+        );
+      }
+      Ok(serde_json::Value::Object(obj))
+    })
+    .unwrap()
+    .flatten()
+    .collect()
 }
 
 fn ids_sorted(rows: &[serde_json::Value]) -> Vec<String> {
-    let mut ids: Vec<String> = rows
-        .iter()
-        .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
-        .collect();
-    ids.sort();
-    ids
+  let mut ids: Vec<String> = rows
+    .iter()
+    .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+    .collect();
+  ids.sort();
+  ids
 }
 
 /// Convert a Node.fields key like `"app:count"` to PQL suffix `app.count`.
 fn key_to_pql(key: &str) -> String {
-    key.replace(':', ".")
+  key.replace(':', ".")
 }
 
 /// Normalize Bool/Number mismatch: SQLite returns Number(0/1) for booleans,
 /// but the evaluator returns Bool(false/true). Convert both to i64 for comparison.
 fn normalize(v: Option<&serde_json::Value>) -> Option<serde_json::Value> {
-    match v {
-        Some(serde_json::Value::Bool(b)) => Some(serde_json::Value::Number((*b as i64).into())),
-        other => other.cloned(),
-    }
+  match v {
+    Some(serde_json::Value::Bool(b)) => Some(serde_json::Value::Number((*b as i64).into())),
+    other => other.cloned(),
+  }
 }
 
 fn field_to_pql(v: &FieldValue) -> String {
-    match v {
-        FieldValue::String(s) | FieldValue::DateTime(s) => format!("\"{}\"", s),
-        FieldValue::Integer(i) => i.to_string(),
-        FieldValue::Float(f) => f.to_string(),
-        FieldValue::Boolean(b) => b.to_string(),
-        _ => "\"\"".into(),
-    }
+  match v {
+    FieldValue::String(s) | FieldValue::DateTime(s) => format!("\"{}\"", s),
+    FieldValue::Integer(i) => i.to_string(),
+    FieldValue::Float(f) => f.to_string(),
+    FieldValue::Boolean(b) => b.to_string(),
+    _ => "\"\"".into(),
+  }
 }
 
 fn check(nodes: &[Node], pql: &str, conn: &Connection) {
-    let ast = parse_query(pql).unwrap();
-    let compiled = compile(&ast, conn).unwrap();
-    let sql_rows = execute_sql(conn, &compiled.sql, &compiled.params);
-    let mem_rows = eval_query(&ast, nodes);
-    assert_eq!(
-        ids_sorted(&sql_rows),
-        ids_sorted(&mem_rows),
-        "\nPQL: {}\nsql:  {:?}\nmem:  {:?}\nnodes: {:?}",
-        pql,
-        ids_sorted(&sql_rows),
-        ids_sorted(&mem_rows),
-        nodes.iter().map(|n| (n.id, &n.fields)).collect::<Vec<_>>(),
-    );
+  let ast = parse_query(pql).unwrap();
+  let compiled = compile(&ast, conn).unwrap();
+  let sql_rows = execute_sql(conn, &compiled.sql, &compiled.params);
+  let mem_rows = eval_query(&ast, nodes);
+  assert_eq!(
+    ids_sorted(&sql_rows),
+    ids_sorted(&mem_rows),
+    "\nPQL: {}\nsql:  {:?}\nmem:  {:?}\nnodes: {:?}",
+    pql,
+    ids_sorted(&sql_rows),
+    ids_sorted(&mem_rows),
+    nodes.iter().map(|n| (n.id, &n.fields)).collect::<Vec<_>>(),
+  );
 }
 
 // ── Property tests ───────────────────────────────────────────────────────

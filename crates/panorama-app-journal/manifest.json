@@ -5,33 +5,99 @@
   "version": "0.1.0",
   "description": "Daily journal with markdown entries and block-level references",
   "author": "Panorama",
-  "schemas": [{
-    "name": "JournalEntry",
-    "version": {"major": 1, "minor": 0},
-    "schema_mode": "Preferred",
-    "fields": [
-      {"name": "node_title", "namespace": "system", "required": false, "field_type": null, "default": {"type": "String", "value": "Untitled Entry"}, "description": "Journal entry title", "computed": null},
-      {"name": "node_time", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Date of the journal entry", "computed": null},
-      {"name": "content", "namespace": "journal", "required": true, "field_type": null, "default": null, "description": "Markdown content of the journal entry", "computed": null},
-      {"name": "mood", "namespace": "journal", "required": false, "field_type": null, "default": null, "description": "Optional mood tag", "computed": null},
-      {"name": "paragraph_refs", "namespace": "journal", "required": false, "field_type": null, "default": null, "description": "References to paragraph-level nodes", "computed": null}
-    ]
-  }],
+  "schemas": [
+    {
+      "name": "JournalEntry",
+      "version": { "major": 1, "minor": 0 },
+      "schema_mode": "Preferred",
+      "fields": [
+        {
+          "name": "node_title",
+          "namespace": "system",
+          "required": false,
+          "field_type": null,
+          "default": { "type": "String", "value": "Untitled Entry" },
+          "description": "Journal entry title",
+          "computed": null
+        },
+        {
+          "name": "node_time",
+          "namespace": "system",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Date of the journal entry",
+          "computed": null
+        },
+        {
+          "name": "content",
+          "namespace": "journal",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Markdown content of the journal entry",
+          "computed": null
+        },
+        {
+          "name": "mood",
+          "namespace": "journal",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Optional mood tag",
+          "computed": null
+        },
+        {
+          "name": "paragraph_refs",
+          "namespace": "journal",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "References to paragraph-level nodes",
+          "computed": null
+        }
+      ]
+    }
+  ],
   "http_endpoints": [
-    {"method": "POST", "path": "/entries", "description": "Create a new journal entry"},
-    {"method": "GET", "path": "/entries", "description": "List all journal entries (newest first)"},
-    {"method": "GET", "path": "/entries/{id}", "description": "Get a specific journal entry"}
+    {
+      "method": "POST",
+      "path": "/entries",
+      "description": "Create a new journal entry"
+    },
+    {
+      "method": "GET",
+      "path": "/entries",
+      "description": "List all journal entries (newest first)"
+    },
+    {
+      "method": "GET",
+      "path": "/entries/{id}",
+      "description": "Get a specific journal entry"
+    }
   ],
   "ui_components": [
-    {"id": "journal-main", "name": "Journal", "mount_point": "MainPage", "bundle_path": "ui/journal.js"}
+    {
+      "id": "journal-main",
+      "name": "Journal",
+      "mount_point": "MainPage",
+      "bundle_path": "ui/journal.js"
+    }
   ],
   "capabilities": {
-    "version": 1, "reason": null, "network_hosts": [],
+    "version": 1,
+    "reason": null,
+    "network_hosts": [],
     "field_read": ["journal:*", "system:node_title", "system:node_time"],
     "field_write": ["journal:*", "system:node_title", "system:node_time"],
-    "write_own_nodes": true, "app_managed_nodes": false,
-    "file_read": false, "file_write": false, "execute": false,
-    "dns_requests": false, "object_storage_read": false, "object_storage_write": false
+    "write_own_nodes": true,
+    "app_managed_nodes": false,
+    "file_read": false,
+    "file_write": false,
+    "execute": false,
+    "dns_requests": false,
+    "object_storage_read": false,
+    "object_storage_write": false
   },
   "wasm_module": "plugin.wasm",
   "background_tasks": [],

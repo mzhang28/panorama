@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery } from "@tanstack/react-query";
 import {
   createRootRoute,
   createRoute,
@@ -9,42 +9,42 @@ import {
   Navigate,
   Outlet,
   useParams,
-} from '@tanstack/react-router'
-import { useState, useCallback, useEffect, Suspense } from 'react'
-import { listPlugins, listSchemas } from './api/client'
-import { NodeViewer } from './components/NodeViewer'
-import { PluginPanel } from './components/PluginPanel'
-import { SchemaViewer } from './components/SchemaViewer'
-import { JournalApp } from './components/JournalApp'
-import { loadPluginComponent } from './api/plugin-loader'
+} from "@tanstack/react-router";
+import { useState, useCallback, useEffect, Suspense } from "react";
+import { listPlugins, listSchemas } from "./api/client";
+import { NodeViewer } from "./components/NodeViewer";
+import { PluginPanel } from "./components/PluginPanel";
+import { SchemaViewer } from "./components/SchemaViewer";
+import { JournalApp } from "./components/JournalApp";
+import { loadPluginComponent } from "./api/plugin-loader";
 
-import { ThemeSwitcher } from './theme'
+import { ThemeSwitcher } from "./theme";
 
 // ── Root layout ───────────────────────────────────────────────────────────────
 
 function RootLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const { data: plugins = [] } = useQuery({
-    queryKey: ['plugins'],
+    queryKey: ["plugins"],
     queryFn: listPlugins,
-  })
+  });
 
   const { data: schemas = [] } = useQuery({
-    queryKey: ['schemas'],
+    queryKey: ["schemas"],
     queryFn: listSchemas,
-  })
+  });
 
   return (
     <div className="app-container">
       {/* Sidebar overlay for mobile */}
       <div
-        className={`sidebar-overlay${sidebarOpen ? ' open' : ''}`}
+        className={`sidebar-overlay${sidebarOpen ? " open" : ""}`}
         onClick={closeSidebar}
       />
 
-      <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
+      <aside className={`sidebar${sidebarOpen ? " open" : ""}`}>
         <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
           Panorama
         </h1>
@@ -53,18 +53,33 @@ function RootLayout() {
         <nav
           style={{
             marginTop: 20,
-            display: 'flex',
-            flexDirection: 'column',
+            display: "flex",
+            flexDirection: "column",
             gap: 4,
           }}
         >
-          <Link to="/nodes" className="nav-btn" activeProps={{ className: 'nav-btn primary' }} onClick={closeSidebar}>
+          <Link
+            to="/nodes"
+            className="nav-btn"
+            activeProps={{ className: "nav-btn primary" }}
+            onClick={closeSidebar}
+          >
             Nodes
           </Link>
-          <Link to="/schemas" className="nav-btn" activeProps={{ className: 'nav-btn primary' }} onClick={closeSidebar}>
+          <Link
+            to="/schemas"
+            className="nav-btn"
+            activeProps={{ className: "nav-btn primary" }}
+            onClick={closeSidebar}
+          >
             Schemas ({schemas.length})
           </Link>
-          <Link to="/plugins" className="nav-btn" activeProps={{ className: 'nav-btn primary' }} onClick={closeSidebar}>
+          <Link
+            to="/plugins"
+            className="nav-btn"
+            activeProps={{ className: "nav-btn primary" }}
+            onClick={closeSidebar}
+          >
             Plugins ({plugins.length})
           </Link>
         </nav>
@@ -73,8 +88,8 @@ function RootLayout() {
           <h3
             style={{
               fontSize: 12,
-              textTransform: 'uppercase',
-              color: 'var(--text-muted)',
+              textTransform: "uppercase",
+              color: "var(--text-muted)",
               marginBottom: 8,
             }}
           >
@@ -88,9 +103,9 @@ function RootLayout() {
               className="nav-btn plugin-nav-btn"
               onClick={closeSidebar}
               style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
+                display: "block",
+                width: "100%",
+                textAlign: "left",
                 marginTop: 4,
               }}
             >
@@ -124,91 +139,95 @@ function RootLayout() {
         <Outlet />
       </main>
     </div>
-  )
+  );
 }
 
 // ── Route definitions ─────────────────────────────────────────────────────────
 
 const rootRoute = createRootRoute({
   component: RootLayout,
-})
+});
 
 // Index: redirect to /nodes
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/',
+  path: "/",
   component: () => <Navigate to="/nodes" />,
-})
+});
 
 // /nodes
 const nodesRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/nodes',
+  path: "/nodes",
   component: () => <NodeViewer />,
-})
+});
 
 // /schemas
 const schemasRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/schemas',
+  path: "/schemas",
   component: SchemasView,
-})
+});
 
 function SchemasView() {
   const { data: schemas = [] } = useQuery({
-    queryKey: ['schemas'],
+    queryKey: ["schemas"],
     queryFn: listSchemas,
-  })
-  return <SchemaViewer schemas={schemas} />
+  });
+  return <SchemaViewer schemas={schemas} />;
 }
 
 // /plugins
 const pluginsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/plugins',
+  path: "/plugins",
   component: PluginsView,
-})
+});
 
 function PluginsView() {
   const { data: plugins = [] } = useQuery({
-    queryKey: ['plugins'],
+    queryKey: ["plugins"],
     queryFn: listPlugins,
-  })
-  return <PluginPanel plugins={plugins} />
+  });
+  return <PluginPanel plugins={plugins} />;
 }
 
 // /app/$pluginId
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/app/$pluginId',
+  path: "/app/$pluginId",
   component: PluginAppView,
-})
+});
 
 function PluginAppView() {
-  const { pluginId } = useParams({ from: '/app/$pluginId' })
-  const [PluginComponent, setPluginComponent] = useState<
-    React.LazyExoticComponent<React.ComponentType<{ pluginId: string }>> | null
-  >(null)
+  const { pluginId } = useParams({ from: "/app/$pluginId" });
+  const [PluginComponent, setPluginComponent] =
+    useState<React.LazyExoticComponent<
+      React.ComponentType<{ pluginId: string }>
+    > | null>(null);
 
   useEffect(() => {
-    setPluginComponent(() => loadPluginComponent(pluginId))
-  }, [pluginId])
+    setPluginComponent(() => loadPluginComponent(pluginId));
+  }, [pluginId]);
 
   // Journal uses the full-featured host component (not the plugin UI remote)
-  if (pluginId === 'io.mzhang.panorama.journal') {
+  if (pluginId === "io.mzhang.panorama.journal") {
     return (
       <div>
-        <Link to="/plugins" style={{ marginBottom: 16, display: 'inline-block' }}>
+        <Link
+          to="/plugins"
+          style={{ marginBottom: 16, display: "inline-block" }}
+        >
           ← Back to Plugins
         </Link>
         <JournalApp />
       </div>
-    )
+    );
   }
 
   return (
     <div>
-      <Link to="/plugins" style={{ marginBottom: 16, display: 'inline-block' }}>
+      <Link to="/plugins" style={{ marginBottom: 16, display: "inline-block" }}>
         ← Back to Plugins
       </Link>
       {PluginComponent && (
@@ -217,7 +236,7 @@ function PluginAppView() {
         </Suspense>
       )}
     </div>
-  )
+  );
 }
 
 // ── Route tree ────────────────────────────────────────────────────────────────
@@ -228,15 +247,15 @@ const routeTree = rootRoute.addChildren([
   schemasRoute,
   pluginsRoute,
   appRoute,
-])
+]);
 
 // ── Router creation ───────────────────────────────────────────────────────────
 
-export const router = createRouter({ routeTree })
+export const router = createRouter({ routeTree });
 
 // Register router type for type-safe navigation
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router
+    router: typeof router;
   }
 }

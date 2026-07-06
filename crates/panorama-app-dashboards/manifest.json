@@ -8,48 +8,186 @@
   "schemas": [
     {
       "name": "Dashboard",
-      "version": {"major": 2, "minor": 0},
+      "version": { "major": 2, "minor": 0 },
       "schema_mode": "Preferred",
       "fields": [
-        {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Dashboard name", "computed": null},
-        {"name": "config", "namespace": "dashboards", "required": true, "field_type": null, "default": null, "description": "Full dashboard JSON configuration (panels, variables, time, etc.)", "computed": null},
-        {"name": "uid", "namespace": "dashboards", "required": true, "field_type": null, "default": null, "description": "Unique dashboard identifier (short hash)", "computed": null},
-        {"name": "tags", "namespace": "dashboards", "required": false, "field_type": null, "default": null, "description": "Comma-separated tags for organization", "computed": null},
-        {"name": "folder_uid", "namespace": "dashboards", "required": false, "field_type": null, "default": null, "description": "Folder this dashboard belongs to", "computed": null},
-        {"name": "version", "namespace": "dashboards", "required": false, "field_type": null, "default": {"type": "Integer", "value": 1}, "description": "Dashboard revision version number", "computed": null}
+        {
+          "name": "node_title",
+          "namespace": "system",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Dashboard name",
+          "computed": null
+        },
+        {
+          "name": "config",
+          "namespace": "dashboards",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Full dashboard JSON configuration (panels, variables, time, etc.)",
+          "computed": null
+        },
+        {
+          "name": "uid",
+          "namespace": "dashboards",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Unique dashboard identifier (short hash)",
+          "computed": null
+        },
+        {
+          "name": "tags",
+          "namespace": "dashboards",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Comma-separated tags for organization",
+          "computed": null
+        },
+        {
+          "name": "folder_uid",
+          "namespace": "dashboards",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Folder this dashboard belongs to",
+          "computed": null
+        },
+        {
+          "name": "version",
+          "namespace": "dashboards",
+          "required": false,
+          "field_type": null,
+          "default": { "type": "Integer", "value": 1 },
+          "description": "Dashboard revision version number",
+          "computed": null
+        }
       ]
     },
     {
       "name": "Folder",
-      "version": {"major": 1, "minor": 0},
+      "version": { "major": 1, "minor": 0 },
       "schema_mode": "Preferred",
       "fields": [
-        {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Folder name", "computed": null},
-        {"name": "uid", "namespace": "dashboards", "required": true, "field_type": null, "default": null, "description": "Unique folder identifier", "computed": null}
+        {
+          "name": "node_title",
+          "namespace": "system",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Folder name",
+          "computed": null
+        },
+        {
+          "name": "uid",
+          "namespace": "dashboards",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Unique folder identifier",
+          "computed": null
+        }
       ]
     }
   ],
   "http_endpoints": [
-    {"method": "GET", "path": "/api/dashboards", "description": "List all dashboards"},
-    {"method": "POST", "path": "/api/dashboards", "description": "Create a new dashboard"},
-    {"method": "GET", "path": "/api/dashboards/home", "description": "Get the home dashboard (auto-created if missing)"},
-    {"method": "GET", "path": "/api/dashboards/{uid}", "description": "Get a dashboard by UID"},
-    {"method": "PUT", "path": "/api/dashboards/{uid}", "description": "Update a dashboard"},
-    {"method": "DELETE", "path": "/api/dashboards/{uid}", "description": "Delete a dashboard"},
-    {"method": "POST", "path": "/api/ds/query", "description": "Execute a batch of panel queries (dashboard-compatible data frames)"},
-    {"method": "GET", "path": "/api/query/options", "description": "Get time range presets, aggregation options, and group-by options"},
-    {"method": "POST", "path": "/api/dashboards/import", "description": "Import a dashboard from JSON"},
-    {"method": "GET", "path": "/api/dashboards/export/{uid}", "description": "Export a dashboard as JSON"},
-    {"method": "POST", "path": "/api/dashboards/{uid}/duplicate", "description": "Duplicate a dashboard"},
-    {"method": "GET", "path": "/api/folders", "description": "List dashboard folders"},
-    {"method": "POST", "path": "/api/folders", "description": "Create a dashboard folder"},
-    {"method": "POST", "path": "/query", "description": "Execute a dashboard query (legacy)"},
-    {"method": "POST", "path": "/dashboards", "description": "Save a dashboard (legacy)"},
-    {"method": "GET", "path": "/dashboards", "description": "List saved dashboards (legacy)"}
+    {
+      "method": "GET",
+      "path": "/api/dashboards",
+      "description": "List all dashboards"
+    },
+    {
+      "method": "POST",
+      "path": "/api/dashboards",
+      "description": "Create a new dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboards/home",
+      "description": "Get the home dashboard (auto-created if missing)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboards/{uid}",
+      "description": "Get a dashboard by UID"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/dashboards/{uid}",
+      "description": "Update a dashboard"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/dashboards/{uid}",
+      "description": "Delete a dashboard"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ds/query",
+      "description": "Execute a batch of panel queries (dashboard-compatible data frames)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/query/options",
+      "description": "Get time range presets, aggregation options, and group-by options"
+    },
+    {
+      "method": "POST",
+      "path": "/api/dashboards/import",
+      "description": "Import a dashboard from JSON"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboards/export/{uid}",
+      "description": "Export a dashboard as JSON"
+    },
+    {
+      "method": "POST",
+      "path": "/api/dashboards/{uid}/duplicate",
+      "description": "Duplicate a dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/folders",
+      "description": "List dashboard folders"
+    },
+    {
+      "method": "POST",
+      "path": "/api/folders",
+      "description": "Create a dashboard folder"
+    },
+    {
+      "method": "POST",
+      "path": "/query",
+      "description": "Execute a dashboard query (legacy)"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboards",
+      "description": "Save a dashboard (legacy)"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboards",
+      "description": "List saved dashboards (legacy)"
+    }
   ],
   "ui_components": [
-    {"id": "dashboards-main", "name": "Dashboard View", "mount_point": "MainPage", "bundle_path": "ui/dashboards.js"},
-    {"id": "dashboards-dashboard", "name": "Dashboard Widget", "mount_point": "Dashboard", "bundle_path": "ui/dashboards.js"}
+    {
+      "id": "dashboards-main",
+      "name": "Dashboard View",
+      "mount_point": "MainPage",
+      "bundle_path": "ui/dashboards.js"
+    },
+    {
+      "id": "dashboards-dashboard",
+      "name": "Dashboard Widget",
+      "mount_point": "Dashboard",
+      "bundle_path": "ui/dashboards.js"
+    }
   ],
   "capabilities": {
     "version": 1,

@@ -32,4 +32,4 @@ pub mod translator;
 pub use ast::Expr;
 pub use parser::parse;
 pub use registry::MetricRegistry;
-pub use translator::{PostStep, TranslatedQuery, translate};
+pub use translator::{translate, PostStep, TranslatedQuery};

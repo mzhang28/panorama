@@ -6,12 +6,12 @@
  * data directory on a random port, loading pre-built .panoapp plugins.
  */
 
-import { spawn, ChildProcess } from 'child_process';
-import { createServer } from 'net';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { fileURLToPath } from 'url';
+import { spawn, ChildProcess } from "child_process";
+import { createServer } from "net";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,24 +27,31 @@ export interface ServerInstance {
 export async function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(0, "127.0.0.1", () => {
       const address = server.address();
-      if (typeof address === 'object' && address !== null) {
+      if (typeof address === "object" && address !== null) {
         const port = address.port;
         server.close(() => resolve(port));
       } else {
-        server.close(() => reject(new Error('Failed to get port')));
+        server.close(() => reject(new Error("Failed to get port")));
       }
     });
-    server.on('error', reject);
+    server.on("error", reject);
   });
 }
 
-export async function waitForUrl(url: string, attempts = 150, interval = 100, desc = 'server'): Promise<boolean> {
-  let lastError = '';
+export async function waitForUrl(
+  url: string,
+  attempts = 150,
+  interval = 100,
+  desc = "server",
+): Promise<boolean> {
+  let lastError = "";
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': 'E2E-Instance' } });
+      const res = await fetch(url, {
+        headers: { "User-Agent": "E2E-Instance" },
+      });
       if (res.status >= 200 && res.status < 400) {
         if (i > 0) {
           console.error(`  ✓ ${desc} ready after ${i * interval}ms`);
@@ -57,16 +64,22 @@ export async function waitForUrl(url: string, attempts = 150, interval = 100, de
     }
     // Log first failure immediately for debugging
     if (i === 0) {
-      console.error(`  … waiting for ${desc} at ${url} (first attempt: ${lastError})`);
+      console.error(
+        `  … waiting for ${desc} at ${url} (first attempt: ${lastError})`,
+      );
     }
     await new Promise((r) => setTimeout(r, interval));
   }
-  console.error(`  ✗ Timed out waiting for ${desc} at ${url} (last error: ${lastError})`);
+  console.error(
+    `  ✗ Timed out waiting for ${desc} at ${url} (last error: ${lastError})`,
+  );
   return false;
 }
 
-export async function spawnInstance(customRepoRoot?: string): Promise<ServerInstance> {
-  const repoRoot = customRepoRoot ?? path.resolve(__dirname, '..');
+export async function spawnInstance(
+  customRepoRoot?: string,
+): Promise<ServerInstance> {
+  const repoRoot = customRepoRoot ?? path.resolve(__dirname, "..");
   const serverPort = await findFreePort();
 
   console.error(`[instance] repoRoot: ${repoRoot}`);
@@ -74,16 +87,20 @@ export async function spawnInstance(customRepoRoot?: string): Promise<ServerInst
   console.error(`[instance] port: ${serverPort}`);
 
   // Create temporary data directory
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'panorama_instance_'));
-  const pluginsDir = path.join(tempDir, 'plugins');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "panorama_instance_"));
+  const pluginsDir = path.join(tempDir, "plugins");
   fs.mkdirSync(pluginsDir, { recursive: true });
   console.error(`[instance] dataDir: ${tempDir}`);
 
   // Copy .panoapp files into isolated data dir
-  const panoappDir = path.join(repoRoot, 'dist', 'panoapp');
+  const panoappDir = path.join(repoRoot, "dist", "panoapp");
   if (fs.existsSync(panoappDir)) {
-    const panoappFiles = fs.readdirSync(panoappDir).filter((f) => f.endsWith('.panoapp'));
-    console.error(`[instance] panoapp dir: ${panoappDir} (${panoappFiles.length} files)`);
+    const panoappFiles = fs
+      .readdirSync(panoappDir)
+      .filter((f) => f.endsWith(".panoapp"));
+    console.error(
+      `[instance] panoapp dir: ${panoappDir} (${panoappFiles.length} files)`,
+    );
     for (const file of panoappFiles) {
       fs.copyFileSync(path.join(panoappDir, file), path.join(pluginsDir, file));
     }
@@ -92,63 +109,88 @@ export async function spawnInstance(customRepoRoot?: string): Promise<ServerInst
   }
 
   // Prefer debug binary for tests (release has rust-embed SIGSEGV issues)
-  const debugBin = path.join(repoRoot, 'target', 'debug', 'panorama-server');
-  const releaseBin = path.join(repoRoot, 'target', 'release', 'panorama-server');
+  const debugBin = path.join(repoRoot, "target", "debug", "panorama-server");
+  const releaseBin = path.join(
+    repoRoot,
+    "target",
+    "release",
+    "panorama-server",
+  );
   const serverBin = fs.existsSync(debugBin) ? debugBin : releaseBin;
-  console.error(`[instance] server binary: ${serverBin} (debug exists: ${fs.existsSync(debugBin)}, release exists: ${fs.existsSync(releaseBin)})`);
+  console.error(
+    `[instance] server binary: ${serverBin} (debug exists: ${fs.existsSync(debugBin)}, release exists: ${fs.existsSync(releaseBin)})`,
+  );
 
   if (!fs.existsSync(serverBin)) {
-    throw new Error(`Server binary not found at ${debugBin} or ${releaseBin} — build first (e.g. \`just build\`)`);
+    throw new Error(
+      `Server binary not found at ${debugBin} or ${releaseBin} — build first (e.g. \`just build\`)`,
+    );
   }
 
   const env = {
     ...process.env,
     PANORAMA_DATA_DIR: tempDir,
     PANORAMA_LISTEN: `127.0.0.1:${serverPort}`,
-    RUST_LOG: process.env.RUST_LOG || 'info',
+    RUST_LOG: process.env.RUST_LOG || "info",
   };
 
   console.error(`[instance] spawning: ${serverBin}`);
-  const serverProcess: ChildProcess = spawn(serverBin, [], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let serverLogs = '';
-  serverProcess.stdout?.on('data', (chunk) => { serverLogs += chunk.toString(); });
-  serverProcess.stderr?.on('data', (chunk) => { serverLogs += chunk.toString(); });
+  const serverProcess: ChildProcess = spawn(serverBin, [], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let serverLogs = "";
+  serverProcess.stdout?.on("data", (chunk) => {
+    serverLogs += chunk.toString();
+  });
+  serverProcess.stderr?.on("data", (chunk) => {
+    serverLogs += chunk.toString();
+  });
 
   // Log server output as it arrives
-  serverProcess.stdout?.on('data', (chunk: Buffer) => {
+  serverProcess.stdout?.on("data", (chunk: Buffer) => {
     process.stderr.write(`[server stdout] ${chunk.toString()}`);
   });
-  serverProcess.stderr?.on('data', (chunk: Buffer) => {
+  serverProcess.stderr?.on("data", (chunk: Buffer) => {
     process.stderr.write(`[server stderr] ${chunk.toString()}`);
   });
 
-  serverProcess.on('exit', (code, signal) => {
-    console.error(`[instance] server process exited with code=${code} signal=${signal}`);
+  serverProcess.on("exit", (code, signal) => {
+    console.error(
+      `[instance] server process exited with code=${code} signal=${signal}`,
+    );
   });
-  serverProcess.on('error', (err) => {
+  serverProcess.on("error", (err) => {
     console.error(`[instance] server process error: ${err.message}`);
   });
 
   const url = `http://127.0.0.1:${serverPort}`;
-  const ready = await waitForUrl(`${url}/api/plugins`, 150, 100, `instance on port ${serverPort}`);
+  const ready = await waitForUrl(
+    `${url}/api/plugins`,
+    150,
+    100,
+    `instance on port ${serverPort}`,
+  );
 
   if (!ready) {
     if (serverLogs) {
-      console.error(`--- Server logs for port ${serverPort} ---\n${serverLogs}\n--- End server logs ---`);
+      console.error(
+        `--- Server logs for port ${serverPort} ---\n${serverLogs}\n--- End server logs ---`,
+      );
     } else {
       console.error(`(no server output captured for port ${serverPort})`);
     }
-    serverProcess.kill('SIGKILL');
+    serverProcess.kill("SIGKILL");
     fs.rmSync(tempDir, { recursive: true, force: true });
     throw new Error(`Server failed to start on port ${serverPort}`);
   }
 
   const stop = async () => {
     try {
-      serverProcess.kill('SIGTERM');
+      serverProcess.kill("SIGTERM");
     } catch {
       try {
-        serverProcess.kill('SIGKILL');
+        serverProcess.kill("SIGKILL");
       } catch {
         // ignore
       }
@@ -171,24 +213,30 @@ export async function spawnInstance(customRepoRoot?: string): Promise<ServerInst
 
 // CLI entrypoint if executed directly
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
-  const command = process.argv[2] || 'start';
+  const command = process.argv[2] || "start";
 
-  if (command === 'start') {
+  if (command === "start") {
     const instance = await spawnInstance();
-    console.log(JSON.stringify({
-      port: instance.port,
-      url: instance.url,
-      dataDir: instance.dataDir,
-      pid: instance.pid,
-    }));
-  } else if (command === 'stop') {
+    console.log(
+      JSON.stringify({
+        port: instance.port,
+        url: instance.url,
+        dataDir: instance.dataDir,
+        pid: instance.pid,
+      }),
+    );
+  } else if (command === "stop") {
     const pid = parseInt(process.argv[3], 10);
     const dataDir = process.argv[4];
     if (pid) {
-      try { process.kill(pid, 'SIGTERM'); } catch {}
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {}
     }
     if (dataDir && fs.existsSync(dataDir)) {
-      try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch {}
+      try {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+      } catch {}
     }
   }
 }

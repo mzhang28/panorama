@@ -1,4 +1,4 @@
-const BASE = '';
+const BASE = "";
 
 export interface Node {
   id: string;
@@ -42,10 +42,13 @@ export interface UiComponentDef {
 }
 
 // Node API
-export async function createNode(fields: Record<string, FieldValue>, spaceId?: string): Promise<Node> {
+export async function createNode(
+  fields: Record<string, FieldValue>,
+  spaceId?: string,
+): Promise<Node> {
   const res = await fetch(`${BASE}/api/nodes`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fields, space_id: spaceId }),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -58,10 +61,13 @@ export async function getNode(id: string): Promise<Node> {
   return res.json();
 }
 
-export async function updateNode(id: string, fields: Record<string, FieldValue>): Promise<Node> {
+export async function updateNode(
+  id: string,
+  fields: Record<string, FieldValue>,
+): Promise<Node> {
   const res = await fetch(`${BASE}/api/nodes/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fields }),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -69,11 +75,13 @@ export async function updateNode(id: string, fields: Record<string, FieldValue>)
 }
 
 export async function deleteNode(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/nodes/${id}`, { method: 'DELETE' });
+  const res = await fetch(`${BASE}/api/nodes/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
 }
 
-export async function queryNodes(params: Record<string, string> = {}): Promise<Node[]> {
+export async function queryNodes(
+  params: Record<string, string> = {},
+): Promise<Node[]> {
   const query = new URLSearchParams(params).toString();
   const res = await fetch(`${BASE}/api/nodes?${query}`);
   if (!res.ok) throw new Error(await res.text());
@@ -82,14 +90,22 @@ export async function queryNodes(params: Record<string, string> = {}): Promise<N
   if (data && Array.isArray(data.rows)) {
     return data.rows.map((row: any) => {
       let fields = row.fields_json;
-      if (typeof fields === 'string') {
-        try { fields = JSON.parse(fields); } catch { fields = {}; }
+      if (typeof fields === "string") {
+        try {
+          fields = JSON.parse(fields);
+        } catch {
+          fields = {};
+        }
       }
       return {
         id: row.id,
         fields: fields || {},
-        space_id: row.space_id || '00000000-0000-0000-0000-000000000000',
-        preferred_schemas: row.preferred_schemas_json ? (typeof row.preferred_schemas_json === 'string' ? JSON.parse(row.preferred_schemas_json) : row.preferred_schemas_json) : [],
+        space_id: row.space_id || "00000000-0000-0000-0000-000000000000",
+        preferred_schemas: row.preferred_schemas_json
+          ? typeof row.preferred_schemas_json === "string"
+            ? JSON.parse(row.preferred_schemas_json)
+            : row.preferred_schemas_json
+          : [],
         created_at: row.created_at || new Date().toISOString(),
         updated_at: row.updated_at || new Date().toISOString(),
       };
@@ -117,9 +133,13 @@ export async function getPlugin(id: string): Promise<PluginInfo> {
 }
 
 // Object storage API
-export async function uploadObject(bucket: string, key: string, data: Blob): Promise<any> {
+export async function uploadObject(
+  bucket: string,
+  key: string,
+  data: Blob,
+): Promise<any> {
   const res = await fetch(`${BASE}/api/objects/${bucket}/${key}`, {
-    method: 'PUT',
+    method: "PUT",
     body: data,
   });
   return res.json();
@@ -129,13 +149,13 @@ export async function uploadObject(bucket: string, key: string, data: Blob): Pro
 export async function callPluginEndpoint(
   pluginId: string,
   endpoint: string,
-  method: string = 'GET',
+  method: string = "GET",
   body?: any,
 ): Promise<Response> {
   const url = `${BASE}/plugin/${pluginId}/${endpoint}`;
   const opts: RequestInit = {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
   };
   return fetch(url, opts);

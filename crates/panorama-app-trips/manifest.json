@@ -1,49 +1,190 @@
 {
-  "manifest_version": 1, "id": "io.mzhang.panorama.trips", "name": "Trip Planner", "version": "0.1.0",
+  "manifest_version": 1,
+  "id": "io.mzhang.panorama.trips",
+  "name": "Trip Planner",
+  "version": "0.1.0",
   "description": "Trip planner with events, calendar view, and map view",
   "author": "Panorama",
   "schemas": [
     {
-      "name": "Trip", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
+      "name": "Trip",
+      "version": { "major": 1, "minor": 0 },
+      "schema_mode": "Preferred",
       "fields": [
-        {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Trip name", "computed": null},
-        {"name": "start_date", "namespace": "trips", "required": true, "field_type": null, "default": null, "description": "Trip start date", "computed": null},
-        {"name": "end_date", "namespace": "trips", "required": false, "field_type": null, "default": null, "description": "Trip end date", "computed": null}
+        {
+          "name": "node_title",
+          "namespace": "system",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Trip name",
+          "computed": null
+        },
+        {
+          "name": "start_date",
+          "namespace": "trips",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Trip start date",
+          "computed": null
+        },
+        {
+          "name": "end_date",
+          "namespace": "trips",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Trip end date",
+          "computed": null
+        }
       ]
     },
     {
-      "name": "Event", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
+      "name": "Event",
+      "version": { "major": 1, "minor": 0 },
+      "schema_mode": "Preferred",
       "fields": [
-        {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Event name", "computed": null},
-        {"name": "node_start_time", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "Event start time", "computed": null},
-        {"name": "node_end_time", "namespace": "system", "required": false, "field_type": null, "default": null, "description": "Event end time", "computed": null},
-        {"name": "trip_id", "namespace": "trips", "required": true, "field_type": null, "default": null, "description": "Reference to parent trip", "computed": null},
-        {"name": "latitude", "namespace": "trips", "required": false, "field_type": null, "default": null, "description": "Location latitude", "computed": null},
-        {"name": "longitude", "namespace": "trips", "required": false, "field_type": null, "default": null, "description": "Location longitude", "computed": null},
-        {"name": "location_name", "namespace": "trips", "required": false, "field_type": null, "default": null, "description": "Human-readable location name", "computed": null},
-        {"name": "notes", "namespace": "trips", "required": false, "field_type": null, "default": null, "description": "Event notes/description", "computed": null}
+        {
+          "name": "node_title",
+          "namespace": "system",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Event name",
+          "computed": null
+        },
+        {
+          "name": "node_start_time",
+          "namespace": "system",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Event start time",
+          "computed": null
+        },
+        {
+          "name": "node_end_time",
+          "namespace": "system",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Event end time",
+          "computed": null
+        },
+        {
+          "name": "trip_id",
+          "namespace": "trips",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Reference to parent trip",
+          "computed": null
+        },
+        {
+          "name": "latitude",
+          "namespace": "trips",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Location latitude",
+          "computed": null
+        },
+        {
+          "name": "longitude",
+          "namespace": "trips",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Location longitude",
+          "computed": null
+        },
+        {
+          "name": "location_name",
+          "namespace": "trips",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Human-readable location name",
+          "computed": null
+        },
+        {
+          "name": "notes",
+          "namespace": "trips",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Event notes/description",
+          "computed": null
+        }
       ]
     }
   ],
   "http_endpoints": [
-    {"method": "POST", "path": "/trips", "description": "Create a trip"},
-    {"method": "GET", "path": "/trips", "description": "List trips"},
-    {"method": "POST", "path": "/events", "description": "Create an event with time and location"},
-    {"method": "GET", "path": "/events", "description": "List events (optionally filter by trip_id)"},
-    {"method": "GET", "path": "/events/map", "description": "Get events with geo data for map view"}
+    { "method": "POST", "path": "/trips", "description": "Create a trip" },
+    { "method": "GET", "path": "/trips", "description": "List trips" },
+    {
+      "method": "POST",
+      "path": "/events",
+      "description": "Create an event with time and location"
+    },
+    {
+      "method": "GET",
+      "path": "/events",
+      "description": "List events (optionally filter by trip_id)"
+    },
+    {
+      "method": "GET",
+      "path": "/events/map",
+      "description": "Get events with geo data for map view"
+    }
   ],
   "ui_components": [
-    {"id": "trips-main", "name": "Trip Planner", "mount_point": "MainPage", "bundle_path": "ui/trips.js"},
-    {"id": "trips-calendar", "name": "Calendar View", "mount_point": {"Custom": "calendar"}, "bundle_path": "ui/calendar.js"},
-    {"id": "trips-map", "name": "Map View", "mount_point": {"Custom": "map"}, "bundle_path": "ui/map.js"}
+    {
+      "id": "trips-main",
+      "name": "Trip Planner",
+      "mount_point": "MainPage",
+      "bundle_path": "ui/trips.js"
+    },
+    {
+      "id": "trips-calendar",
+      "name": "Calendar View",
+      "mount_point": { "Custom": "calendar" },
+      "bundle_path": "ui/calendar.js"
+    },
+    {
+      "id": "trips-map",
+      "name": "Map View",
+      "mount_point": { "Custom": "map" },
+      "bundle_path": "ui/map.js"
+    }
   ],
   "capabilities": {
-    "version": 1, "reason": null, "network_hosts": [],
-    "field_read": ["trips:*", "system:node_title", "system:node_start_time", "system:node_end_time"],
-    "field_write": ["trips:*", "system:node_title", "system:node_start_time", "system:node_end_time"],
-    "write_own_nodes": true, "app_managed_nodes": false,
-    "file_read": false, "file_write": false, "execute": false,
-    "dns_requests": false, "object_storage_read": false, "object_storage_write": false
+    "version": 1,
+    "reason": null,
+    "network_hosts": [],
+    "field_read": [
+      "trips:*",
+      "system:node_title",
+      "system:node_start_time",
+      "system:node_end_time"
+    ],
+    "field_write": [
+      "trips:*",
+      "system:node_title",
+      "system:node_start_time",
+      "system:node_end_time"
+    ],
+    "write_own_nodes": true,
+    "app_managed_nodes": false,
+    "file_read": false,
+    "file_write": false,
+    "execute": false,
+    "dns_requests": false,
+    "object_storage_read": false,
+    "object_storage_write": false
   },
-  "wasm_module": "plugin.wasm", "background_tasks": [], "env_vars": {}
+  "wasm_module": "plugin.wasm",
+  "background_tasks": [],
+  "env_vars": {}
 }

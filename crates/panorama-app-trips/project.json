@@ -42,10 +42,7 @@
         }
       },
       "defaultConfiguration": "development",
-      "dependsOn": [
-        "build-wasm",
-        "panorama-plugin-trips-ui:build"
-      ],
+      "dependsOn": ["build-wasm", "panorama-plugin-trips-ui:build"],
       "inputs": [
         "{projectRoot}/manifest.json",
         "{workspaceRoot}/scripts/package-panoapp.ts",
@@ -53,9 +50,7 @@
         "{workspaceRoot}/target/wasm32-wasip1/release/trips.wasm",
         "{projectRoot}/ui/dist/**/*"
       ],
-      "outputs": [
-        "{workspaceRoot}/dist/panoapp/trips.panoapp"
-      ],
+      "outputs": ["{workspaceRoot}/dist/panoapp/trips.panoapp"],
       "cache": true
     }
   }

@@ -1,34 +1,121 @@
 {
-  "manifest_version": 1, "id": "io.mzhang.panorama.files", "name": "File Manager", "version": "0.1.0",
+  "manifest_version": 1,
+  "id": "io.mzhang.panorama.files",
+  "name": "File Manager",
+  "version": "0.1.0",
   "description": "File uploads with resumable transfers and object storage management",
   "author": "Panorama",
-  "schemas": [{
-    "name": "File", "version": {"major": 1, "minor": 0}, "schema_mode": "Preferred",
-    "fields": [
-      {"name": "node_title", "namespace": "system", "required": true, "field_type": null, "default": null, "description": "File name", "computed": null},
-      {"name": "object_ref", "namespace": "files", "required": true, "field_type": null, "default": null, "description": "Object storage reference (bucket + key)", "computed": null},
-      {"name": "file_size", "namespace": "files", "required": false, "field_type": null, "default": null, "description": "File size in bytes", "computed": null},
-      {"name": "mime_type", "namespace": "files", "required": false, "field_type": null, "default": null, "description": "MIME type of the file", "computed": null},
-      {"name": "folder", "namespace": "files", "required": false, "field_type": null, "default": null, "description": "Virtual folder path for organization", "computed": null}
-    ]
-  }],
+  "schemas": [
+    {
+      "name": "File",
+      "version": { "major": 1, "minor": 0 },
+      "schema_mode": "Preferred",
+      "fields": [
+        {
+          "name": "node_title",
+          "namespace": "system",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "File name",
+          "computed": null
+        },
+        {
+          "name": "object_ref",
+          "namespace": "files",
+          "required": true,
+          "field_type": null,
+          "default": null,
+          "description": "Object storage reference (bucket + key)",
+          "computed": null
+        },
+        {
+          "name": "file_size",
+          "namespace": "files",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "File size in bytes",
+          "computed": null
+        },
+        {
+          "name": "mime_type",
+          "namespace": "files",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "MIME type of the file",
+          "computed": null
+        },
+        {
+          "name": "folder",
+          "namespace": "files",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Virtual folder path for organization",
+          "computed": null
+        }
+      ]
+    }
+  ],
   "http_endpoints": [
-    {"method": "POST", "path": "/upload", "description": "Upload a file (stores in object storage + creates file node)"},
-    {"method": "POST", "path": "/upload/initiate", "description": "Initiate a resumable upload session"},
-    {"method": "GET", "path": "/files", "description": "List uploaded files (optionally filter by folder)"},
-    {"method": "GET", "path": "/files/{id}", "description": "Download a file by node ID"},
-    {"method": "DELETE", "path": "/files/{id}", "description": "Delete a file and its object storage data"}
+    {
+      "method": "POST",
+      "path": "/upload",
+      "description": "Upload a file (stores in object storage + creates file node)"
+    },
+    {
+      "method": "POST",
+      "path": "/upload/initiate",
+      "description": "Initiate a resumable upload session"
+    },
+    {
+      "method": "GET",
+      "path": "/files",
+      "description": "List uploaded files (optionally filter by folder)"
+    },
+    {
+      "method": "GET",
+      "path": "/files/{id}",
+      "description": "Download a file by node ID"
+    },
+    {
+      "method": "DELETE",
+      "path": "/files/{id}",
+      "description": "Delete a file and its object storage data"
+    }
   ],
   "ui_components": [
-    {"id": "files-browser", "name": "File Browser", "mount_point": "MainPage", "bundle_path": "ui/files.js"},
-    {"id": "files-upload", "name": "Upload Panel", "mount_point": "Sidebar", "bundle_path": "ui/upload.js"}
+    {
+      "id": "files-browser",
+      "name": "File Browser",
+      "mount_point": "MainPage",
+      "bundle_path": "ui/files.js"
+    },
+    {
+      "id": "files-upload",
+      "name": "Upload Panel",
+      "mount_point": "Sidebar",
+      "bundle_path": "ui/upload.js"
+    }
   ],
   "capabilities": {
-    "version": 1, "reason": null, "network_hosts": [],
-    "field_read": ["files:*", "system:node_title"], "field_write": ["files:*", "system:node_title"],
-    "write_own_nodes": true, "app_managed_nodes": false,
-    "file_read": false, "file_write": false, "execute": false,
-    "dns_requests": false, "object_storage_read": true, "object_storage_write": true
+    "version": 1,
+    "reason": null,
+    "network_hosts": [],
+    "field_read": ["files:*", "system:node_title"],
+    "field_write": ["files:*", "system:node_title"],
+    "write_own_nodes": true,
+    "app_managed_nodes": false,
+    "file_read": false,
+    "file_write": false,
+    "execute": false,
+    "dns_requests": false,
+    "object_storage_read": true,
+    "object_storage_write": true
   },
-  "wasm_module": "plugin.wasm", "background_tasks": [], "env_vars": {}
+  "wasm_module": "plugin.wasm",
+  "background_tasks": [],
+  "env_vars": {}
 }

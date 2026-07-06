@@ -15,9 +15,7 @@
         }
       },
       "defaultConfiguration": "development",
-      "dependsOn": [
-        "panorama-frontend:build"
-      ],
+      "dependsOn": ["panorama-frontend:build"],
       "inputs": [
         "{projectRoot}/src/**/*",
         "{projectRoot}/Cargo.toml",
