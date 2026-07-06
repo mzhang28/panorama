@@ -86,25 +86,31 @@ struct ResolvedSchema {
 
 // ── Public entry point ──────────────────────────────────────────────────────────
 
+/// Compile an AST query into parameterized SQL (full path: Phase 1 + Phase 2).
 pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String> {
   let query_id = Uuid::new_v4();
 
-  // ── AST → IR lowering (§5) ──────────────────────────────────────────────
-  // The IR captures the query structure independent of parameter values,
-  // providing a stable key for the prepared-statement cache (§7.3) and
-  // an attachment point for query tracing (§8).
-  let _ir = panorama_core::query::ir::lower_to_ir(query);
-
+  // Phase 1: meta lookup — resolve physical schemas from CONFORMS TO
   let mut ctx = CompileCtx::new();
-
-  // ── Phase 1: resolve physical schemas ────────────────────────────────────
   for mc in &query.matches {
     if let Some(wc) = &mc.where_clause {
       extract_conforms_to(&wc.predicate, &mc.variable, conn, &mut ctx)?;
     }
   }
 
-  // ── Phase 2: generate SQL ─────────────────────────────────────────────────
+  // Phase 2: generate SQL from the resolved context
+  compile_phase2(query, conn, ctx, query_id)
+}
+
+/// Phase 2: generate SQL and parameters using an already-populated
+/// `CompileCtx` (Phase 1 already done). Used directly by the statement
+/// cache on IR-shape hits to skip repeated meta-table lookups (§7.3).
+pub fn compile_phase2(
+  query: &Query,
+  conn: &Connection,
+  mut ctx: CompileCtx,
+  query_id: Uuid,
+) -> Result<CompiledQuery, String> {
   let mut ctes: Vec<String> = Vec::new();
   let mut params: Vec<ParamValue> = Vec::new();
   let mut param_idx = 1;
@@ -1148,6 +1154,43 @@ mod tests {
       name.contains("Bob"),
       "name should contain Bob, got: {:?}",
       name
+    );
+  }
+
+  #[test]
+  fn test_type_checking_rejects_boolean_ordering() {
+    let conn = setup_conn();
+    let schema_id = Uuid::new_v4();
+    let tn = &format!("schema_data_{}", schema_id.to_string().replace("-", ""))[..40];
+    conn
+      .execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS {} (node_id TEXT PRIMARY KEY, is_active_col INTEGER);",
+        tn
+      ))
+      .unwrap();
+    MetaStore::upsert_schema_table(
+      &conn,
+      &schema_id,
+      tn,
+      &serde_json::json!({
+        "is_active": {"column": "is_active_col", "type": "Boolean", "indexed": false},
+      }),
+      crate::meta::StorageMode::Hybrid,
+      crate::meta::MigrationState::Stable,
+    )
+    .unwrap();
+
+    // Boolean + ordering operators should be rejected per §3.7
+    let q = parse_query(&format!(
+      r#"MATCH (n) IN space("default") WHERE n CONFORMS TO schema("{}") AND n.is_active > false RETURN n"#,
+      schema_id
+    ))
+    .unwrap();
+    let err = compile(&q, &conn).unwrap_err();
+    assert!(
+      err.contains("not valid") || err.contains("Boolean"),
+      "should reject boolean ordering: {}",
+      err
     );
   }
 }

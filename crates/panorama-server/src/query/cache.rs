@@ -71,6 +71,30 @@ impl StatementCache {
     }
   }
 
+  /// Look up a cached SQL template by IR shape key (§7.3).
+  /// Returns just the SQL string (params are regenerated per query).
+  pub fn get_sql(&self, cache_key: u64) -> Option<String> {
+    let entries = self.entries.lock().unwrap();
+    let result = entries.get(&cache_key).map(|e| e.sql.clone());
+    if result.is_some() {
+      self.touch(cache_key);
+    }
+    result
+  }
+
+  /// Store a SQL template keyed by IR shape hash.
+  pub fn insert_sql(&self, cache_key: u64, sql: String) {
+    let mut entries = self.entries.lock().unwrap();
+    entries.insert(
+      cache_key,
+      CachedEntry {
+        sql,
+        params: Vec::new(),
+      },
+    );
+    self.touch(cache_key);
+  }
+
   /// Clear all cached entries (e.g. after schema migration or index change).
   pub fn clear(&self) {
     self.entries.lock().unwrap().clear();

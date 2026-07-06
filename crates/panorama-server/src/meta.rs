@@ -198,6 +198,7 @@ pub struct NodeSchemaConformance {
 pub struct FieldStat {
   pub ns_id: i64,
   pub field_name: String,
+  pub window_start: String,
   pub read_count: i64,
   pub write_count: i64,
   pub scan_count: i64,
@@ -284,16 +285,18 @@ impl MetaStore {
             CREATE INDEX IF NOT EXISTS idx_nsc_schema_version
                 ON node_schema_conformance(schema_id, version_major, node_id);
 
-            -- Batched field usage statistics
+            -- Batched field usage statistics (§6.5: windowed counters)
+            -- Window is an hourly bucket (truncated to the hour).
             CREATE TABLE IF NOT EXISTS field_stats (
                 ns_id          INTEGER NOT NULL,
                 field_name     TEXT NOT NULL,
+                window_start   TEXT NOT NULL,  -- ISO 8601 hour boundary
                 read_count     INTEGER NOT NULL DEFAULT 0,
                 write_count    INTEGER NOT NULL DEFAULT 0,
                 scan_count     INTEGER NOT NULL DEFAULT 0,
                 order_by_count INTEGER NOT NULL DEFAULT 0,
                 updated_at     TEXT NOT NULL,
-                PRIMARY KEY (ns_id, field_name)
+                PRIMARY KEY (ns_id, field_name, window_start)
             );
             ",
         )?;
@@ -924,16 +927,19 @@ impl MetaStore {
     stats: &[(i64, &str, i64, i64, i64)],
   ) -> Result<(), rusqlite::Error> {
     let now = Utc::now().to_rfc3339();
+    // Truncate to the hour for the window key (§6.5: "hourly buckets rolled up
+    // to a 7- or 30-day view").
+    let window = Utc::now().format("%Y-%m-%dT%H:00:00Z").to_string();
     for (ns_id, field_name, read_inc, scan_inc, order_by_inc) in stats {
       conn.execute(
-                "INSERT INTO field_stats (ns_id, field_name, read_count, write_count, scan_count, order_by_count, updated_at)
-                 VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6)
-                 ON CONFLICT(ns_id, field_name) DO UPDATE SET
+                "INSERT INTO field_stats (ns_id, field_name, window_start, read_count, write_count, scan_count, order_by_count, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7)
+                 ON CONFLICT(ns_id, field_name, window_start) DO UPDATE SET
                    read_count = read_count + excluded.read_count,
                    scan_count = scan_count + excluded.scan_count,
                    order_by_count = order_by_count + excluded.order_by_count,
                    updated_at = excluded.updated_at",
-                params![ns_id, field_name, read_inc, scan_inc, order_by_inc, now],
+                params![ns_id, field_name, window, read_inc, scan_inc, order_by_inc, now],
             )?;
     }
     Ok(())
@@ -973,13 +979,14 @@ impl MetaStore {
     field_name: &str,
   ) -> Result<(), rusqlite::Error> {
     let now = Utc::now().to_rfc3339();
+    let window = Utc::now().format("%Y-%m-%dT%H:00:00Z").to_string();
     conn.execute(
-            "INSERT INTO field_stats (ns_id, field_name, read_count, write_count, scan_count, order_by_count, updated_at)
-             VALUES (?1, ?2, 0, 1, 0, 0, ?3)
-             ON CONFLICT(ns_id, field_name) DO UPDATE SET
+            "INSERT INTO field_stats (ns_id, field_name, window_start, read_count, write_count, scan_count, order_by_count, updated_at)
+             VALUES (?1, ?2, ?3, 0, 1, 0, 0, ?4)
+             ON CONFLICT(ns_id, field_name, window_start) DO UPDATE SET
                write_count = write_count + 1,
                updated_at = excluded.updated_at",
-            params![ns_id, field_name, now],
+            params![ns_id, field_name, window, now],
         )?;
     Ok(())
   }
@@ -991,18 +998,20 @@ impl MetaStore {
     field_name: &str,
   ) -> Result<Option<FieldStat>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-      "SELECT ns_id, field_name, read_count, write_count, scan_count, order_by_count, updated_at
-             FROM field_stats WHERE ns_id = ?1 AND field_name = ?2",
+      "SELECT ns_id, field_name, window_start, read_count, write_count, scan_count, order_by_count, updated_at
+             FROM field_stats WHERE ns_id = ?1 AND field_name = ?2
+             ORDER BY window_start DESC LIMIT 1",
     )?;
     let mut rows = stmt.query_map(params![ns_id, field_name], |row| {
-      let ua_str: String = row.get(6)?;
+      let ua_str: String = row.get(7)?;
       Ok(FieldStat {
         ns_id: row.get(0)?,
         field_name: row.get(1)?,
-        read_count: row.get(2)?,
-        write_count: row.get(3)?,
-        scan_count: row.get(4)?,
-        order_by_count: row.get(5)?,
+        window_start: row.get(2)?,
+        read_count: row.get(3)?,
+        write_count: row.get(4)?,
+        scan_count: row.get(5)?,
+        order_by_count: row.get(6)?,
         updated_at: DateTime::parse_from_rfc3339(&ua_str)
           .map(|d| d.with_timezone(&Utc))
           .unwrap_or_else(|_| Utc::now()),
@@ -1018,18 +1027,19 @@ impl MetaStore {
   /// Get all field stats, ordered by read_count descending.
   pub fn list_field_stats(conn: &Connection) -> Result<Vec<FieldStat>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-      "SELECT ns_id, field_name, read_count, write_count, scan_count, order_by_count, updated_at
+      "SELECT ns_id, field_name, window_start, read_count, write_count, scan_count, order_by_count, updated_at
              FROM field_stats ORDER BY read_count DESC",
     )?;
     let rows = stmt.query_map([], |row| {
-      let ua_str: String = row.get(6)?;
+      let ua_str: String = row.get(7)?;
       Ok(FieldStat {
         ns_id: row.get(0)?,
         field_name: row.get(1)?,
-        read_count: row.get(2)?,
-        write_count: row.get(3)?,
-        scan_count: row.get(4)?,
-        order_by_count: row.get(5)?,
+        window_start: row.get(2)?,
+        read_count: row.get(3)?,
+        write_count: row.get(4)?,
+        scan_count: row.get(5)?,
+        order_by_count: row.get(6)?,
         updated_at: DateTime::parse_from_rfc3339(&ua_str)
           .map(|d| d.with_timezone(&Utc))
           .unwrap_or_else(|_| Utc::now()),

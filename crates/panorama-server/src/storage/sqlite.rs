@@ -187,37 +187,33 @@ impl SqliteBackend {
 
 impl StorageBackend for SqliteBackend {
   fn query(&self, pql: &str) -> Result<Vec<serde_json::Value>, String> {
-    // Check statement cache using source hash. For identical query strings
-    // (common in production for repeated app queries), this avoids re-parsing
-    // and re-compiling. TODO: upgrade to IR-shape key (§7.3) which would also
-    // share cache entries when only literal values differ.
-    let cache_key = {
-      use std::hash::{DefaultHasher, Hash, Hasher};
-      let mut h = DefaultHasher::new();
-      pql.hash(&mut h);
-      h.finish()
-    };
-    if let Some(cached) = self.statement_cache.get(cache_key) {
-      return self.execute_compiled(&crate::query::compiler::CompiledQuery {
-        sql: cached.sql,
-        params: cached.params,
-        query_id: uuid::Uuid::new_v4(),
-      });
+    let ast = panorama_core::query::parse_query(pql).map_err(|e| format!("parse: {}", e))?;
+
+    // Compute the IR-shape cache key (§7.3: "cache keyed on the IR shape
+    // (query structure minus parameter values)").
+    let ir = panorama_core::query::ir::lower_to_ir(&ast);
+    let cache_key = ir.cache_key();
+
+    // Check the statement cache. On hit, compile to get fresh params
+    // (since literal values differ between structurally identical queries),
+    // then execute using the cached SQL template plus fresh params.
+    if let Some(cached_sql) = self.statement_cache.get_sql(cache_key) {
+      let conn = self.read_conn()?;
+      let compiled = compile(&ast, &conn).map_err(|e| format!("compile: {}", e))?;
+      drop(conn);
+      let mut compiled = compiled;
+      compiled.sql = cached_sql;
+      return self.execute_compiled(&compiled);
     }
 
-    let ast = panorama_core::query::parse_query(pql).map_err(|e| format!("parse: {}", e))?;
     let conn = self.read_conn()?;
     let compiled = compile(&ast, &conn).map_err(|e| format!("compile: {}", e))?;
     drop(conn);
 
-    // Store in cache
-    self.statement_cache.insert(
-      cache_key,
-      crate::query::cache::CachedEntry {
-        sql: compiled.sql.clone(),
-        params: compiled.params.clone(),
-      },
-    );
+    // Store SQL template by IR shape key
+    self
+      .statement_cache
+      .insert_sql(cache_key, compiled.sql.clone());
 
     self.execute_compiled(&compiled)
   }
