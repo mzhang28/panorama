@@ -167,7 +167,7 @@ export async function spawnInstance(
   const url = `http://127.0.0.1:${serverPort}`;
   const ready = await waitForUrl(
     `${url}/api/plugins`,
-    150,
+    600,
     100,
     `instance on port ${serverPort}`,
   );

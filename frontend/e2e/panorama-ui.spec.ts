@@ -7,7 +7,7 @@ import { test, expect } from "./fixtures";
 test.describe("Panorama Core UI", () => {
   test("page loads with title and sidebar", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h1")).toContainText("Panorama");
+    await expect(page.locator(".app-shell-title")).toContainText("Panorama");
     await expect(page.locator(".app-shell-sidebar")).toBeVisible();
   });
 
@@ -25,11 +25,11 @@ test.describe("Panorama Core UI", () => {
 
   test("can navigate between views", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h1")).toContainText("Nodes");
+    await expect(page.getByRole("heading", { name: "Nodes" })).toBeVisible();
     await page.click('a:has-text("Schemas")');
     await expect(page.locator("h2")).toContainText("Schemas");
     await page.click('a:has-text("Nodes")');
-    await expect(page.locator("h1")).toContainText("Nodes");
+    await expect(page.getByRole("heading", { name: "Nodes" })).toBeVisible();
   });
 });
 
