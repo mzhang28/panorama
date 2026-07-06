@@ -189,12 +189,6 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
         max_depth,
         ..
       } => {
-        let source_cte = ctx
-          .var_cte
-          .get(&mc.variable)
-          .cloned()
-          .unwrap_or_else(|| format!("_match_{}", mc.variable));
-
         let target_space = match target_source.as_ref() {
           MatchSource::Space(name) => {
             if name == "default" {
@@ -206,6 +200,60 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
           _ => return Err("nested RefTraverse not yet supported".into()),
         };
 
+        // Build a base space-filtered CTE for the source variable if it
+        // doesn't already exist. For `MATCH (a)-[:REF("x")]->(b) IN space(...)`,
+        // the parser produces a single MatchClause with RefTraverse source —
+        // no separate Space match ever runs for `a`, so we must create `a`'s
+        // base CTE here. The source space is the same as the target space
+        // since `IN space(...)` scopes the whole MATCH clause.
+        let source_cte = if let Some(cte) = ctx.var_cte.get(&mc.variable) {
+          cte.clone()
+        } else {
+          let sc = format!("_match_{}_space", mc.variable);
+          if !added_ctes.contains(&sc) {
+            ctes.push(format!(
+              "{} AS (SELECT n.* FROM nodes n WHERE n.space_id = ?{})",
+              sc, param_idx
+            ));
+            params.push(ParamValue::Text(target_space.clone()));
+            param_idx += 1;
+            added_ctes.insert(sc.clone());
+          }
+          ctx.var_cte.insert(mc.variable.clone(), sc.clone());
+          sc
+        };
+
+        // Also resolve conformance + schema data CTEs for the source variable.
+        // The Space arm does this for ordinary matches; we must do it here
+        // since no Space arm ever ran for this variable.
+        let mut pipeline_cte = source_cte.clone();
+        let var_schemas: Vec<&ResolvedSchema> = ctx
+          .resolved_schemas
+          .iter()
+          .filter(|rs| rs.variable == mc.variable)
+          .collect();
+        for rs in &var_schemas {
+          if !added_ctes.contains(&rs.conformance_cte) {
+            ctes.push(format!(
+              "{} AS (SELECT n.id, n.space_id, n.fields_json, n.preferred_schemas_json, n.created_at, n.updated_at FROM {} n JOIN node_schema_conformance c ON n.id = c.node_id WHERE c.schema_id = ?{})",
+              rs.conformance_cte, pipeline_cte, param_idx
+            ));
+            params.push(ParamValue::Text(rs.schema_id.clone()));
+            param_idx += 1;
+            added_ctes.insert(rs.conformance_cte.clone());
+          }
+          pipeline_cte = rs.conformance_cte.clone();
+          if let Some(ref physical) = rs.physical {
+            if !rs.data_cte.is_empty() && !added_ctes.contains(&rs.data_cte) {
+              ctes.push(format!(
+                "{} AS (SELECT sd.*, c.fields_json FROM {} sd JOIN {} c ON c.id = sd.node_id)",
+                rs.data_cte, physical.table_name, rs.conformance_cte
+              ));
+              added_ctes.insert(rs.data_cte.clone());
+            }
+          }
+        }
+
         // Build the traversal join condition using the same json_extract
         // helper as all other field accesses — quoted key with .value unwrap.
         let edge_json_path = format!("\"{}\"", edge_type);
@@ -215,8 +263,9 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
         );
 
         // Emit CTEs for each hop up to max_depth.
-        // Single-hop (depth=1) is the common case.
-        let mut prev_cte = source_cte.clone();
+        // The first hop joins from the source's (possibly schema-filtered)
+        // pipeline CTE; subsequent hops chain from the previous hop's CTE.
+        let mut prev_cte = pipeline_cte.clone();
         for depth in 0..*max_depth {
           let hop_cte = if *max_depth > 1 {
             format!("_traverse_{}_hop{}", target_var, depth)
@@ -224,8 +273,10 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
             format!("_traverse_{}", target_var)
           };
           if !added_ctes.contains(&hop_cte) {
+            // Include source-side fields_json so RETURN can reference both
+            // sides from a single FROM table (avoiding cross-join).
             ctes.push(format!(
-              "{} AS (SELECT t.* FROM nodes t JOIN {} s ON {} WHERE t.space_id = ?{})",
+              "{} AS (SELECT t.*, s.fields_json AS _src_fields_json FROM nodes t JOIN {} s ON {} WHERE t.space_id = ?{})",
               hop_cte, prev_cte, join_condition, param_idx
             ));
             params.push(ParamValue::Text(target_space.clone()));
@@ -241,16 +292,16 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
           prev_cte = hop_cte;
         }
 
-        // Also register source variable's CTE name so RETURN can
-        // reference both sides of the traversal.
-        ctx.var_cte.insert(mc.variable.clone(), source_cte);
+        // Register source variable's pipeline CTE so RETURN can reference
+        // both sides of the traversal.
+        ctx.var_cte.insert(mc.variable.clone(), pipeline_cte);
 
-        // Compile WHERE clause for the target side of the traversal.
-        // The source side's WHERE was already compiled when the source
-        // MATCH clause was processed.
+        // Compile the WHERE clause. Each predicate resolves its own
+        // variable's CTE via field_path.variable, so compiling once
+        // handles predicates for both source and target sides.
         if let Some(wc) = &mc.where_clause {
           let (pred_sql, pred_params) =
-            compile_predicate_for_final(&wc.predicate, &target_var, &ctx, conn, param_idx)?;
+            compile_predicate_for_final(&wc.predicate, &mc.variable, &ctx, conn, param_idx)?;
           if !pred_sql.is_empty() {
             final_where_parts.push(pred_sql);
             param_idx += pred_params.len();
@@ -262,62 +313,64 @@ pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String
   }
 
   // Build SELECT from RETURN clause. Each column may reference a different
-  // variable (e.g. `RETURN a.title, b.name` in a RefTraverse). Determine
-  // the FROM table per-column.
+  // variable (e.g. `RETURN a.title, b.name` in a RefTraverse).
+  // The FROM table is the final match's CTE (the traversal result),
+  // which carries source-side fields as _src_fields_json.
+  //
+  // Determine the primary FROM table: the last CTE in the pipeline chain
+  // registered for the final match clause's variable.
+  let final_var = &query
+    .matches
+    .last()
+    .map(|m| m.variable.clone())
+    .unwrap_or_else(|| "n".into());
+  let primary_cte = ctx
+    .var_cte
+    .get(final_var.as_str())
+    .cloned()
+    .unwrap_or_else(|| "nodes".into());
+
+  // For non-traversal, prefer the schema data CTE if present (for promoted
+  // column access). For RefTraverse, use the last hop CTE.
+  let schema_data_alias = ctx
+    .resolved_schemas
+    .iter()
+    .find(|rs| rs.variable == *final_var && !rs.data_cte.is_empty())
+    .map(|rs| rs.data_cte.clone());
+
+  let traversal_cte = ctx
+    .var_cte
+    .values()
+    .find(|cte| cte.starts_with("_traverse_"))
+    .cloned();
+
+  let effective_from = traversal_cte.or(schema_data_alias).unwrap_or(primary_cte);
+
   let mut select_cols: Vec<String> = Vec::new();
-  let mut from_tables: Vec<String> = Vec::new();
-  let mut from_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+  let mut from_tables: Vec<String> = vec![effective_from.clone()];
 
   for col in &query.return_clause.columns {
     match &col.expression {
       ReturnExpr::Node(var) => {
+        // Whole-node: return from the variable's CTE
         let cte = ctx
           .var_cte
           .get(var)
           .cloned()
           .unwrap_or_else(|| "nodes".into());
-        let schema_alias = ctx
-          .resolved_schemas
-          .iter()
-          .find(|rs| rs.variable == *var && !rs.data_cte.is_empty())
-          .map(|rs| rs.data_cte.clone());
-        let src = schema_alias.as_ref().unwrap_or(&cte);
-        select_cols.push(format!("{cte}.*", cte = src));
-        if from_set.insert(src.clone()) {
-          from_tables.push(src.clone());
-        }
+        select_cols.push(format!("{cte}.*", cte = cte));
       }
       ReturnExpr::Field(fp) => {
         let col_alias = col.alias.clone().unwrap_or_else(|| fp.field.clone());
-        let var_cte = ctx
-          .var_cte
-          .get(&fp.variable)
-          .cloned()
-          .unwrap_or_else(|| "nodes".into());
-        let schema_alias = ctx
-          .resolved_schemas
-          .iter()
-          .find(|rs| rs.variable == fp.variable && !rs.data_cte.is_empty())
-          .map(|rs| rs.data_cte.clone());
-        let from_table = schema_alias.as_ref().unwrap_or(&var_cte);
-        let expr = compile_field_access(fp, &ctx, from_table, &var_cte)?;
+        let expr = compile_field_access(fp, &ctx, &effective_from, &effective_from)?;
         select_cols.push(format!("{} AS {}", expr, col_alias));
-        if from_set.insert(from_table.clone()) {
-          from_tables.push(from_table.clone());
-        }
       }
     }
   }
 
-  // Assemble the full SQL.
-  // Multi-table (RefTraverse) uses FROM cte_a, cte_b (cross join — the CTEs
-  // already embed the join condition). Single-table uses FROM cte.
+  // Assemble the final SQL.
   let select_sql = select_cols.join(", ");
-  let from_clause = if from_tables.is_empty() {
-    "nodes".to_string()
-  } else {
-    from_tables.join(", ")
-  };
+  let from_clause = from_tables.join(", ");
   let mut sql = String::from("WITH ");
   sql.push_str(&ctes.join(",\n  "));
   sql.push_str(&format!(
@@ -397,7 +450,7 @@ fn extract_conforms_to(
         })
         .unwrap_or_default();
 
-      let conformance_cte = format!("_conforming_{}", variable);
+      let conformance_cte = format!("_conforming_{}", field);
 
       ctx.resolved_schemas.push(ResolvedSchema {
         variable: field.clone(),
@@ -456,9 +509,25 @@ fn compile_field_access(
     }
   }
 
-  // Fallback: JSONB extraction from the CTE's fields_json column
+  // Fallback: JSONB extraction from the variable's own CTE, or from
+  // _src_fields_json if the FROM table is a traversal CTE and this
+  // field belongs to the source variable.
   let key = field_path_to_json_key(fp);
-  Ok(json_extract_expr("fields_json", &key))
+  let var_cte = ctx
+    .var_cte
+    .get(&fp.variable)
+    .cloned()
+    .unwrap_or_else(|| "nodes".into());
+
+  // If the FROM table is a traversal CTE (contains "_traverse_") and this
+  // field's variable CTE is NOT the FROM table, the field belongs to the
+  // source side — use _src_fields_json.
+  let col_ref = if from_table.contains("_traverse_") && var_cte != from_table {
+    format!("{}.", from_table) + "_src_fields_json"
+  } else {
+    format!("{}.fields_json", var_cte)
+  };
+  Ok(json_extract_expr(&col_ref, &key))
 }
 
 fn field_path_to_json_key(fp: &FieldPath) -> String {
@@ -569,6 +638,7 @@ fn compile_predicate_inner(
     Predicate::IsNull { field_path, not } => {
       let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final)?;
       enforce_scan(field_path, requires_scan, scan_allowed)?;
+      // IS NULL is valid for all types — no type check needed.
       let null_op = if *not { "IS NOT NULL" } else { "IS NULL" };
       Ok((format!("{} {}", expr, null_op), vec![]))
     }
@@ -578,6 +648,22 @@ fn compile_predicate_inner(
     } => {
       let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final)?;
       enforce_scan(field_path, requires_scan, scan_allowed)?;
+      // IN is valid for string, number, timestamp (§3.7)
+      if let Some(type_tag) = ctx.field_type_for(field_path) {
+        check_operator_for_type(
+          field_path,
+          "IN",
+          type_tag,
+          &[
+            "String",
+            "DateTime",
+            "Integer",
+            "Float",
+            "Timestamp",
+            "Counter",
+          ],
+        )?;
+      }
 
       let mut placeholders = Vec::new();
       let mut vals = Vec::new();
@@ -596,6 +682,10 @@ fn compile_predicate_inner(
     } => {
       let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final)?;
       enforce_scan(field_path, requires_scan, scan_allowed)?;
+      // LIKE is valid for String, RgaText (§3.7)
+      if let Some(type_tag) = ctx.field_type_for(field_path) {
+        check_operator_for_type(field_path, "LIKE", type_tag, &["String", "RgaText"])?;
+      }
       Ok((
         format!("{} LIKE ?{}", expr, pi),
         vec![ParamValue::Text(pattern.clone())],
@@ -607,6 +697,10 @@ fn compile_predicate_inner(
     } => {
       let (expr, requires_scan) = field_sql_expr(field_path, var, ctx, is_final)?;
       enforce_scan(field_path, requires_scan, scan_allowed)?;
+      // CONTAINS is valid for Array, OrSet (§3.7)
+      if let Some(type_tag) = ctx.field_type_for(field_path) {
+        check_operator_for_type(field_path, "CONTAINS", type_tag, &["Array", "OrSet"])?;
+      }
       // For v0, CONTAINS compiles to a LIKE check on the JSON array
       // representation. A proper array-membership index would replace this.
       let val_str = value_to_param(value);
@@ -714,12 +808,34 @@ fn field_sql_expr(
 
 /// Validate that an operator is compatible with a field's declared type
 /// per QUERY_DESIGN.md §3.7 type compatibility table.
+/// Check that an operator name (like "LIKE", "IN", "CONTAINS") is valid for
+/// the given type tag. Used for non-comparison operators that don't have a CmpOp.
+fn check_operator_for_type(
+  fp: &FieldPath,
+  op_name: &str,
+  type_tag: &str,
+  allowed_types: &[&str],
+) -> Result<(), String> {
+  if !allowed_types.contains(&type_tag) {
+    return Err(format!(
+      "{} is not valid for field `{}`.`{}` of type {}",
+      op_name,
+      fp.variable,
+      field_path_to_json_key(fp),
+      type_tag
+    ));
+  }
+  Ok(())
+}
+
 fn check_type_validity(fp: &FieldPath, op: &CmpOp, type_tag: &str) -> Result<(), String> {
   let valid = match type_tag {
-    "String" | "DateTime" | "RgaText" => matches!(
+    "String" | "DateTime" => matches!(
       op,
       CmpOp::Eq | CmpOp::Neq | CmpOp::Lt | CmpOp::Lte | CmpOp::Gt | CmpOp::Gte
     ),
+    // RgaText: no ordering (§3.7: "lexicographic ordering... rarely what anyone wants")
+    "RgaText" => matches!(op, CmpOp::Eq | CmpOp::Neq),
     "Integer" | "Float" | "Counter" | "Timestamp" => matches!(
       op,
       CmpOp::Eq | CmpOp::Neq | CmpOp::Lt | CmpOp::Lte | CmpOp::Gt | CmpOp::Gte
@@ -945,5 +1061,93 @@ mod tests {
         .unwrap();
     let compiled = compile(&q, &conn).unwrap();
     assert!(compiled.sql.contains("LIKE"));
+  }
+
+  #[test]
+  fn test_ref_traverse_compiles_and_executes() {
+    let conn = setup_conn();
+
+    // Insert two nodes: a source node with a ref field pointing to a target
+    let target_id = Uuid::new_v4();
+    let source_id = Uuid::new_v4();
+
+    // Target node: b (has a "name" field)
+    conn
+      .execute(
+        "INSERT INTO nodes (id, space_id, fields_json, preferred_schemas_json, created_at, updated_at)
+         VALUES (?1, ?2, ?3, '[]', '2026-01-01', '2026-01-01')",
+        rusqlite::params![
+          target_id.to_string(),
+          Uuid::nil().to_string(),
+          serde_json::json!({"name": {"type": "String", "value": "Bob"}}).to_string(),
+        ],
+      )
+      .unwrap();
+
+    // Source node: a (has a "title" field and an "attendee" ref pointing to b)
+    conn
+      .execute(
+        "INSERT INTO nodes (id, space_id, fields_json, preferred_schemas_json, created_at, updated_at)
+         VALUES (?1, ?2, ?3, '[]', '2026-01-01', '2026-01-01')",
+        rusqlite::params![
+          source_id.to_string(),
+          Uuid::nil().to_string(),
+          serde_json::json!({
+            "title": {"type": "String", "value": "Meeting"},
+            "attendee": {"type": "NodeRef", "value": target_id.to_string()}
+          }).to_string(),
+        ],
+      )
+      .unwrap();
+
+    // The design's simplest traversal: `MATCH (a)-[:REF("attendee")]->(b) IN space("default") RETURN a.title, b.name`
+    let pql = r#"MATCH (a)-[:REF("attendee")]->(b) IN space("default") RETURN a.title AS title, b.name AS name LIMIT 100"#;
+    let q = parse_query(pql).unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+
+    // Execute the compiled SQL against the database
+    let mut stmt = conn.prepare(&compiled.sql).unwrap();
+    let col_names: Vec<String> = stmt.column_names().iter().map(|c| c.to_string()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = compiled
+      .params
+      .iter()
+      .map(|p| p as &dyn rusqlite::types::ToSql)
+      .collect();
+    let rows: Vec<serde_json::Value> = stmt
+      .query_map(param_refs.as_slice(), |row| {
+        let mut obj = serde_json::Map::new();
+        for (i, col) in col_names.iter().enumerate() {
+          let val: Result<String, _> = row.get(i);
+          obj.insert(
+            col.clone(),
+            match val {
+              Ok(s) => serde_json::Value::String(s),
+              Err(_) => serde_json::Value::Null,
+            },
+          );
+        }
+        Ok(serde_json::Value::Object(obj))
+      })
+      .unwrap()
+      .filter_map(|r| r.ok())
+      .collect();
+
+    assert!(
+      !rows.is_empty(),
+      "traversal should return at least one row, got none. SQL: {}",
+      compiled.sql
+    );
+    let title = rows[0].get("title").and_then(|v| v.as_str()).unwrap_or("");
+    let name = rows[0].get("name").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+      title.contains("Meeting"),
+      "title should contain Meeting, got: {:?}",
+      title
+    );
+    assert!(
+      name.contains("Bob"),
+      "name should contain Bob, got: {:?}",
+      name
+    );
   }
 }
