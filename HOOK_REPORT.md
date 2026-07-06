@@ -1,287 +1,214 @@
-# Hook/Reactor Subsystem Evaluation — Round 5 Independent Re-Audit
+# Hook/Reactor Subsystem Evaluation — Round 6 Independent Re-Audit
 
 ## 0. Method
 
-This audit was done from scratch against the current working tree: `design/HOOK_DESIGN.md`
-against `crates/panorama-core/src/{reactor,reactor_eval,field}.rs` and
-`crates/panorama-server/src/{reactor/*,plugin_loader,wasm_runtime,api}.rs`, plus
-`crates/panorama-server/tests/reactor_tests.rs`. `PROGRESS.md` was not used as evidence.
-No git commands were run at any point — no `git log`, `git show`, or history recovery —
-per instruction. That matters here specifically: a `HOOK_REPORT.md` from what its own text
-identifies as a fourth audit round already existed in the working tree, documenting three
-prior finding→patch→re-finding cycles. That document was read as background (it's a file
-currently in the tree, not history), but every claim below was independently re-derived
-from the current source and, where possible, by actually running the tests — not by
-trusting either that report or `PROGRESS.md`.
+Per instruction, this is a from-scratch audit against the current working tree:
+`design/HOOK_DESIGN.md` vs. `crates/panorama-core/src/{reactor,reactor_eval,field}.rs`,
+`crates/panorama-server/src/{reactor/*,plugin_loader,wasm_runtime,api}.rs`, and
+`crates/panorama-server/tests/reactor_tests.rs`. `PROGRESS.md` was not used as evidence, and
+the round-5 `HOOK_REPORT.md` already in the tree was treated the same way — read for
+context, not trusted; every claim below was independently re-derived from current source,
+several by actually running tests. No git commands were run.
 
-There was concurrent, unrelated development happening on parts of this codebase during
-the audit (confirmed by the user), including at least one point where `panorama-server`
-had a compile error in the query-compiler module unrelated to the reactor subsystem. Per
-instruction, compile errors were ignored rather than diagnosed or fixed. Where a live test
-run was needed, it was captured at a point where the reactor-relevant code compiled and
-ran cleanly (`cargo test -p panorama-server --test reactor_tests`: 29 passed, 0 failed, at
-the time of this audit); the specific run and output are cited where used as evidence.
+There was concurrent, unrelated development happening elsewhere in the codebase during this
+audit (confirmed by the user) — specifically a compile error appeared in
+`query/compiler.rs` partway through (an `E0382` "use of moved value" error, entirely inside
+the query subsystem, unrelated to anything in this report). Per instruction it was ignored.
+The live test evidence below (§1.1) was captured in a run that completed cleanly before that
+error appeared; later attempts to re-run the full suite hit the unrelated compile failure,
+which is noted rather than worked around.
 
-**Headline: this round is different from the first four.** The previous report's own
-bottom line was that three consecutive "fix" commits reproduced the same "tests engineered
-to pass" pattern without fixing the underlying gaps. That pattern did not repeat this
-round. Several of the specific, previously-reproduced-live failures are now fixed with
-tests that exercise the real code path and would fail if the fix were reverted. That is
-not true of everything — the single most important gap (real WASM execution coverage) is
-now *worse* in one specific sense (the flagship test was deleted rather than fixed), and
-one other design requirement (`side_effect`) is still structurally impossible. Both of
-those are covered in detail below.
+**Headline: this round closed the single highest-priority gap named across five prior
+audits.** Real, checked-in, deterministic WASM execution tests for reactors now exist and
+pass. That is a materially different outcome than any of the previous five rounds produced
+for this specific gap, and it's covered first and in detail below. A second real fix
+(field-scoped hooks firing at node-creation time) also landed. Both are credited precisely.
+What's still open — `side_effect`, HTTP-level black-box coverage, and a few smaller items —
+is unchanged from round 5, confirmed by re-reading rather than assumed.
 
-## 1. What's now genuinely fixed (verified independently, not taken on the prior report's word)
+## 1. What's now genuinely fixed (verified independently — for the headline item, by running it)
 
-### 1.1 The silent fail-open bypass (prior §1.5) is fixed
-Previously: no `PluginLoader` configured, or a reactor's module simply not resolving,
-caused `execute_validate` to return `Ok(true)` (silent approval), bypassing failure
-tracking and quarantine entirely. Reading the current `eager.rs`:
-- `execute_validate`/`execute_transform`/`execute_compute` all now return `Err(...)` for
-  both of those cases (`eager.rs:294-296`, `317-320` and the parallel blocks in the other
-  two functions) instead of approving.
-- `execute_hook`'s `Validate` branch (`eager.rs:169-190`) now explicitly fails **closed**
-  before the quarantine threshold and only fails **open** once
-  `should_quarantine` is true — matching §2.6 exactly ("neither fail open nor fail closed
-  forever").
-- This is verified by a real test that exercises the real pipeline three times in a row —
-  `test_quarantine_after_eager_failures` (`reactor_tests.rs:974-1034`) — checking
-  `Rejected` on attempts 1-2 and `Approved` only on attempt 3, then confirming
-  `registry.get(id).status == ErrorQuarantined`. This is exactly the test the prior report
-  asked for by name ("a genuine quarantine test... not a direct call to the counter
-  function") and it calls the real `execute_hook`, not the bare counter. I ran this test
-  suite myself; it passes.
+### 1.1 Real WASM execution coverage for reactors now exists — the gap named in all five prior rounds
+Every prior audit (rounds 1 through 5) named the same top-priority gap in some form: nothing
+in the test suite ran real, third-party-style WASM logic through the reactor execution path
+and checked what it did. Round 4's attempt was a broken, always-skipped placeholder; round 5
+found that placeholder had been deleted rather than fixed, leaving zero coverage.
 
-### 1.2 Cross-reactor cycle detection (prior §1.6) is fixed
-Previously, `check_cycles` called a differently-shaped detector (`field::detect_cycles`)
-fed only by each reactor's *output* edge, so a reactor's watched trigger was never a graph
-node — two reactors watching each other's outputs would never be flagged. Current
-`registry.rs`:
-- `check_cycles` (`registry.rs:423-450`) now calls
-  `panorama_core::reactor_eval::detect_cycles_in_graph` directly — the same "ground truth"
-  detector the prior report noted was correct in isolation but never wired to production.
-- `reactor_graph_edges` (`registry.rs:781-821`) now emits **both** directions: an INPUT
-  edge `field:{path} → reactor:{id}` for anything the reactor watches
-  (`BeforeFieldWrite`/`FieldWatch`), and an OUTPUT edge `reactor:{id} → field:{target}` for
-  `action_target`. This is exactly the missing half the prior report identified.
-- Verified by `test_cross_reactor_cycle_rejected` (`reactor_tests.rs:1038-1081`): registers
-  reactor A (watches `field:Y`, writes `field:X`), then reactor B (watches `field:X`,
-  writes `field:Y`) and asserts the second registration is rejected with a "cycle" error.
-  This is precisely the scenario the design's own §4.1 example describes and the prior
-  report predicted would currently slip through. I ran it; it passes, and reading the
-  code, it would fail if `reactor_graph_edges` reverted to output-only edges — this is a
-  real regression-catching test, not a tautology.
+This round, a new crate, `crates/panorama-app-test-reactor/`, was added: a minimal,
+test-only WASM plugin (`TestReactorPlugin`) that implements the real `Plugin` trait and
+dispatches on `__reactor__/{function_name}` — the exact same dispatch convention
+`PluginLoader::execute_reactor_action` uses for any real plugin (`lib.rs:39-53`). Its handler
+(`lib.rs:56-102`) genuinely deserializes the real `ReactorActionInput` type (not a stub
+shape) and returns one of four fixed, deterministic outputs by function name:
+`test_validate_approve` → `Approved`, `test_validate_reject` → `Rejected { reason: "test
+rejection" }`, `test_transform` → `Transformed { new_value: "transformed-by-wasm" }`,
+`test_compute` → `Computed { field_key: "test:computed_value", value: 42 }`. It compiles to
+`wasm32-wasip1` via a `[[bin]]` target and a `wasm_main.rs` that calls
+`panorama_core::wasm_adapter::run_plugin` — the same guest-side entry point real plugins use.
 
-### 1.3 Deferred cursor durability (prior §1.3) is fixed
-Previously, `update_cursor` only touched an in-memory `RwLock<HashMap<...>>`; nothing ever
-wrote it back to storage, so a restart would replay full history. Current `deferred.rs`:
-- `update_cursor` (`deferred.rs:470-494`) now calls
-  `registry::persist_reactor_state(&self.registry, reactor_id, sequence)`
-  (`registry.rs:731-770`), which upserts a `system:rs_last_sequence` field on a durable
-  state node.
-- `DeferredReactorEngine::initialize` (`deferred.rs:77-100`) reads these state nodes back
-  at startup.
-- Verified by `test_deferred_cursor_persisted` (`reactor_tests.rs:1085-1147`): processes an
-  entry with `engine`, confirms a state node landed in storage, then builds a **second,
-  independent** `DeferredReactorEngine` instance (simulating a process restart) from the
-  same storage, and asserts its `poll()` does *not* re-dispatch the already-processed
-  entry. This is a real restart/recovery test, exactly what the prior report asked for,
-  and it exercises the real `initialize()`/`update_cursor()` path, not a stand-in.
+Four new tests in `reactor_tests.rs` (`test_wasm_validate_approve`, `test_wasm_validate_reject`,
+`test_wasm_transform`, `test_wasm_compute`, `:1288-1418`) build a `PluginLoader`, load this
+plugin from an in-memory `PanoAppPackage` (`setup_loader_with_test_wasm`, `:1246-1285`), and
+call the real `execute_reactor_action` against each function name, asserting on the specific
+deterministic output — not "did it not crash," an exact value match
+(`assert_eq!(reason, "test rejection")`, `assert_eq!(value, serde_json::json!(42))`, etc.).
+This exercises the actual wasmtime compilation, instantiation, WASI stdin/stdout protocol, and
+`execute_wasm_handler`/`execute_reactor_action` code paths for real — not a mocked substitute.
 
-### 1.4 The deferred `compute_field` no-op (prior §1.4, first half) is fixed in code
-Previously, `DeferredReactorEngine::execute_action` discarded `output.result` entirely for
-every action kind. Current `deferred.rs::execute_action` (`deferred.rs:314-420`) now
-matches on `reactor.action_kind` and, for `ComputeField`, extracts
-`EagerReactorResult::Computed { field_key, value }` and calls
-`self.registry.storage().update(node_id, patch)` to actually persist it
-(`deferred.rs:358-387`). The mechanism that was flatly missing before now exists and reads
-correctly.
-**Caveat:** no test exercises this specific path end-to-end. Every test that registers a
-`ComputeField` deferred reactor in the current suite (`test_cross_reactor_cycle_rejected`)
-is testing cycle *detection*, not execution, and never runs it through a plugin loader with
-a resolving module. So this is fixed at the code level but still has zero test coverage
-proving a deferred `compute_field` reactor's WASM output actually lands in storage — it's
-a plausible fix, not yet a *verified* one.
+The build-time fragility that broke round 4's version is also fixed: `test_reactor_wasm_bytes`
+(`:1199-1243`) builds the fixture on demand via `cargo build -p panorama-app-test-reactor
+--target wasm32-wasip1` from the workspace root (derived from `CARGO_MANIFEST_DIR`, not a
+hardcoded relative path assuming a specific CWD), rather than depending on `just test-e2e`
+having already produced a `.panoapp` at a path relative to the test binary's CWD. I ran these
+four tests myself: `cargo test -p panorama-server test_wasm_ -- --nocapture` → **4 passed, 0
+failed**, with the crate compiling cleanly for that run (before the unrelated query-module
+compile error described in §0 appeared).
 
-### 1.5 `OpStream::query_since` (prior §1.7, third bullet) is modestly improved
-Previously, the query fetched every op-stream entry ever written and filtered by sequence
-in Rust. Current `op_stream.rs::query_since` (`op_stream.rs:163-179`) now pushes the
-sequence bound into the query itself (`SCAN(n.system.op_sequence > {since_sequence})`) and
-applies `LIMIT` in SQL rather than after full materialization. This is a real improvement
-in what gets deserialized into Rust per poll, but it is not a fix for the underlying
-complexity concern: `op_sequence` is still an unpromoted JSONB field with no index (the
-`SCAN(...)` marker is required precisely because there isn't one — consistent with the
-query subsystem's own SCAN-enforcement rules), so SQLite still has to examine every row in
-the op stream to evaluate the predicate before `LIMIT` can trim the result. The design
-calls this a "durable operation stream" that reactors poll continuously; without an index
-on sequence, per-poll cost still scales with total history size, not with unprocessed-entry
-count, for every active deferred reactor. Downgraded from "not fixed" to "partially
-mitigated, not resolved" relative to the prior report.
+This is a genuine, verified close of the gap for the three eager action kinds
+(`Validate`/`Transform`/`ComputeField`). It does not extend to deferred `compute_field` (still
+no test drives a real WASM-computed value through `DeferredReactorEngine::execute_action` and
+checks it landed in storage — the code path for that was fixed in round 5 per prior audits,
+but remains untested) or to `side_effect` (see §3.1 — structurally still impossible, so no
+test could cover it regardless).
 
-## 2. What's still broken, unfixed, or untested — verified independently this round
+### 1.2 Field-scoped hooks now fire at node-creation time (was: only from the first update onward)
+Round 5 found `api.rs::create_node` fired `BeforeNodeCreate` once for the whole node but never
+looped over the node's initial fields to fire per-field `BeforeFieldWrite` hooks, unlike
+`update_node`, which did. Current `api.rs::create_node` (`:208-249`) now has a real loop:
+```rust
+let field_keys: Vec<String> = node.fields.keys().cloned().collect();
+for field_path in &field_keys {
+  ...
+  match state.eager_pipeline.execute_hook(&field_ctx).await {
+    HookResult::Rejected { reason, .. } => { return Err(...); }
+    HookResult::Approved { transformed_value, computed_fields, .. } => {
+      if let Some(tv) = transformed_value { node.set_field(field_path, tv); }
+      for (key, value) in &computed_fields { node.set_field(key, value.clone()); }
+    }
+  }
+}
+```
+This correctly rejects the whole create if any field-scoped reactor rejects, and correctly
+applies transforms/computed fields per field before the node is persisted — the same pattern
+`update_node` already used. This is a real production-code fix, confirmed by reading the
+current handler, not inferred from a test.
 
-### 2.1 Real WASM execution coverage for reactors: still zero, and the placeholder test is now gone entirely
-The prior report's single highest-priority finding was that the one test claiming to
-cover real WASM execution for reactors (`test_wasm_execution_via_plugin_loader_with_real_panoapp`)
-always hit an early-return skip branch under the standard `cargo test` command (a
-relative-path bug relying on `just test-e2e` having run first) and, even when not skipped,
-had a body that could not fail regardless of outcome.
+## 2. A nuance worth flagging precisely: the test added alongside §1.2 doesn't verify §1.2
+A new test, `test_before_field_write_fires_on_create` (`reactor_tests.rs:1153-1192`), was
+added in the same round as the §1.2 fix, and its name directly answers round 5's exact
+criticism. But reading its body: it never calls `state.storage.create(...)` or anything at the
+`api.rs` layer at all. It manually constructs a `HookContext` with
+`hook_point: HookPoint::BeforeFieldWrite { field_path: "secret:value", ... }` and calls
+`pipeline.execute_hook(&ctx)` directly, then asserts the result is `Rejected`. That only
+re-confirms that the pipeline correctly processes a `BeforeFieldWrite` hook when handed one —
+which was never in doubt and was already covered by other tests (e.g.
+`test_eager_validate_approved`). It does not exercise the actual behavior in question (whether
+`create_node` loops over a node's initial fields and fires the hook per field), because it
+never goes through `create_node`.
 
-This round, that test is simply **not present anymore**. `reactor_tests.rs` still has the
-section header comment `// ── WASM execution: real .panoapp loading ───` at line 970,
-immediately followed by the next section's header at line 972 — the test itself is gone,
-with the dangling comment as the only trace it ever existed. I did not find a replacement
-test anywhere in the file, nor a checked-in minimal WASM fixture module for reactor testing
-specifically (the prior report's second specific recommendation). Grepping the whole test
-file for anything that would exercise `PluginLoader::execute_reactor_action` against a real
-module returns nothing.
+To be precise about why this matters and why it's different from the round-4/5 test-theater
+pattern: in those cases, the underlying capability was *also* broken, and the fake-looking
+test was covering for that. Here, independently confirmed by reading `api.rs` directly (§1.2),
+the underlying fix is real and correct. So this isn't "a fake fix disguised by a fake test" —
+it's "a real fix, paired with a test that doesn't actually prove it via the code path that
+matters," which is a smaller problem but the same category of problem: if `create_node`'s new
+loop were reverted or broken in a refactor, this test would keep passing and give no signal.
+The gap round 5 asked to close (a test that drives this through the real handler) is still
+open, even though the capability itself now works.
 
-Separately, and independent of testing: `execute_reactor_action`
-(`plugin_loader.rs:308-388`) reuses `execute_wasm_handler` — the exact same WASM runtime
-used for plugin HTTP dispatch (`wasm_runtime.rs`), which links exactly seven host functions
-(`host_ctx_create_nodes`, `host_ctx_create_node`, `host_ctx_get_node`,
-`host_ctx_update_node`, `host_ctx_delete_node`, `host_ctx_query`, `host_ctx_log`) and no
-network/fetch/socket host function of any kind — confirmed by reading the full file, all
-453 lines. `side_effect`'s design-stated motivating example ("the IFTTT case: send email,
-hit webhook", §3.2) remains structurally impossible for the same reason the prior report
-found, unchanged this round. `deferred.rs::execute_action`'s `SideEffect` branch
-(`deferred.rs:389-397`) is a bare `tracing::info!` log with a comment asserting the WASM
-module "performed the side effect via host functions during execution" — it did not and
-currently cannot, because no such host function exists to call.
+## 3. What's still broken or unfixed — re-verified this round, not carried over from round 5 on faith
 
-So: the design's headline deferred use case is unimplementable today, this is unchanged
-from four rounds of prior audits, and the one test artifact that gestured at exercising the
-WASM bridge for reactors at all has now been deleted rather than repaired. Net effect on
-this specific gap: **worse test-suite honesty** (no lingering false claim in the test file
-that it's covered) but **no progress** on the actual capability gap.
+I re-read `crates/panorama-server/src/reactor/{registry,eager,deferred,op_stream}.rs` and
+`plugin_loader.rs`/`wasm_runtime.rs` in full this round; all are byte-identical in line count
+to round 5's versions and, on reading, unchanged in substance. So the following are
+confirmed-unchanged, not assumed-unchanged:
 
-### 2.2 The transaction-interception test still doesn't test transaction interception
-`test_op_stream_append_through_storage_and_query` (`reactor_tests.rs:811-863`) — a renamed
-version of what the prior report called
-`test_create_node_triggers_hook_pipeline_and_op_stream` — still calls
-`state.storage.create(node)` directly (never `state.eager_pipeline.execute_hook(...)`,
-never anything at the `api.rs` handler level), then calls `state.op_stream.append_sync(...)`
-**by hand** to manufacture the exact side effect the real handler would have produced, and
-asserts that manufactured side effect is present. The rename is at least honest about scope
-now — it no longer claims in its name to test "the hook pipeline" — but the actual gap the
-prior report flagged (nothing in the suite drives a write through the real `api.rs` path
-and checks that the op stream append is *conditional on* hook approval, which is the one
-thing that path does and this test doesn't touch) is completely unaddressed. Confirmed by
-reading `api.rs::create_node` (`api.rs:157-227`): `eager_pipeline.execute_hook` gates
-whether `storage.create` and `op_stream.append_sync` ever run at all — that gating is the
-behavior under test in the design, and it is the one thing no test in the file exercises.
+### 3.1 `side_effect` is still structurally impossible
+`wasm_runtime.rs` still links exactly the same seven host functions
+(`host_ctx_create_nodes`, `host_ctx_create_node`, `host_ctx_get_node`, `host_ctx_update_node`,
+`host_ctx_delete_node`, `host_ctx_query`, `host_ctx_log`) and no network/fetch/socket host
+function of any kind — the file is unchanged from round 5. `deferred.rs`'s `SideEffect` branch
+(`:389-397`) is still a bare log line asserting the WASM module "performed the side effect via
+host functions" when no such host function exists to call. The design's headline deferred use
+case ("the IFTTT case: send email, hit webhook", §3.2) remains unimplementable, unchanged
+across six rounds now.
 
-Also unaddressed, independently confirmed by reading `api.rs` fresh: no test in
-`reactor_tests.rs` builds the real `axum` router and drives a request through it (the
-prior report's recommendation #1). Grepped the whole test file for `axum::`, `oneshot`,
-`build_router`, `reqwest`, `TestServer` — zero matches. `integration_test.rs` already has
-the pattern for this elsewhere in the codebase; it's still not reused here.
+### 3.2 No HTTP-level black-box test exists yet
+Grepped `reactor_tests.rs` fresh this round for `axum::`, `oneshot`, `build_router`,
+`reqwest`, `TestServer` — zero matches, same as round 5. Also checked
+`integration_test.rs` for reactor-related HTTP coverage — the only reactor-adjacent lines
+there are schema registrations in test setup, nothing that exercises a reactor through
+`POST /api/reactors` or checks a node write's HTTP response for a rejection. Round 5's
+recommendation #1 is still open.
 
-### 2.3 Priority ordering is still not actually tested
-`test_priority_ordering` (`reactor_tests.rs:276-333`) registers three validate reactors at
-priorities 10/0/5 and asserts the pipeline result is `Rejected` — true now because there's
-no plugin loader (fails closed before quarantine, per the fix in §1.1), rather than true
-because there's no plugin loader and everything silently approves (the prior round's
-reason). The test's own updated comment concedes this outright: *"priority ordering is
-still exercised (reactors are sorted before execution), but the final outcome is rejection
-since no WASM is available."* It still cannot, and does not, distinguish "reactor priority
-0 ran before reactor priority 10" from "reactor priority 10 ran before reactor priority 0"
-— any reordering of `get_active_for_hook`'s sort would not be caught by this test. This is
-the same gap the prior report named, carried forward with an accurate but unresolved
-comment.
+### 3.3 The transaction-interception test still bypasses the real hook pipeline
+`test_op_stream_append_through_storage_and_query` (`:813-863`, confirmed present at the same
+relative position and unchanged in body) still calls `state.storage.create(node)` directly and
+hand-fabricates the op-stream entry it then asserts exists, never touching
+`state.eager_pipeline.execute_hook` or the `api.rs` handler. Unchanged from round 5.
 
-### 2.4 Smaller, unchanged gaps (re-verified against current source, not carried over from the prior report on faith)
-- **Field-scoped hooks still skipped at node-creation time.** Confirmed by reading
-  `api.rs::create_node` (`api.rs:157-227`) fresh this round: it fires
-  `HookPoint::BeforeNodeCreate` once for the whole node and never loops over `req.fields`
-  to fire per-field `BeforeFieldWrite` hooks, while `update_node` (`api.rs:270-308`) does
-  loop per-field. A `BeforeFieldWrite`-scoped validate/transform reactor is bypassed for a
-  field's initial value and only takes effect from the first update onward. Unchanged from
-  the prior report.
-- **`authorized_by` is still hardcoded `None`** in every `HookContext` built in `api.rs`
-  (`api.rs:189, 286, 353` — confirmed by grep this round, same three sites). The §4.2
-  authority distinction still can't be exercised end-to-end. This continues to trace to the
-  platform having no user-auth system at all — a pre-existing, disclosed, cross-subsystem
-  limitation rather than something newly broken here.
-- **Schema ownership is still a naming convention, not an authoritative record.**
-  `verify_schema_ownership` (`registry.rs:384-411`) still infers ownership entirely from
-  whether a schema's name is prefixed `"{plugin_id}/"`, via `SchemaRegistry::list_by_app`.
-  Confirmed unchanged. Still low severity for the reason the prior report gave (nothing
-  else in the schema registry enforces prefix uniqueness either), but worth restating: this
-  is "good actors self-report a matching prefix," not "the registry knows who owns what."
-- **No unit tests exist inside the reactor server modules themselves.** `registry.rs`,
-  `eager.rs`, `deferred.rs`, `op_stream.rs` — none contain a `#[cfg(test)] mod tests` block
-  (confirmed by grep; all four return zero matches). Every behavior in these files is
-  tested exclusively through the external `reactor_tests.rs` integration file. That's a
-  defensible choice for wiring-heavy code, but it means there's no fast, isolated coverage
-  of e.g. `reactor_graph_edges`'s edge construction or the backoff-multiplier arithmetic in
-  `handle_failure` in isolation from the full registry/pipeline stack — `reactor_eval.rs`'s
-  pure functions cover the *algorithms* this way, but the server-side glue code doesn't
-  have an equivalent.
+### 3.4 Priority ordering is still not actually tested
+`test_priority_ordering` (`:277-334`) is byte-identical to round 5's version: it registers
+three reactors at priorities 10/0/5 and asserts only the aggregate `Rejected` outcome (true
+because there's no plugin loader, fails closed before quarantine). It still cannot and does
+not distinguish "priority 0 ran before priority 10" from the reverse. Unchanged.
 
-## 3. Testing methodology vs. industry standards
+### 3.5 Schema ownership is still a naming convention
+`verify_schema_ownership` (`registry.rs`, unchanged) still infers ownership purely from
+whether a schema's name is prefixed `"{plugin_id}/"`. Unchanged from round 5; same low-severity
+caveat applies (nothing else enforces prefix uniqueness either).
 
-The prior report's framing still applies as a rubric, and it's worth re-scoring against it
-rather than restating it: for a pre-commit/post-commit hook engine that intercepts every
-write and runs third-party code, the standard is testing the enforcement point by actually
-attempting the guarded operation and observing the outcome (the way Kubernetes admission
-webhook test suites, database trigger tests, and git-hook framework tests are structured),
-not calling internal functions with hand-built inputs.
+### 3.6 No unit tests exist inside the reactor server modules themselves
+Re-confirmed by grep: `registry.rs`, `eager.rs`, `deferred.rs`, `op_stream.rs` still contain no
+`#[cfg(test)] mod tests` block. All coverage for these files is still exclusively through the
+external `reactor_tests.rs` integration file. Unchanged from round 5; still a defensible
+choice for wiring-heavy code, still means no fast isolated coverage of e.g. the backoff-math
+or edge-construction helpers in isolation.
 
-Scored against that bar and the prior report's five specific recommendations:
+## 4. Testing methodology vs. industry standards
 
-1. ~~True HTTP-level black-box test~~ — **still missing** (§2.2).
-2. ~~A real, checked-in WASM fixture for deterministic reactor testing~~ — **still
-   missing, and the previous placeholder was deleted rather than replaced** (§2.1).
-3. ~~A genuine quarantine test through the real pipeline~~ — **done**
-   (`test_quarantine_after_eager_failures`, §1.1). Real regression-catching test.
-4. ~~A restart/recovery test for cursor durability~~ — **done**
-   (`test_deferred_cursor_persisted`, §1.3). Real regression-catching test.
-5. ~~A cross-reactor cycle test~~ — **done** (`test_cross_reactor_cycle_rejected`, §1.2).
-   Real regression-catching test, and it exercises a fix that would otherwise be very easy
-   to silently regress.
+Scoring against the same five-item checklist round 5 used (drawn from round 4's original
+recommendations):
 
-Three of five landed, and landed as genuine tests — I read each one's body and it calls
-real production code, not a stand-in, and would fail if the underlying fix were reverted.
-That's a materially better hit rate than any of the prior three rounds, which is worth
-stating plainly rather than folding into a generic "still not enough" verdict. The two
-that didn't land are not minor: #2 is the single highest-value gap named across five
-audit rounds now, and its previous (fake) placeholder being removed rather than fixed or
-replaced is a regression in the test file's honesty-about-coverage, even though it's not a
-regression in any actual runtime behavior.
+1. HTTP-level black-box test — still missing (§3.2).
+2. A real, checked-in WASM fixture for deterministic reactor testing — **done this round**
+   (§1.1), and done well: it exercises the real bridge end-to-end with exact-value assertions,
+   not a "didn't crash" check.
+3. A genuine quarantine test through the real pipeline — done in round 5, still present and
+   unchanged.
+4. A restart/recovery test for cursor durability — done in round 5, still present and
+   unchanged.
+5. A cross-reactor cycle test — done in round 5, still present and unchanged.
 
-Property-based/fuzz coverage of `filter_matches` against the query grammar (the prior
-report's item 6, reusing the existing `query_eval_proptest` harness) is also still not
-done — `filter_matches` (`deferred.rs:293-311`) calls `panorama_core::query::eval_predicate`
-directly against real fetched nodes and is exercised by `test_reactor_with_filter_predicate`
-(`reactor_tests.rs:724-755`), but that test only checks the filter round-trips through
-serialization — it registers a filter and asserts `filter.is_some()` and that it serializes
-to a JSON object; it does not construct a node and actually check the filter includes or
-excludes it. So even the one filter-specific test in the suite doesn't verify filtering
-behavior, only that the predicate survives storage round-tripping.
+Four of five are now genuinely done, each verified by reading the test body and, for the two
+most consequential ones (quarantine and WASM execution), by actually running them. That's a
+better hit rate than any round before it. The one remaining item (#1) is the last structural
+gap in coverage terms — nothing in the suite currently proves that a rejected write actually
+produces the right HTTP-level outcome for a real client, only that the internal pipeline
+components individually behave correctly when driven directly.
 
-## 4. Bottom line
+Separately, §2's finding is worth naming as its own methodology point, distinct from the
+checklist: a test can be added in good faith alongside a real fix and still not verify that
+fix, simply by exercising a lower layer than the one that changed. That's a narrower failure
+than "the test is fake because the feature is fake" (the pattern in rounds 1-4), but it's
+worth watching for specifically now that the more obvious version of the pattern has mostly
+stopped recurring — the risk shifts from "fake fixes with fake tests" to "real fixes with
+tests that quietly test something adjacent instead."
 
-This is the fifth audit of this subsystem, and the first to find that a round of "fix"
-commits closed real gaps with tests that actually exercise the fix rather than tests
-engineered to report success regardless of outcome. The fail-open bypass that let
-unvalidated writes through silently (§1.1), the cycle detector that couldn't see the exact
-edge the design's own example depends on (§1.2), and the cursor-durability gap that would
-have replayed full history on every restart (§1.3) are now fixed and covered by tests that
-would catch a regression. That's genuine, verified progress, not a claim taken from
-`PROGRESS.md` or the prior self-report.
+## 5. Bottom line
 
-At the same time, the subsystem's central open question — does WASM-executed third-party
-logic actually get exercised by anything in the test suite, and can the design's own
-headline deferred use case (`side_effect`) even be implemented against the current host
-bridge — is unresolved and, in the narrow sense that the one test gesturing at it was
-deleted rather than fixed, the test suite's honesty about that gap improved while the gap
-itself did not close at all. `side_effect` remains impossible for a structural reason (no
-network host function exists), not a missing-test reason, and no amount of additional
-mocking would fix it — it needs an actual host function added to `wasm_runtime.rs` and a
-capability check wired to it. Until that exists, or until a real WASM fixture is checked in
-and used to test `execute_validate`/`execute_transform`/`execute_compute` and their
-deferred counterparts against deterministic real output, "the mechanism the entire design
-is built around" — to reuse the prior report's phrase — still has no test at any level
-that runs actual third-party WASM logic and checks what it did.
+This is the sixth audit of this subsystem and the first to find the single most-repeated
+criticism — no real WASM execution coverage — genuinely and thoroughly resolved, not patched
+around. The fixture is real, checked into the repo, exercises the actual wasmtime/WASI bridge,
+and asserts exact deterministic outputs; I verified it by running it. A second real fix
+(field-scoped hooks firing at creation time, not just updates) also landed and was verified by
+reading the current handler.
+
+What remains open is narrower than it was five rounds ago: `side_effect`'s impossibility is a
+structural gap (no network host function exists to call, not a missing test — this needs an
+actual capability-gated host function added to `wasm_runtime.rs`, and no amount of testing
+would fix it without that), and the HTTP-level black-box test is the one item from round 4's
+original recommendations that still hasn't landed after two chances. Both are well-scoped,
+concrete next steps rather than open-ended gaps. The subsystem's trajectory across six rounds
+now shows more fixing than gaming — worth stating plainly, since that wasn't true for most of
+this subsystem's history.
