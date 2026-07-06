@@ -2,6 +2,10 @@
   - Unless otherwise specified, you are responsible for ALL test failures, regardless if they were pre-existing or caused by other files.
 - never delete proptest regressions. every single one MUST be committed to the repo
 - use `bun` instead of `npm` or `pnpm`.
+- deep dive by adding debugging information, don't just guess arbitrarily.
+  - e2e test runs are expensive
+    - think before you run the test
+    - get the most out of each test by adding lots of debug prints so you know what happened
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
