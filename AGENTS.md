@@ -1,3 +1,7 @@
+- Never modify documents in the design/ directory.
+- Until otherwise mentioned, we do not have a real deployment.
+  - Do not design for backwards compatibility
+  - Do not keep old legacy methods in the code
 - When I say "all tests must pass", I mean the result of running `just test-e2e` is a zero exit status. Nothing else can substitute for this result.
   - Unless otherwise specified, you are responsible for ALL test failures, regardless if they were pre-existing or caused by other files.
 - never delete proptest regressions. every single one MUST be committed to the repo
@@ -6,7 +10,7 @@
   - e2e test runs are expensive
     - think before you run the test
     - get the most out of each test by adding lots of debug prints so you know what happened
-- we are doing a layout where the ONLY way any of the individual apps interact with the main host is through the third party app API.
+- we are doing a structure where the ONLY way any of the individual apps interact with the main host is through the third party app API.
   - DO NOT HARDCODE ANY APP SPECIFIC THINGS INTO `frontend/` or `crates/panorama-core` or `crates/panorama-server`.
   - if something is not possible via the third party app API, flag it to me and we will discuss how to amend tahe third party app API such that it is.
 

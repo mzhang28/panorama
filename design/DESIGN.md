@@ -118,6 +118,11 @@ Specific workflows to target for v0.0:
 - journal
   - a UI should contain a "daily journal" thing, where entries are stacked vertically so most recent is on top, but each days' journal is saved as a separate note
     - notes should be markdown, but i think it woudl be nice to also have a kind of block-level breakdown of nodes, so a large note can be a node that contains links to paragraphs which are also nodes, but the paragraph nodes may just be there to like allow references to it, while the main note node contains the actual data
+  - other than the daily journal, implements a zettelkasten/digital garden esque personal log
+    - support for rich links into other nodes
+      - backreferences
+    - support for rich text editing in a minimalistic design similar to notion
+      - hypertext should support custom chips a la google docs, that allows linking into nodes etc
 - wakatime functionality
   - exposes an endpoint that a real wakatime client can submit events to, translates them into nodes with a specified schema so we can time-series-index it
 - graph view like grafana
@@ -127,10 +132,10 @@ Specific workflows to target for v0.0:
   - at the very minimum should be able to query things like:
     - how many hours spent on each project in the last week
     - leaderboard of top projects viewed in the past {24h, 7d, etc} the usual grafana query selector
-- trip planner
+- trip planner like wanderlog
   - allow for events during each trip
   - allow for viewing events in a calendar view but also as a map view (use some open source shit for this)
-- beli alternative
+- restaurant rating system like beli
   - rate restaurants, although on a PARTIAL ORDER!! not a total order :P
   - idk if u can pull some public info off OSM or something
 - maybe honestly a subsonic-compatible music interface? so we can stream music
