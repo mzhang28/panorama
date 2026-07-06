@@ -11,5 +11,9 @@
     "cmd-ts": "^0.15.0",
     "jszip": "^3.10.1",
     "nx": "^23.0.1"
+  },
+  "dependencies": {
+    "jiti": "^2.7.0",
+    "use-sync-external-store": "^1.6.0"
   }
 }

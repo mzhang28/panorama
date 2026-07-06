@@ -56,6 +56,7 @@ pub struct PluginLoader {
   storage: NodeStorage,
   schema_registry: SchemaRegistry,
   object_storage: ObjectStorage,
+  wasm_engine: Arc<wasmtime::Engine>,
 }
 
 impl PluginLoader {
@@ -64,6 +65,11 @@ impl PluginLoader {
     schema_registry: SchemaRegistry,
     object_storage: ObjectStorage,
   ) -> Self {
+    let mut config = wasmtime::Config::new();
+    config.async_support(true);
+    let wasm_engine =
+      Arc::new(wasmtime::Engine::new(&config).expect("Failed to initialize WASM engine"));
+
     Self {
       instances: RwLock::new(HashMap::new()),
       wasm_plugins: RwLock::new(HashMap::new()),
@@ -71,6 +77,7 @@ impl PluginLoader {
       storage,
       schema_registry,
       object_storage,
+      wasm_engine,
     }
   }
 
@@ -150,10 +157,7 @@ impl PluginLoader {
 
     // If WASM module is present, compile it now and store for execution
     if let Some(wasm_bytes) = &package.wasm_bytes {
-      let mut config = wasmtime::Config::new();
-      config.async_support(true);
-      let engine = wasmtime::Engine::new(&config).map_err(|e| format!("wasm engine: {}", e))?;
-      let compiled = wasmtime::Module::from_binary(&engine, wasm_bytes)
+      let compiled = wasmtime::Module::from_binary(&self.wasm_engine, wasm_bytes)
         .map_err(|e| format!("wasm compile: {}", e))?;
       tracing::info!(plugin = %plugin_id, "Pre-compiled WASM module");
 
@@ -163,7 +167,7 @@ impl PluginLoader {
           info: info.clone(),
           wasm_bytes: wasm_bytes.clone(),
           compiled: Arc::new(compiled),
-          _engine: Arc::new(engine),
+          _engine: self.wasm_engine.clone(),
           ui_files: package.ui_files.clone(),
         },
       );

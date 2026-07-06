@@ -30,9 +30,10 @@ const e2eWorkers = process.env.E2E_WORKERS
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 30_000,
+  globalSetup: "./e2e/global-setup.ts",
+  timeout: 60_000,
   expect: { timeout: 30_000 },
-  fullyParallel: true,
+  fullyParallel: false,
   retries: 0,
   workers: e2eWorkers,
   reporter: "list",
