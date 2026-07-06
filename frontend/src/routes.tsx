@@ -9,13 +9,13 @@ import {
   Navigate,
   useParams,
 } from "@tanstack/react-router";
-import { useState, useEffect, Suspense } from "react";
+import { useMemo, Suspense } from "react";
 import { listPlugins, listSchemas } from "./api/client";
 import { NodeExplorerHome } from "./components/NodeExplorerHome";
 import { AppShell } from "./components/AppShell";
 import { PluginPanel } from "./components/PluginPanel";
 import { SchemaViewer } from "./components/SchemaViewer";
-import { JournalApp } from "../../crates/panorama-app-journal/ui/src/JournalApp";
+
 import { loadPluginComponent } from "./api/plugin-loader";
 
 // ── Route definitions ─────────────────────────────────────────────────────────
@@ -77,40 +77,17 @@ const appRoute = createRoute({
 
 function PluginAppView() {
   const { pluginId } = useParams({ from: "/app/$pluginId" });
-  const [PluginComponent, setPluginComponent] =
-    useState<React.LazyExoticComponent<
-      React.ComponentType<{ pluginId: string }>
-    > | null>(null);
-
-  useEffect(() => {
-    setPluginComponent(() => loadPluginComponent(pluginId));
-  }, [pluginId]);
-
-  // Journal uses the full-featured host component (not the plugin UI remote)
-  if (pluginId === "io.mzhang.panorama.journal") {
-    return (
-      <div>
-        <Link
-          to="/plugins"
-          style={{ marginBottom: 16, display: "inline-block" }}
-        >
-          ← Back to Plugins
-        </Link>
-        <JournalApp />
-      </div>
-    );
-  }
+  
+  const PluginComponent = useMemo(() => loadPluginComponent(pluginId), [pluginId]);
 
   return (
-    <div>
+    <div key={pluginId}>
       <Link to="/plugins" style={{ marginBottom: 16, display: "inline-block" }}>
         ← Back to Plugins
       </Link>
-      {PluginComponent && (
-        <Suspense fallback={<p>Loading app...</p>}>
-          <PluginComponent pluginId={pluginId} />
-        </Suspense>
-      )}
+      <Suspense fallback={<p>Loading app...</p>}>
+        <PluginComponent pluginId={pluginId} />
+      </Suspense>
     </div>
   );
 }

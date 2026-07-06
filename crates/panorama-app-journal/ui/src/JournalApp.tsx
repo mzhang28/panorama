@@ -3,80 +3,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface Block {
-  id: string;
-  fields: Record<string, { type: string; value: any }>;
-  created_at: string;
-  updated_at: string;
-}
-
-interface BlockNode {
-  n?: Block;
-  id?: string;
-  fields?: Record<string, { type: string; value: any }>;
-  created_at?: string;
-  updated_at?: string;
-}
-
-const PLUGIN_ID = "io.mzhang.panorama.journal";
-
-// ── Self-contained API helper ─────────────────────────────────────────────────
-
-async function callPluginEndpoint(
-  pluginId: string,
-  endpoint: string,
-  method = "GET",
-  body?: unknown,
-): Promise<Response> {
-  const opts: RequestInit = {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  };
-  return fetch(`/plugin/${pluginId}/${endpoint}`, opts);
-}
-
-// ── Field helpers ─────────────────────────────────────────────────────────────
-
-function f(node: BlockNode, key: string): any {
-  return (node?.n || node)?.fields?.[key]?.value;
-}
-
-function fStr(node: BlockNode, key: string): string {
-  const v = f(node, key);
-  return v != null ? String(v) : "";
-}
-
-function fBool(node: BlockNode, key: string): boolean {
-  const v = f(node, key);
-  return v === true || v === "true";
-}
-
-function fJson(node: BlockNode, key: string): any {
-  const v = f(node, key);
-  if (typeof v === "string") {
-    try {
-      return JSON.parse(v);
-    } catch {
-      return v;
-    }
-  }
-  return v;
-}
-
-function normalizeBlock(raw: any): Block {
-  return raw?.n || raw;
-}
-
-// ── API helpers ───────────────────────────────────────────────────────────────
-
-async function api(path: string, method = "GET", body?: any): Promise<any> {
-  const res = await callPluginEndpoint(PLUGIN_ID, path, method, body);
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
+import { Block, BlockNode, api, fStr, fBool, fJson, normalizeBlock } from "./api";
+import { GraphView } from "./GraphView";
+import { TiptapEditor } from "./TiptapEditor";
 
 async function listPages(): Promise<Block[]> {
   const data = await api("pages");
@@ -134,6 +63,7 @@ export function JournalApp() {
   const [showNewBlock, setShowNewBlock] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   const [showBacklinks, setShowBacklinks] = useState(false);
+  const [showGraph, setShowGraph] = useState(false);
 
   const { data: pages = [], isLoading: pagesLoading } = useQuery({
     queryKey: ["journal-pages"],
@@ -227,6 +157,14 @@ export function JournalApp() {
           >
             + New Page
           </button>
+          <button
+            className={`journal-graph-btn ${sidebarLink} ${showGraph ? sidebarLinkActive : ""}`}
+            onClick={() => {
+              setShowGraph(true);
+            }}
+          >
+            🕸️ Graph View
+          </button>
         </div>
 
         <h3 className="journal-sidebar-heading text-[11px] uppercase text-[var(--text-muted)] mb-[var(--space-2)] tracking-wide font-semibold">
@@ -250,6 +188,7 @@ export function JournalApp() {
                   onClick={() => {
                     setSelectedPageId(normalizeBlock(p).id);
                     setShowBacklinks(false);
+                    setShowGraph(false);
                   }}
                   title={day || undefined}
                 >
@@ -268,7 +207,17 @@ export function JournalApp() {
 
       {/* ── Main content ─────────────────────────────────────────────── */}
       <main className="journal-main flex-1 overflow-y-auto p-[var(--space-6)] min-w-0">
-        {showNewBlock ? (
+        {showGraph ? (
+          <div className="h-full w-full flex flex-col">
+            <h2 className="text-[22px] font-bold text-[var(--text)] m-0 mb-[var(--space-4)]">Digital Garden Graph</h2>
+            <div className="flex-1 min-h-0 border border-[var(--border)] rounded-[var(--radius-md)] bg-black/5 overflow-hidden">
+              <GraphView onNodeClick={(id) => {
+                setSelectedPageId(id);
+                setShowGraph(false);
+              }} />
+            </div>
+          </div>
+        ) : showNewBlock ? (
           <NewBlockForm
             parentId={null}
             pageId={null}
@@ -470,11 +419,11 @@ export function BlockView({
         </span>
         {isEditing ? (
           <div className="journal-block-editor flex-1">
-            <textarea
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              rows={Math.max(3, editContent.split("\n").length)}
-              className="journal-block-textarea w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] p-[var(--space-2)] text-[var(--text)] text-[14px] resize-vertical font-mono"
+            <TiptapEditor
+              content={editContent}
+              onChange={setEditContent}
+              onSave={(html) => onSave(id, html)}
+              onCancel={onCancel}
               autoFocus
             />
             <div className="journal-block-editor-actions flex gap-[var(--space-2)] mt-[var(--space-2)]">
@@ -600,18 +549,11 @@ export function NewBlockForm({
               className="journal-new-title-input w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text)] text-[14px]"
             />
           )}
-          <textarea
-            placeholder={isPage ? "Start writing..." : "New block..."}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={2}
-            className="journal-new-textarea w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text)] text-[14px] resize-vertical font-mono"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
+          <TiptapEditor
+            content={content}
+            onChange={setContent}
+            onSave={handleSubmit}
+            minRows={3}
           />
           <div className="journal-new-block-meta flex gap-[var(--space-2)] items-center">
             <input
