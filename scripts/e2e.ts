@@ -157,8 +157,8 @@ const app = command({
       (arg) => arg.includes("--workers") || arg.startsWith("-j"),
     );
     const extraPlaywrightArgs: string[] = [];
-    if (e2eWorkers && !hasWorkersArg) {
-      extraPlaywrightArgs.push(`--workers=${e2eWorkers}`);
+    if (!hasWorkersArg) {
+      extraPlaywrightArgs.push(`--workers=${e2eWorkers || 1}`);
     }
 
     const playwrightCmdArgs = [
