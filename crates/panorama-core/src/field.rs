@@ -112,27 +112,115 @@ pub fn evaluate_simple_expression(
   }
 }
 
-/// Cycle detection for computed field dependencies
+/// Cycle detection for computed field and reactor dependency graphs.
+///
+/// Checks whether adding `field_name` with its `dependencies` to the set of
+/// `all_computed` would create a cycle. Builds an adjacency list and performs
+/// DFS from each dependency of `field_name` — if any path reaches back to
+/// `field_name`, a cycle exists.
+///
+/// `all_computed` is a list of (node_name, dependencies_of_that_node) pairs.
 pub fn detect_cycles(
   field_name: &str,
   dependencies: &[String],
   all_computed: &[(String, Vec<String>)],
 ) -> bool {
-  let mut visited = std::collections::HashSet::new();
-  let mut stack = vec![field_name.to_string()];
-  visited.insert(field_name.to_string());
+  // Build adjacency map: node -> nodes it depends on
+  let mut adjacency: std::collections::HashMap<String, Vec<String>> =
+    std::collections::HashMap::new();
 
-  while let Some(current) = stack.pop() {
-    for dep in dependencies.iter().filter(|d| d.starts_with(&current)) {
-      if visited.contains(dep) {
-        return true; // Cycle detected
-      }
-      visited.insert(dep.clone());
-      // Find dep's own dependencies
-      if let Some((_, dep_deps)) = all_computed.iter().find(|(n, _)| n == dep) {
-        stack.extend(dep_deps.iter().cloned());
+  for (node, deps) in all_computed {
+    adjacency
+      .entry(node.clone())
+      .or_default()
+      .extend(deps.iter().cloned());
+  }
+  // Add the new entry
+  adjacency
+    .entry(field_name.to_string())
+    .or_default()
+    .extend(dependencies.iter().cloned());
+
+  // For each dependency of field_name, check if there's a path back to field_name.
+  // If dep can reach field_name through any chain, we have: field_name → dep → ... → field_name.
+  for dep in dependencies {
+    if has_path_to(dep, field_name, &adjacency, &mut std::collections::HashSet::new()) {
+      return true;
+    }
+  }
+  false
+}
+
+/// DFS helper: can we reach `target` from `start` via the adjacency map?
+fn has_path_to(
+  start: &str,
+  target: &str,
+  adjacency: &std::collections::HashMap<String, Vec<String>>,
+  visited: &mut std::collections::HashSet<String>,
+) -> bool {
+  if start == target {
+    return true;
+  }
+  if !visited.insert(start.to_string()) {
+    return false; // Already explored
+  }
+  if let Some(neighbors) = adjacency.get(start) {
+    for next in neighbors {
+      if has_path_to(next, target, adjacency, visited) {
+        return true;
       }
     }
   }
   false
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_no_cycle_linear_chain() {
+    let all = vec![
+      ("A".into(), vec!["B".into()]),
+      ("B".into(), vec!["C".into()]),
+    ];
+    // Adding C -> D is fine
+    assert!(!detect_cycles("C", &["D".into()], &all));
+  }
+
+  #[test]
+  fn test_simple_cycle_detected() {
+    let all = vec![
+      ("A".into(), vec!["B".into()]),
+    ];
+    // Adding B -> A would create cycle A -> B -> A
+    assert!(detect_cycles("B", &["A".into()], &all));
+  }
+
+  #[test]
+  fn test_self_cycle_detected() {
+    assert!(detect_cycles("A", &["A".into()], &[]));
+  }
+
+  #[test]
+  fn test_long_cycle_detected() {
+    let all = vec![
+      ("A".into(), vec!["B".into()]),
+      ("B".into(), vec!["C".into()]),
+      ("C".into(), vec!["D".into()]),
+    ];
+    // D -> A closes the loop: A -> B -> C -> D -> A
+    assert!(detect_cycles("D", &["A".into()], &all));
+  }
+
+  #[test]
+  fn test_no_false_positive_on_dag() {
+    let all = vec![
+      ("A".into(), vec!["B".into(), "C".into()]),
+      ("B".into(), vec!["D".into()]),
+      ("C".into(), vec!["D".into()]),
+    ];
+    // Diamond pattern, no cycle
+    assert!(!detect_cycles("D", &["E".into()], &all));
+  }
 }

@@ -60,7 +60,7 @@ impl std::fmt::Display for SchemaVersion {
 }
 
 /// All possible field value types in Panorama
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "value")]
 pub enum FieldValue {
   /// Untyped string (user write-in default)
@@ -85,7 +85,7 @@ pub enum FieldValue {
   Binary(Vec<u8>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ObjectRef {
   pub object_id: Uuid,
   pub bucket: String,
@@ -105,6 +105,9 @@ pub mod system_fields {
   pub const UPDATED_AT: &str = "system:updated_at";
   pub const PREFERRED_SCHEMAS: &str = "system:preferred_schemas";
   pub const REQUIRED_SCHEMAS: &str = "system:required_schemas";
+
+  // Reactor subsystem
+  pub const REACTOR_AUTHORIZED_BY: &str = "system:reactor_authorized_by";
 }
 
 impl Node {

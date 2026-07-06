@@ -3,6 +3,8 @@ pub mod field;
 pub mod object_store;
 pub mod plugin;
 pub mod query;
+pub mod reactor;
+pub mod reactor_eval;
 pub mod schema;
 pub mod types;
 #[cfg(target_arch = "wasm32")]
@@ -12,5 +14,7 @@ pub use capabilities::*;
 pub use field::*;
 pub use object_store::*;
 pub use plugin::*;
+pub use reactor::*;
+pub use reactor_eval::*;
 pub use schema::*;
 pub use types::*;

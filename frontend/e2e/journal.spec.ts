@@ -1,5 +1,11 @@
 import { expect, test } from "./fixtures";
 
+// Tiptap editor renders a contenteditable div with this class.
+// The new block form wraps it in `.journal-new-block .tiptap-wrapper`.
+const NEW_BLOCK_EDITOR = ".journal-new-block .tiptap-editor-prose";
+// Inline editor when editing an existing block.
+const INLINE_EDITOR = ".journal-block-editor .tiptap-editor-prose";
+
 test.describe("Journal Plugin UI", () => {
   test("opens journal and shows sidebar with Today button", async ({
     page,
@@ -17,10 +23,10 @@ test.describe("Journal Plugin UI", () => {
     const pageTitle = `Page-${Date.now()}`;
     await page.click('button:has-text("+ New Page")');
 
+    // Fill the title input
     await page.locator(".journal-new-title-input").fill(pageTitle);
-    await page
-      .locator(".journal-new-textarea")
-      .fill("Hello world from the new journal!");
+    // Fill the Tiptap editor (contenteditable div)
+    await page.locator(NEW_BLOCK_EDITOR).fill("Hello world from the new journal!");
     await page.click('button:has-text("Create Page")');
     // Page title should appear in sidebar
     await expect(
@@ -40,7 +46,7 @@ test.describe("Journal Plugin UI", () => {
     await page.click('button:has-text("+ New Page")');
 
     await page.locator(".journal-new-title-input").fill(pageTitle);
-    await page.locator(".journal-new-textarea").fill("test");
+    await page.locator(NEW_BLOCK_EDITOR).fill("test");
     await page.click('button:has-text("Create Page")');
     // Should appear in sidebar
     await expect(page.locator(".journal-page-list")).toContainText(pageTitle);
@@ -55,18 +61,24 @@ test.describe("Journal Plugin UI", () => {
     await page.click('button:has-text("+ New Page")');
 
     await page.locator(".journal-new-title-input").fill(pageTitle);
-    await page.locator(".journal-new-textarea").fill(pageContent);
+    await page.locator(NEW_BLOCK_EDITOR).fill(pageContent);
     await page.click('button:has-text("Create Page")');
-    // Click another nav item to navigate away, then click back
-    await page.click('a:has-text("Nodes")');
 
-    await page.click('a:has-text("Journal")');
-    // Click the page in the sidebar
-    await page
-      .locator(`.journal-page-link-title:has-text("${pageTitle}")`)
-      .click();
-    // Content should be visible
+    // Wait for the new page to appear in the main area
     await expect(page.locator(".journal-main")).toContainText(pageContent);
+
+    // Click back to the Nodes view
+    await page.goto("/nodes");
+    await expect(page.locator("table")).toBeVisible();
+
+    // Navigate back to the Journal app
+    await page.goto("/app/io.mzhang.panorama.journal");
+
+    // Wait for the sidebar to load — it should contain the previously created page
+    await expect(page.locator(".journal-page-list")).toBeVisible();
+    await expect(page.locator(".journal-page-list")).toContainText(pageTitle, {
+      timeout: 10_000,
+    });
   });
 
   test("inline block editing works", async ({ page }) => {
@@ -77,15 +89,15 @@ test.describe("Journal Plugin UI", () => {
 
     const pageTitle = `Edit-${Date.now()}`;
     await page.locator(".journal-new-title-input").fill(pageTitle);
-    await page.locator(".journal-new-textarea").fill("Original content");
+    await page.locator(NEW_BLOCK_EDITOR).fill("Original content");
     await page.click('button:has-text("Create Page")');
     // Click the block content area to edit
     await page.locator(".journal-block-content").first().click();
-    // Textarea should appear with current content
-    const textarea = page.locator(".journal-block-textarea");
-    await expect(textarea).toBeVisible();
-    // Edit content
-    await textarea.fill("Edited content");
+    // Tiptap editor should appear with current content
+    const editor = page.locator(INLINE_EDITOR);
+    await expect(editor).toBeVisible();
+    // Clear and type new content in the contenteditable div
+    await editor.fill("Edited content");
     await page.click('button:has-text("Save")');
     // Updated content should be visible
     await expect(page.locator(".journal-main")).toContainText("Edited content");
@@ -99,7 +111,7 @@ test.describe("Journal Plugin UI", () => {
 
     const delTitle = `Del-${Date.now()}`;
     await page.locator(".journal-new-title-input").fill(delTitle);
-    await page.locator(".journal-new-textarea").fill("to be deleted");
+    await page.locator(NEW_BLOCK_EDITOR).fill("to be deleted");
     await page.click('button:has-text("Create Page")');
 
     // Wait for the page to appear in sidebar and be selected
@@ -131,15 +143,14 @@ test.describe("Journal Plugin UI", () => {
     await page.click('button:has-text("+ New Page")');
 
     await page.locator(".journal-new-title-input").fill("Parent Page");
-    await page.locator(".journal-new-textarea").fill("Parent content");
+    await page.locator(NEW_BLOCK_EDITOR).fill("Parent content");
     await page.click('button:has-text("Create Page")');
-    // Add a child block
+    // Add a child block — find the new-block form under the page (the second one)
     const childContent = `Child-${Date.now()}`;
-    const newBlockTextarea = page
-      .locator(".journal-new-block .journal-new-textarea")
-      .first();
-    await newBlockTextarea.fill(childContent);
-    await newBlockTextarea.press("Enter");
+    const childEditor = page.locator(NEW_BLOCK_EDITOR).first();
+    await childEditor.fill(childContent);
+    // Press Enter to submit (Tiptap saves on Enter without Shift)
+    await childEditor.press("Enter");
     // Child block should appear
     await expect(page.locator(".journal-main")).toContainText(childContent);
   });

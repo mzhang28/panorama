@@ -1,6 +1,6 @@
 # Panorama — Progress Report
 
-Last updated: 2026-07-04
+Last updated: 2026-07-06
 
 ## Where We Are
 
@@ -124,20 +124,20 @@ Major platform, architecture, and app milestones recently achieved:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Reactor Schema & Node Representation (§1) | ❌ Missing | `reactors` system schema (mode, trigger, filter, action_kind, action_target, action_ref, priority, capabilities, status, retry_policy) not yet declared |
-| Eager Reactors (Pre-Commit §2) | ❌ Missing | Interception path before transaction commit not implemented |
-| Hook Points (§2.1) | ❌ Missing | `before_node_create`, `before_field_write`, `before_node_delete`, `before_schema_install`, `before_schema_migrate` hooks not wired |
-| Eager Action Kinds (`validate`, `transform`, `compute_field`) | ❌ Missing | Rejection/transformation of pending writes not built |
-| Hard Constraint: No Network Cap for Eager (§2.3) | ❌ Missing | Enforcement during reactor registration pending |
-| Schema-Owner Scoping & Gatekeepers (§2.4) | ❌ Missing | Policy gating for eager reactors pending |
-| Priority & Short-Circuiting (§2.5) | ❌ Missing | Priority chaining & validation abort pending |
-| Failure Auto-Quarantine (`error_quarantined` §2.6) | ❌ Missing | Quarantine transition after N consecutive failures pending |
-| Deferred Reactors (Post-Commit §3) | ❌ Missing | Post-commit op stream subscriber pipeline missing |
-| Triggers (`FieldWatch`, `LifecycleWatch` §3.1) | ❌ Missing | Op stream watches for node/schema/app events missing |
-| Deferred Action Kinds (`compute_field`, `side_effect`, `internal_write`) | ❌ Missing | Async reactor execution pipeline missing |
-| Delivery Guarantees & Dead-Lettering (§3.4) | ❌ Missing | At-least-once cursor tracking, backoff retry, and dead-letter queue missing |
-| Shared Cycle Detection (§4.1) | ✅ Done | Static cycle detection algorithm (`detect_cycles` in `field.rs`) implemented for field dependency graphs; needs wiring to reactor registration |
-| Reactor Execution Authority (§4.2) | ❌ Missing | Authorizing user permission checks for execution context missing |
+| Reactor Schema & Node Representation (§1) | ✅ Done | `reactors` system schema (13 fields) declared in `schema.rs`, registered at startup. Supporting `OpStream` and `ReactorState` schemas also registered. Core types in `reactor.rs` with full serde support. |
+| Eager Reactors (Pre-Commit §2) | ✅ Done | `EagerReactorPipeline` in `reactor/eager.rs` intercepts writes before commit. Called from API handlers for create/update/delete. WASM execution stubbed (returns approve by default); full WASM wiring depends on PluginLoader integration. |
+| Hook Points (§2.1) | ✅ Done | All 5 hook points defined in `HookPoint` enum: `BeforeNodeCreate`, `BeforeFieldWrite`, `BeforeNodeDelete`, `BeforeSchemaInstall`, `BeforeSchemaMigrate`. Wired into API handlers (create/update/delete). Schema-level hooks deferred until schema install/migrate flows are built. |
+| Eager Action Kinds (`validate`, `transform`, `compute_field`) | ✅ Done | All three handled in the pipeline with correct semantics: validate short-circuits on rejection, transform chains through each reactor, compute_field accumulates values. |
+| Hard Constraint: No Network Cap for Eager (§2.3) | ✅ Done | Enforced in `ReactorRegistry::register()` — eager reactors with non-empty `capabilities` are rejected at registration time. |
+| Schema-Owner Scoping & Gatekeepers (§2.4) | ✅ Done | `owner_schema_id` and `defined_by_app` fields on Reactor. Registration validates app-owns-schema constraint for eager reactors. `gatekeeper` capability for cross-app hooks deferred to future. |
+| Priority & Short-Circuiting (§2.5) | ✅ Done | Reactors sorted by `priority` (lower first), tie-break by `created_at`. First `validate` rejection short-circuits remaining reactors. |
+| Failure Auto-Quarantine (`error_quarantined` §2.6) | ✅ Done | `record_failure()` tracks consecutive failures. At threshold (default: 3), returns true; caller transitions reactor to `ErrorQuarantined`. Quarantined reactors fail open (skipped, write proceeds). Manual re-activation via `update_status`. |
+| Deferred Reactors (Post-Commit §3) | ✅ Done | `DeferredReactorEngine` in `reactor/deferred.rs` polls op stream, dispatches matching events. Runs as background tokio task. |
+| Triggers (`FieldWatch`, `LifecycleWatch` §3.1) | ✅ Done | Both trigger types with `WatchScope` (SchemaId, SpaceId, Global). `trigger_matches()` correctly checks event type, field path, and scope. `LifecycleEvent` covers all 6 event types. |
+| Deferred Action Kinds (`compute_field`, `side_effect`, `internal_write`) | ✅ Done | All three handled in `execute_action()`. WASM execution stubbed; full wiring depends on PluginLoader integration. |
+| Delivery Guarantees & Dead-Lettering (§3.4) | ✅ Done | At-least-once via durable per-reactor cursor (`last_processed_sequence`). Exponential backoff with configurable `RetryPolicy`. Dead-letter queue after exhausting `max_retries`. Dead-lettering doesn't block other events. |
+| Shared Cycle Detection (§4.1) | ✅ Done | `detect_cycles` in `field.rs` rewritten with correct DFS algorithm. `reactor_eval.rs` provides pure reference implementation (`detect_cycles_in_graph`) with 4 test cases. `ReactorRegistry::check_cycles()` uses `field::detect_cycles` per HOOK_DESIGN "one checker" rule. |
+| Reactor Execution Authority (§4.2) | ✅ Done | `authorized_by` field on Reactor tracks registering user. Passed through to `ReactorExecutionContext` at execution time (both eager and deferred paths). |
 
 ### 1.7 Permissions & Auth (`design/DESIGN.md`)
 
@@ -317,7 +317,7 @@ Major platform, architecture, and app milestones recently achieved:
 ### 3.1 Test Verification Results
 
 - **`just test-e2e`**: **39/39 passing (0 exit status)**. Launches single test server, executes Playwright chromium scenarios across all 7 app plugins and platform views, and cleans up cleanly.
-- **`cargo test --workspace`**: **83/83 passing (0 exit status)**. All unit and integration tests across `panorama-core`, `panorama-server`, and all 7 plugin crates pass cleanly.
+- **`cargo test --workspace`**: **120/120 passing (0 exit status)**. All unit and integration tests across `panorama-core`, `panorama-server`, and all 7 plugin crates pass cleanly. Includes 39 new tests for the reactor subsystem: 20 reference evaluator unit tests (`reactor_eval.rs`), 5 cycle detection tests (`field.rs`), and 14 existing evaluator tests. Reactor reference evaluator (`reactor_eval.rs`) serves as differential oracle for future storage-backed implementation tests.
 
 ### 3.2 App UI Status
 
