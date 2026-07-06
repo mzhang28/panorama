@@ -7,145 +7,21 @@ import {
   createRouter,
   Link,
   Navigate,
-  Outlet,
   useParams,
 } from "@tanstack/react-router";
 import { useState, useCallback, useEffect, Suspense } from "react";
 import { listPlugins, listSchemas } from "./api/client";
-import { NodeViewer } from "./components/NodeViewer";
+import { NodeExplorerHome } from "./components/NodeExplorerHome";
+import { AppShell } from "./components/AppShell";
 import { PluginPanel } from "./components/PluginPanel";
 import { SchemaViewer } from "./components/SchemaViewer";
 import { JournalApp } from "./components/JournalApp";
 import { loadPluginComponent } from "./api/plugin-loader";
 
-import { ThemeSwitcher } from "./theme";
-
-// ── Root layout ───────────────────────────────────────────────────────────────
-
-function RootLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
-
-  const { data: plugins = [] } = useQuery({
-    queryKey: ["plugins"],
-    queryFn: listPlugins,
-  });
-
-  const { data: schemas = [] } = useQuery({
-    queryKey: ["schemas"],
-    queryFn: listSchemas,
-  });
-
-  return (
-    <div className="app-container">
-      {/* Sidebar overlay for mobile */}
-      <div
-        className={`sidebar-overlay${sidebarOpen ? " open" : ""}`}
-        onClick={closeSidebar}
-      />
-
-      <aside className={`sidebar${sidebarOpen ? " open" : ""}`}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
-          Panorama
-        </h1>
-        <p className="text-muted">Data Layer Platform</p>
-
-        <nav
-          style={{
-            marginTop: 20,
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <Link
-            to="/nodes"
-            className="nav-btn"
-            activeProps={{ className: "nav-btn primary" }}
-            onClick={closeSidebar}
-          >
-            Nodes
-          </Link>
-          <Link
-            to="/schemas"
-            className="nav-btn"
-            activeProps={{ className: "nav-btn primary" }}
-            onClick={closeSidebar}
-          >
-            Schemas ({schemas.length})
-          </Link>
-          <Link
-            to="/plugins"
-            className="nav-btn"
-            activeProps={{ className: "nav-btn primary" }}
-            onClick={closeSidebar}
-          >
-            Plugins ({plugins.length})
-          </Link>
-        </nav>
-
-        <div style={{ marginTop: 20 }}>
-          <h3
-            style={{
-              fontSize: 12,
-              textTransform: "uppercase",
-              color: "var(--text-muted)",
-              marginBottom: 8,
-            }}
-          >
-            Installed Apps
-          </h3>
-          {plugins.map((p) => (
-            <Link
-              key={p.id}
-              to="/app/$pluginId"
-              params={{ pluginId: p.id }}
-              className="nav-btn plugin-nav-btn"
-              onClick={closeSidebar}
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                marginTop: 4,
-              }}
-            >
-              <div style={{ fontWeight: 600 }}>{p.name}</div>
-              <div className="text-muted" style={{ fontSize: 11 }}>
-                v{p.version}
-              </div>
-            </Link>
-          ))}
-          {plugins.length === 0 && (
-            <p className="text-muted" style={{ fontSize: 12 }}>
-              No apps installed. Place .panoapp files in data/plugins/
-            </p>
-          )}
-        </div>
-
-        <ThemeSwitcher />
-      </aside>
-
-      <main className="main-content">
-        {/* Hamburger */}
-        <button
-          className="hamburger"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          aria-label="Toggle menu"
-          style={{ marginBottom: 12 }}
-        >
-          ☰
-        </button>
-
-        <Outlet />
-      </main>
-    </div>
-  );
-}
-
 // ── Route definitions ─────────────────────────────────────────────────────────
 
 const rootRoute = createRootRoute({
-  component: RootLayout,
+  component: AppShell,
 });
 
 // Index: redirect to /nodes
@@ -159,7 +35,7 @@ const indexRoute = createRoute({
 const nodesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/nodes",
-  component: () => <NodeViewer />,
+  component: () => <NodeExplorerHome />,
 });
 
 // /schemas
