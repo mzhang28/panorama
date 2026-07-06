@@ -108,16 +108,6 @@ export function NodeTableCondensed({ nodes }: NodeTableCondensedProps) {
     initialState: { pagination: { pageSize: 10 } },
   });
 
-  if (nodes.length === 0) {
-    return (
-      <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-[var(--radius-md)] p-[var(--space-6)]">
-        <p className="text-[var(--text-dim)] text-sm text-center py-[var(--space-8)]">
-          No nodes found
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-[var(--radius-md)] overflow-hidden">
       {/* Search bar */}
@@ -155,6 +145,16 @@ export function NodeTableCondensed({ nodes }: NodeTableCondensedProps) {
             ))}
           </thead>
           <tbody>
+            {table.getRowModel().rows.length === 0 && (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-[var(--space-4)] py-[var(--space-8)] text-center text-[var(--text-dim)] text-sm"
+                >
+                  No nodes found
+                </td>
+              </tr>
+            )}
             {table.getRowModel().rows.map((row) => (
               <tr
                 key={row.id}
