@@ -205,6 +205,49 @@ async fn create_node(
     }
   }
 
+  // ── Eager reactor hooks: per-field before_field_write ──────────────────
+  // Fire BeforeFieldWrite for each initial field value, so field-scoped
+  // validate/transform reactors take effect at creation time.
+  let field_keys: Vec<String> = node.fields.keys().cloned().collect();
+  for field_path in &field_keys {
+    let current_value = node.fields.get(field_path).cloned();
+    let field_ctx = HookContext {
+      hook_point: HookPoint::BeforeFieldWrite {
+        field_path: field_path.clone(),
+        scope_schema_id: None,
+      },
+      node: Some(node.clone()),
+      node_id: None,
+      field_path: Some(field_path.clone()),
+      current_value: current_value.clone(),
+      previous_value: None,
+      schema_id: None,
+      space_id: Some(node.space_id),
+      authorized_by: None,
+    };
+
+    match state.eager_pipeline.execute_hook(&field_ctx).await {
+      HookResult::Rejected { reason, .. } => {
+        return Err(ApiError::bad_request(&format!(
+          "Reactor rejected field '{}': {}",
+          field_path, reason
+        )));
+      }
+      HookResult::Approved {
+        transformed_value,
+        computed_fields,
+        ..
+      } => {
+        if let Some(tv) = transformed_value {
+          node.set_field(field_path, tv);
+        }
+        for (key, value) in &computed_fields {
+          node.set_field(key, value.clone());
+        }
+      }
+    }
+  }
+
   let created = state
     .storage
     .create(node)

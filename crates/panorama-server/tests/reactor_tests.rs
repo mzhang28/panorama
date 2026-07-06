@@ -19,6 +19,7 @@ use panorama_core::reactor::{
   ActionKind, HookPoint, LifecycleEvent, OpStreamEntry, OpType, Reactor, ReactorMode,
   ReactorStatus, ReactorTrigger, WasmRef, WatchScope, WatchTrigger,
 };
+use panorama_core::types::FieldValue;
 use panorama_server::api::AppState;
 use panorama_server::object_store::ObjectStorage;
 use panorama_server::plugin_loader::PluginLoader;
@@ -1144,4 +1145,274 @@ async fn test_deferred_cursor_persisted() {
     dispatched2, 0,
     "restarted engine should not re-process entries"
   );
+}
+
+// ── BeforeFieldWrite fires at node creation time (§2.4) ────────────────────
+
+#[tokio::test]
+async fn test_before_field_write_fires_on_create() {
+  let (registry, pipeline, _, _tmp) = setup_reactor_test_env();
+  registry.initialize().await.unwrap();
+
+  // Register a BeforeFieldWrite reactor that rejects writes to "secret:value"
+  let reactor = mk_reactor(
+    ReactorMode::Eager,
+    ReactorTrigger::Hook(HookPoint::BeforeFieldWrite {
+      field_path: "secret:value".into(),
+      scope_schema_id: None,
+    }),
+    ActionKind::Validate,
+    0,
+  );
+  registry.register(reactor).await.unwrap();
+
+  // Build a HookContext simulating a create with "secret:value" field
+  let ctx = HookContext {
+    hook_point: HookPoint::BeforeFieldWrite {
+      field_path: "secret:value".into(),
+      scope_schema_id: None,
+    },
+    node: None,
+    node_id: None,
+    field_path: Some("secret:value".into()),
+    current_value: Some(FieldValue::String("classified".into())),
+    previous_value: None,
+    schema_id: None,
+    space_id: None,
+    authorized_by: None,
+  };
+
+  let result = pipeline.execute_hook(&ctx).await;
+  // Without a plugin loader, the validate reactor errors → Rejected
+  assert!(
+    matches!(result, HookResult::Rejected { .. }),
+    "BeforeFieldWrite reactor should fire on create: got {:?}",
+    result
+  );
+}
+
+// ── WASM execution: test reactor plugin ───────────────────────────────────
+
+use std::sync::OnceLock;
+
+/// Build (if needed) and return the test reactor WASM bytes.
+fn test_reactor_wasm_bytes() -> &'static Vec<u8> {
+  static WASM: OnceLock<Vec<u8>> = OnceLock::new();
+  WASM.get_or_init(|| {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
+    let workspace_root = std::path::Path::new(&manifest_dir)
+      .parent()
+      .unwrap()
+      .parent()
+      .unwrap();
+
+    let status = std::process::Command::new(&cargo)
+      .args([
+        "build",
+        "-p",
+        "panorama-app-test-reactor",
+        "--target",
+        "wasm32-wasip1",
+      ])
+      .env("RUSTFLAGS", "-C link-arg=--allow-undefined")
+      .current_dir(workspace_root)
+      .status()
+      .expect("Failed to build test reactor WASM");
+
+    assert!(status.success(), "cargo build for test WASM failed");
+
+    let wasm_path =
+      workspace_root.join("target/wasm32-wasip1/debug/panorama_app_test_reactor.wasm");
+    // The binary name in Cargo.toml is "test-reactor"
+    let alt_path = workspace_root.join("target/wasm32-wasip1/debug/test-reactor.wasm");
+
+    let path = if wasm_path.exists() {
+      wasm_path
+    } else if alt_path.exists() {
+      alt_path
+    } else {
+      panic!(
+        "Test WASM binary not found at {:?} or {:?}",
+        wasm_path, alt_path
+      );
+    };
+
+    std::fs::read(&path).expect("Failed to read test WASM binary")
+  })
+}
+
+/// Build a PluginLoader with the test reactor WASM loaded.
+async fn setup_loader_with_test_wasm() -> (Arc<PluginLoader>, tempfile::TempDir) {
+  let tmp = tempfile::tempdir().unwrap();
+  let backend = Arc::new(SqliteBackend::new(tmp.path().join("nodes")));
+  let storage = NodeStorage::new(backend);
+  let schema_registry = SchemaRegistry::new();
+  let object_storage = ObjectStorage::new(tmp.path().join("objects"));
+
+  let loader = Arc::new(PluginLoader::new(storage, schema_registry, object_storage));
+
+  let wasm_bytes = test_reactor_wasm_bytes().clone();
+  let package = panorama_server::panoapp::PanoAppPackage {
+    manifest: panorama_server::panoapp::PanoAppManifest {
+      manifest_version: 1,
+      id: "test.reactor.plugin".into(),
+      name: "Test Reactor".into(),
+      version: "0.1.0".into(),
+      description: "".into(),
+      author: None,
+      homepage: None,
+      icon: None,
+      min_platform_version: None,
+      wasm_module: Some("plugin.wasm".into()),
+      schemas: vec![],
+      http_endpoints: vec![],
+      ui_components: vec![],
+      capabilities: panorama_core::capabilities::CapabilityGrants {
+        field_write: vec!["test:*".to_string()],
+        field_read: vec!["*".to_string()],
+        ..Default::default()
+      },
+      background_tasks: vec![],
+      env_vars: Default::default(),
+    },
+    wasm_bytes: Some(wasm_bytes),
+    ui_files: std::collections::HashMap::new(),
+  };
+
+  loader.load_from_panoapp(package).await.unwrap();
+  (loader, tmp)
+}
+
+#[tokio::test]
+async fn test_wasm_validate_approve() {
+  let (loader, _tmp) = setup_loader_with_test_wasm().await;
+
+  let input = panorama_core::reactor::ReactorActionInput {
+    context: panorama_core::reactor::ReactorExecutionContext {
+      reactor_id: Uuid::new_v4(),
+      hook_point: None,
+      watch_trigger: None,
+      triggering_node: None,
+      triggering_op: None,
+      authorized_by: None,
+      reactor_authorized_by: None,
+    },
+    current_value: None,
+    node: None,
+  };
+
+  let output = loader
+    .execute_reactor_action("test.reactor.plugin", "test_validate_approve", &input)
+    .await
+    .expect("execute_reactor_action should succeed")
+    .expect("should return Some output");
+
+  assert!(
+    matches!(
+      output.result,
+      panorama_core::reactor::EagerReactorResult::Approved
+    ),
+    "expected Approved, got {:?}",
+    output.result
+  );
+}
+
+#[tokio::test]
+async fn test_wasm_validate_reject() {
+  let (loader, _tmp) = setup_loader_with_test_wasm().await;
+
+  let input = panorama_core::reactor::ReactorActionInput {
+    context: panorama_core::reactor::ReactorExecutionContext {
+      reactor_id: Uuid::new_v4(),
+      hook_point: None,
+      watch_trigger: None,
+      triggering_node: None,
+      triggering_op: None,
+      authorized_by: None,
+      reactor_authorized_by: None,
+    },
+    current_value: None,
+    node: None,
+  };
+
+  let output = loader
+    .execute_reactor_action("test.reactor.plugin", "test_validate_reject", &input)
+    .await
+    .expect("should succeed")
+    .expect("should return Some output");
+
+  match output.result {
+    panorama_core::reactor::EagerReactorResult::Rejected { reason } => {
+      assert_eq!(reason, "test rejection");
+    }
+    other => panic!("expected Rejected, got {:?}", other),
+  }
+}
+
+#[tokio::test]
+async fn test_wasm_transform() {
+  let (loader, _tmp) = setup_loader_with_test_wasm().await;
+
+  let input = panorama_core::reactor::ReactorActionInput {
+    context: panorama_core::reactor::ReactorExecutionContext {
+      reactor_id: Uuid::new_v4(),
+      hook_point: None,
+      watch_trigger: None,
+      triggering_node: None,
+      triggering_op: None,
+      authorized_by: None,
+      reactor_authorized_by: None,
+    },
+    current_value: Some(serde_json::json!("original")),
+    node: None,
+  };
+
+  let output = loader
+    .execute_reactor_action("test.reactor.plugin", "test_transform", &input)
+    .await
+    .expect("should succeed")
+    .expect("should return Some output");
+
+  match output.result {
+    panorama_core::reactor::EagerReactorResult::Transformed { new_value } => {
+      assert_eq!(new_value, serde_json::json!("transformed-by-wasm"));
+    }
+    other => panic!("expected Transformed, got {:?}", other),
+  }
+}
+
+#[tokio::test]
+async fn test_wasm_compute() {
+  let (loader, _tmp) = setup_loader_with_test_wasm().await;
+
+  let input = panorama_core::reactor::ReactorActionInput {
+    context: panorama_core::reactor::ReactorExecutionContext {
+      reactor_id: Uuid::new_v4(),
+      hook_point: None,
+      watch_trigger: None,
+      triggering_node: None,
+      triggering_op: None,
+      authorized_by: None,
+      reactor_authorized_by: None,
+    },
+    current_value: None,
+    node: None,
+  };
+
+  let output = loader
+    .execute_reactor_action("test.reactor.plugin", "test_compute", &input)
+    .await
+    .expect("should succeed")
+    .expect("should return Some output");
+
+  match output.result {
+    panorama_core::reactor::EagerReactorResult::Computed {
+      field_key, value, ..
+    } => {
+      assert_eq!(field_key, "test:computed_value");
+      assert_eq!(value, serde_json::json!(42));
+    }
+    other => panic!("expected Computed, got {:?}", other),
+  }
 }
