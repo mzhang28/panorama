@@ -1,6 +1,7 @@
 - When I say "all tests must pass", I mean the result of running `just test-e2e` is a zero exit status. Nothing else can substitute for this result.
   - Unless otherwise specified, you are responsible for ALL test failures, regardless if they were pre-existing or caused by other files.
 - never delete proptest regressions. every single one MUST be committed to the repo
+- use `bun` instead of `npm` or `pnpm`.
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
