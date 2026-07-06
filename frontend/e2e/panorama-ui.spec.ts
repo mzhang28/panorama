@@ -44,8 +44,8 @@ test.describe("Node Explorer Home", () => {
 
   test("shows stats bar with node counts", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator('span:has-text("Total Nodes")')).toBeVisible();
-    await expect(page.locator('span:has-text("Schemas")')).toBeVisible();
+    await expect(page.getByText("Total Nodes", { exact: true })).toBeVisible();
+    await expect(page.getByText("Schemas", { exact: true })).toBeVisible();
   });
 
   test("shows activity chart", async ({ page }) => {
