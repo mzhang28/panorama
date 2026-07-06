@@ -161,11 +161,22 @@ impl OpStream {
   /// Query entries after a given sequence number (exclusive).
   /// Used by deferred reactors to catch up on unprocessed events.
   pub fn query_since(&self, since_sequence: u64, limit: u64) -> Result<Vec<OpStreamEntry>, String> {
-    let query = format!(
-      "MATCH (n) IN space(\"default\") \
-             WHERE HAS_FIELD(n, \"system\", \"op_sequence\") \
-             RETURN n"
-    );
+    let query = if since_sequence > 0 {
+      format!(
+        "MATCH (n) IN space(\"default\") \
+               WHERE HAS_FIELD(n, \"system\", \"op_sequence\") \
+               AND SCAN(n.system.op_sequence > {}) \
+               RETURN n ORDER BY n.system.op_sequence ASC LIMIT {}",
+        since_sequence, limit
+      )
+    } else {
+      format!(
+        "MATCH (n) IN space(\"default\") \
+               WHERE HAS_FIELD(n, \"system\", \"op_sequence\") \
+               RETURN n ORDER BY n.system.op_sequence ASC LIMIT {}",
+        limit
+      )
+    };
     let rows = self
       .storage
       .query_lang(&query)
@@ -174,8 +185,6 @@ impl OpStream {
     let mut entries: Vec<OpStreamEntry> = rows
       .iter()
       .filter_map(|row| self.row_to_entry(row))
-      .filter(|e| e.sequence > since_sequence)
-      .take(limit as usize)
       .collect();
     entries.sort_by_key(|e| e.sequence);
 

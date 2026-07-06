@@ -292,8 +292,7 @@ impl EagerReactorPipeline {
     let loader = match &self.plugin_loader {
       Some(l) => l,
       None => {
-        tracing::debug!(reactor_id = %reactor.id, "No plugin loader — defaulting to approve");
-        return Ok(true);
+        return Err("No plugin loader configured — cannot execute validate reactor".into());
       }
     };
 
@@ -305,19 +304,20 @@ impl EagerReactorPipeline {
       )
       .await
     {
-      Ok(Some(output)) => {
-        match output.result {
-          panorama_core::reactor::EagerReactorResult::Approved => Ok(true),
-          panorama_core::reactor::EagerReactorResult::Rejected { reason } => {
-            Err(format!("Rejected: {}", reason))
-          }
-          _ => Ok(true), // Non-validate results treated as approve
+      Ok(Some(output)) => match output.result {
+        panorama_core::reactor::EagerReactorResult::Approved => Ok(true),
+        panorama_core::reactor::EagerReactorResult::Rejected { reason } => {
+          Err(format!("Rejected: {}", reason))
         }
-      }
-      Ok(None) => {
-        // No WASM module or empty output → default approve
-        Ok(true)
-      }
+        other => Err(format!(
+          "Validate reactor returned unexpected result: {:?}",
+          std::mem::discriminant(&other)
+        )),
+      },
+      Ok(None) => Err(format!(
+        "Reactor '{}' module not available — cannot validate",
+        reactor.id
+      )),
       Err(e) => Err(e),
     }
   }
@@ -339,7 +339,7 @@ impl EagerReactorPipeline {
 
     let loader = match &self.plugin_loader {
       Some(l) => l,
-      None => return Ok(None),
+      None => return Err("No plugin loader configured — cannot execute transform reactor".into()),
     };
 
     match loader
@@ -358,7 +358,10 @@ impl EagerReactorPipeline {
         }
         _ => Ok(None),
       },
-      Ok(None) => Ok(None),
+      Ok(None) => Err(format!(
+        "Transform reactor '{}' module not available",
+        reactor.id
+      )),
       Err(e) => Err(e),
     }
   }
@@ -380,7 +383,9 @@ impl EagerReactorPipeline {
 
     let loader = match &self.plugin_loader {
       Some(l) => l,
-      None => return Ok(None),
+      None => {
+        return Err("No plugin loader configured — cannot execute compute_field reactor".into())
+      }
     };
 
     match loader
@@ -399,7 +404,10 @@ impl EagerReactorPipeline {
         }
         _ => Ok(None),
       },
-      Ok(None) => Ok(None),
+      Ok(None) => Err(format!(
+        "Compute reactor '{}' module not available",
+        reactor.id
+      )),
       Err(e) => Err(e),
     }
   }

@@ -410,29 +410,40 @@ impl ReactorRegistry {
     Ok(owns)
   }
 
-  /// Check for cycles when adding a new reactor using the shared cycle
-  /// detection algorithm from `panorama_core::field::detect_cycles`.
-  /// HOOK_DESIGN §4.1: "One checker, shared with the computed-field
-  /// dependency graph (not a separate mechanism)."
+  /// Check for cycles when adding a new reactor.
+  ///
+  /// Uses the (from, to)-edge cycle detector from `panorama_core::reactor_eval`
+  /// (HOOK_DESIGN §4.1). Edges are:
+  /// - `reactor:{id}` → `field:{name}`  (reactor writes this field)
+  /// - `field:{name}` → `reactor:{id}`  (reactor watches this field)
+  ///
+  /// A cycle exists when following these edges returns to the start:
+  ///   A writes X, B writes Y; B watches X, A watches Y
+  ///   → A → field:X → B → field:Y → A  (cycle)
   fn check_cycles(&self, reactor: &Reactor) -> Result<(), String> {
-    let mut all_computed: Vec<(String, Vec<String>)> = Vec::new();
+    use panorama_core::reactor_eval::detect_cycles_in_graph;
 
-    // Collect existing reactor dependency edges
+    let mut existing_edges: Vec<(String, String)> = Vec::new();
+
+    // Collect all existing reactor edges
     for r in self.reactors.iter() {
       let r = r.value();
-      if let Some(deps) = reactor_dependencies(r) {
-        all_computed.push((r.id.to_string(), deps));
+      let rid = format!("reactor:{}", r.id);
+      if let Some(edges) = reactor_graph_edges(r) {
+        for (from, to) in &edges {
+          existing_edges.push((from.clone(), to.clone()));
+        }
       }
     }
 
-    // Check if the new reactor would create a cycle
-    if let Some(deps) = reactor_dependencies(reactor) {
-      if panorama_core::field::detect_cycles(&reactor.id.to_string(), &deps, &all_computed) {
-        return Err(format!(
-          "Adding reactor '{}' would create a dependency cycle",
-          reactor.id
-        ));
-      }
+    // Get the new reactor's edges
+    let new_edges = reactor_graph_edges(reactor).unwrap_or_default();
+
+    if detect_cycles_in_graph(&existing_edges, &new_edges) {
+      return Err(format!(
+        "Adding reactor '{}' would create a dependency cycle",
+        reactor.id
+      ));
     }
 
     Ok(())
@@ -716,24 +727,95 @@ fn watch_trigger_key(watch: &WatchTrigger) -> String {
   }
 }
 
-/// Extract the dependencies (other reactors/fields that would be triggered)
-/// from a reactor's trigger and action.
-fn reactor_dependencies(reactor: &Reactor) -> Option<Vec<String>> {
-  let mut deps = Vec::new();
+/// Persist a reactor's delivery state to storage so cursors survive restart.
+pub(crate) fn persist_reactor_state(
+  registry: &ReactorRegistry,
+  reactor_id: Uuid,
+  last_sequence: u64,
+) -> Result<(), String> {
+  use panorama_core::types::FieldValue;
+  use std::collections::HashMap;
 
-  // The reactor's action_target is a dependency (it writes to this field)
+  // Check if a state node already exists for this reactor
+  let query = format!(
+    "MATCH (n) IN space(\"default\") WHERE \
+     HAS_FIELD(n, \"system\", \"rs_reactor_id\") AND \
+     SCAN(n.system.rs_reactor_id = \"{}\") \
+     RETURN n LIMIT 1",
+    reactor_id
+  );
+
+  let rows = registry.storage.query_lang(&query)?;
+  if let Some(row) = rows.first() {
+    if let Some(node) = panorama_core::query::row_to_node(row) {
+      let mut patch = HashMap::new();
+      patch.insert(
+        "system:rs_last_sequence".to_string(),
+        FieldValue::Integer(last_sequence as i64),
+      );
+      registry.storage.update(node.id, patch)?;
+      return Ok(());
+    }
+  }
+
+  // No existing state node — create one
+  let mut state_node = panorama_core::types::Node::new(Uuid::nil());
+  state_node.set_field("system:rs_reactor_id", FieldValue::NodeRef(reactor_id));
+  state_node.set_field(
+    "system:rs_last_sequence",
+    FieldValue::Integer(last_sequence as i64),
+  );
+  registry.storage.create(state_node)?;
+  Ok(())
+}
+
+/// Extract directed graph edges for a reactor as (from, to) pairs.
+///
+/// Two kinds of edges:
+/// - `(reactor:{id}, field:{name})` — the reactor *writes* this field
+/// - `(field:{name}, reactor:{id})` — the reactor *watches* this field
+///
+/// The cycle detector follows these edges: if reactor A writes X and
+/// reactor B watches X, the path is A → field:X → B. If B also writes Y
+/// and A watches Y, we get B → field:Y → A, completing the cycle.
+fn reactor_graph_edges(reactor: &Reactor) -> Option<Vec<(String, String)>> {
+  let mut edges: Vec<(String, String)> = Vec::new();
+  let rid = format!("reactor:{}", reactor.id);
+
+  // INPUT edges: field → reactor (watching this field triggers this reactor)
+  let mut extract_field_path = |fp: &str| {
+    edges.push((format!("field:{}", fp), rid.clone()));
+  };
+  match &reactor.trigger {
+    ReactorTrigger::Hook(hook) => match hook {
+      HookPoint::BeforeFieldWrite { field_path, .. } => {
+        extract_field_path(field_path);
+      }
+      _ => {}
+    },
+    ReactorTrigger::Watch(watch) => match watch {
+      WatchTrigger::FieldWatch { field_path, .. } => {
+        extract_field_path(field_path);
+      }
+      _ => {} // LifecycleWatch edges omitted for now — no cycle risk
+    },
+  }
+
+  // OUTPUT edges: reactor → field (this reactor writes this field)
   if let Some(target) = &reactor.action_target {
-    deps.push(format!("field:{}", target));
+    edges.push((rid.clone(), format!("field:{}", target)));
   }
-
-  // For InternalWrite actions, the action itself may trigger other reactors
+  // InternalWrite reactors can trigger writes to arbitrary fields,
+  // so they create a self-loop edge that catches chains.
   if reactor.action_kind == ActionKind::InternalWrite {
-    deps.push(format!("reactor:{}:internal_write", reactor.id));
+    // Internal writes are too broad for static cycle detection
+    // beyond simple self-reference. Mark as a potential cycle node.
+    edges.push((rid.clone(), format!("field:*")));
   }
 
-  if deps.is_empty() {
+  if edges.is_empty() {
     None
   } else {
-    Some(deps)
+    Some(edges)
   }
 }

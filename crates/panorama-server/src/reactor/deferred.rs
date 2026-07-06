@@ -347,13 +347,68 @@ impl DeferredReactorEngine {
       )
       .await
     {
-      Ok(Some(_output)) => {
+      Ok(Some(output)) => {
         tracing::debug!(
             reactor_id = %reactor.id,
             sequence = entry.sequence,
             action = ?reactor.action_kind,
             "Deferred reactor action executed via WASM"
         );
+
+        match reactor.action_kind {
+          ActionKind::ComputeField => {
+            if let panorama_core::reactor::EagerReactorResult::Computed { field_key, value } =
+              &output.result
+            {
+              let fv: panorama_core::types::FieldValue = serde_json::from_value(value.clone())
+                .map_err(|e| {
+                  format!("Invalid computed value from reactor {}: {}", reactor.id, e)
+                })?;
+              if let Some(node_id) = entry.node_id {
+                let mut patch = std::collections::HashMap::new();
+                patch.insert(field_key.clone(), fv);
+                self
+                  .registry
+                  .storage()
+                  .update(node_id, patch)
+                  .map_err(|e| {
+                    format!(
+                      "Failed to write computed field '{}' from reactor {}: {}",
+                      field_key, reactor.id, e
+                    )
+                  })?;
+                tracing::info!(
+                  reactor_id = %reactor.id,
+                  node_id = %node_id,
+                  field_key = %field_key,
+                  "Deferred compute_field reactor wrote result"
+                );
+              }
+            }
+          }
+          ActionKind::SideEffect => {
+            // The WASM module performed the side effect via host functions
+            // during execution. Log the completion.
+            tracing::info!(
+              reactor_id = %reactor.id,
+              "Side effect completed for sequence {}",
+              entry.sequence
+            );
+          }
+          ActionKind::InternalWrite => {
+            // The WASM module already wrote via host_ctx_create_node /
+            // host_ctx_update_node during execution.
+            tracing::info!(
+              reactor_id = %reactor.id,
+              "Internal write completed for sequence {}",
+              entry.sequence
+            );
+          }
+          _ => {
+            // Validate/Transform on a deferred reactor — unusual but not an
+            // error. The WASM ran; whatever it returned is informational.
+          }
+        }
         Ok(())
       }
       Ok(None) => {
@@ -429,6 +484,13 @@ impl DeferredReactorEngine {
         },
       );
     }
+
+    // Persist to storage so cursor survives restart (§3.4).
+    if let Err(e) =
+      crate::reactor::registry::persist_reactor_state(&self.registry, reactor_id, sequence)
+    {
+      tracing::error!(reactor_id = %reactor_id, error = %e, "Failed to persist deferred reactor cursor");
+    }
   }
 
   /// Dead-letter an event for a reactor.
@@ -484,7 +546,7 @@ impl DeferredReactorEngine {
 impl ReactorRegistry {
   /// Get a reference to the storage backend.
   /// Used by DeferredReactorEngine to query ReactorState nodes.
-  pub(crate) fn storage(&self) -> &crate::storage::NodeStorage {
+  pub fn storage(&self) -> &crate::storage::NodeStorage {
     &self.storage
   }
 }

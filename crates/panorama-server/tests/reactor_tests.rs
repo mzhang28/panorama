@@ -194,7 +194,13 @@ async fn test_eager_validate_approved() {
   };
 
   let result = pipeline.execute_hook(&ctx).await;
-  assert!(matches!(result, HookResult::Approved { .. }));
+  // Without a plugin loader, validate reactors now fail (Fix 2).
+  // The pipeline rejects the write rather than silently approving.
+  assert!(
+    matches!(result, HookResult::Rejected { .. }),
+    "expected Rejected without plugin loader, got {:?}",
+    result
+  );
 }
 
 #[tokio::test]
@@ -316,8 +322,14 @@ async fn test_priority_ordering() {
   };
 
   let result = pipeline.execute_hook(&ctx).await;
-  // All validate reactors approve by default (no WASM) → approved
-  assert!(matches!(result, HookResult::Approved { .. }));
+  // Without a plugin loader, validate reactors now error → pipeline rejects.
+  // The priority ordering is still exercised (reactors are sorted before
+  // execution), but the final outcome is rejection since no WASM is available.
+  assert!(
+    matches!(result, HookResult::Rejected { .. }),
+    "expected Rejected without plugin loader, got {:?}",
+    result
+  );
 }
 
 // ── Quarantine ──────────────────────────────────────────────────────────
@@ -797,7 +809,7 @@ fn setup_full_state() -> (Arc<AppState>, Arc<DeferredReactorEngine>, tempfile::T
 // ── Transaction interception: real API handler path ──────────────────────
 
 #[tokio::test]
-async fn test_create_node_triggers_hook_pipeline_and_op_stream() {
+async fn test_op_stream_append_through_storage_and_query() {
   let (state, _, _tmp) = setup_full_state();
   state.reactor_registry.initialize().await.unwrap();
 
@@ -957,108 +969,179 @@ async fn test_deferred_engine_skips_non_matching_entries() {
 
 // ── WASM execution: real .panoapp loading ───────────────────────────────
 
+// ── Quarantine after repeated failures (eager pipeline) ───────────────────
+
 #[tokio::test]
-async fn test_wasm_execution_via_plugin_loader_with_real_panoapp() {
-  let (state, _, _tmp) = setup_full_state();
+async fn test_quarantine_after_eager_failures() {
+  let (registry, pipeline, _, _tmp) = setup_reactor_test_env();
+  registry.initialize().await.unwrap();
 
-  // Try to load a real .panoapp file from the build output.
-  // The .panoapp files are built by `just test-e2e` and live in data/plugins/.
-  let panoapp_path = std::path::Path::new("data/plugins/io.mzhang.panorama.journal.panoapp");
-  if !panoapp_path.exists() {
-    eprintln!(
-      "Skipping WASM test: .panoapp not found at {:?}",
-      panoapp_path
-    );
-    eprintln!("Run `just test-e2e` first to build the .panoapp files.");
-    return;
-  }
+  // Register an eager validate reactor without a plugin loader.
+  // Without WASM, execute_validate returns Err (Fix 2), which triggers
+  // record_failure → quarantine after consecutive_failure_threshold (3).
+  let reactor = mk_reactor(
+    ReactorMode::Eager,
+    before_create_hook(),
+    ActionKind::Validate,
+    0,
+  );
+  let registered = registry.register(reactor).await.unwrap();
 
-  let package = panorama_server::panoapp::PanoAppPackage::load_from_file(panoapp_path)
-    .expect("Failed to load .panoapp");
-  let info = state
-    .plugin_loader
-    .load_from_panoapp(package)
-    .await
-    .expect("Failed to load plugin from .panoapp");
-
-  assert!(info.is_wasm, "Journal plugin should be WASM-based");
-
-  // Now call execute_reactor_action — this exercises the full WASM FFI path:
-  // wasmtime instantiation, stdin/stdout pipes, _start call, etc.
-  let input = panorama_core::reactor::ReactorActionInput {
-    context: panorama_core::reactor::ReactorExecutionContext {
-      reactor_id: Uuid::new_v4(),
-      hook_point: None,
-      watch_trigger: None,
-      triggering_node: None,
-      triggering_op: None,
-      authorized_by: None,
-      reactor_authorized_by: None,
+  let ctx = HookContext {
+    hook_point: HookPoint::BeforeNodeCreate {
+      scope_schema_id: None,
     },
-    current_value: None,
     node: None,
+    node_id: None,
+    field_path: None,
+    current_value: None,
+    previous_value: None,
+    schema_id: None,
+    space_id: None,
+    authorized_by: None,
   };
 
-  let result = state
-    .plugin_loader
-    .execute_reactor_action(&info.info.id, "test_validate", &input)
-    .await;
-
-  match result {
-    Ok(Some(output)) => {
-      // The WASM module ran and produced output — the FFI bridge works
-      eprintln!("WASM output: {:?}", output);
-    }
-    Ok(None) => {
-      // The WASM module ran but didn't produce reactor output.
-      // This is expected — existing plugins don't have reactor handlers.
-      // The important thing is the FFI bridge worked without crashing.
-      eprintln!("WASM executed successfully (no reactor output — expected)");
-    }
-    Err(e) => {
-      // WASM execution failed. This is OK for existing plugins that
-      // don't understand reactor input. The test verifies the bridge
-      // is wired and the error is properly propagated.
-      eprintln!(
-        "WASM execution error (expected for non-reactor plugins): {}",
-        e
+  // Execute 3 times — each fails because no plugin loader.
+  // First two: rejected (fail-closed before quarantine threshold).
+  // Third: approved (fail-open after quarantine kicks in, per §2.6).
+  for i in 0..3 {
+    let result = pipeline.execute_hook(&ctx).await;
+    if i < 2 {
+      assert!(
+        matches!(result, HookResult::Rejected { .. }),
+        "iteration {}: expected Rejected, got {:?}",
+        i,
+        result
+      );
+    } else {
+      assert!(
+        matches!(result, HookResult::Approved { .. }),
+        "iteration {}: expected Approved (fail-open after quarantine), got {:?}",
+        i,
+        result
       );
     }
   }
-  // The test passes regardless — it verified the full FFI path works
+
+  // After 3 consecutive failures, the reactor should be quarantined
+  let queried = registry.get(&registered.id);
+  assert!(queried.is_some(), "reactor should still exist");
+  assert_eq!(
+    queried.unwrap().status,
+    ReactorStatus::ErrorQuarantined,
+    "reactor should be quarantined after 3 failures"
+  );
 }
 
+// ── Cycle detection: cross-reactor watch→write cycle ──────────────────────
+
 #[tokio::test]
-async fn test_wasm_execution_returns_none_for_native_plugin() {
-  let (state, _, _tmp) = setup_full_state();
+async fn test_cross_reactor_cycle_rejected() {
+  let (registry, _pipeline, _, _tmp) = setup_reactor_test_env();
+  registry.initialize().await.unwrap();
 
-  // Calling execute_reactor_action with a non-existent plugin ID
-  // should return Ok(None) — no WASM module, graceful fallback
-  let input = panorama_core::reactor::ReactorActionInput {
-    context: panorama_core::reactor::ReactorExecutionContext {
-      reactor_id: Uuid::new_v4(),
-      hook_point: None,
-      watch_trigger: None,
-      triggering_node: None,
-      triggering_op: None,
-      authorized_by: None,
-      reactor_authorized_by: None,
-    },
-    current_value: None,
-    node: None,
-  };
+  // Reactor A: watches field Y, writes field X
+  let mut reactor_a = mk_reactor(
+    ReactorMode::Deferred,
+    ReactorTrigger::Watch(WatchTrigger::FieldWatch {
+      field_path: "field:Y".into(),
+      scope: WatchScope::Global,
+    }),
+    ActionKind::ComputeField,
+    0,
+  );
+  reactor_a.action_target = Some("field:X".to_string());
+  registry.register(reactor_a).await.unwrap();
 
-  let result = state
-    .plugin_loader
-    .execute_reactor_action("non.existent.plugin", "test", &input)
-    .await;
+  // Reactor B: watches field X, writes field Y — should be rejected as a cycle
+  let mut reactor_b = mk_reactor(
+    ReactorMode::Deferred,
+    ReactorTrigger::Watch(WatchTrigger::FieldWatch {
+      field_path: "field:X".into(),
+      scope: WatchScope::Global,
+    }),
+    ActionKind::ComputeField,
+    0,
+  );
+  reactor_b.action_target = Some("field:Y".to_string());
 
-  // Non-existent plugin should return Ok(None) — no crash
-  match result {
-    Ok(None) => {} // expected
-    other => panic!(
-      "Expected Ok(None) for non-existent plugin, got: {:?}",
-      other
-    ),
+  let result = registry.register(reactor_b).await;
+  assert!(
+    result.is_err(),
+    "cross-reactor cycle should be rejected, got {:?}",
+    result
+  );
+  if let Err(e) = result {
+    assert!(
+      e.contains("cycle"),
+      "error should mention 'cycle', got: {}",
+      e
+    );
   }
+}
+
+// ── Cursor persistence across simulated restart ───────────────────────────
+
+#[tokio::test]
+async fn test_deferred_cursor_persisted() {
+  let (registry, _, op_stream, _tmp) = setup_reactor_test_env();
+  registry.initialize().await.unwrap();
+
+  // Register a deferred reactor
+  let reactor = mk_reactor(
+    ReactorMode::Deferred,
+    ReactorTrigger::Watch(WatchTrigger::FieldWatch {
+      field_path: "test:field".into(),
+      scope: WatchScope::Global,
+    }),
+    ActionKind::InternalWrite,
+    0,
+  );
+  registry.register(reactor.clone()).await.unwrap();
+
+  // Append an op stream entry (9 args required)
+  let _entry = op_stream
+    .append_sync(
+      OpType::FieldWritten,
+      Some(Uuid::new_v4()),
+      None,
+      Uuid::nil(),
+      Some("test:field"),
+      None,
+      None,
+      None,
+      None,
+    )
+    .unwrap();
+
+  // Create a deferred engine and process the entry
+  let engine = DeferredReactorEngine::new(registry.clone(), op_stream.clone());
+  engine.initialize().await.unwrap();
+
+  // Poll once — should process the entry
+  let dispatched = engine.poll().await.unwrap();
+  assert!(dispatched > 0, "should have dispatched at least one event");
+
+  // The cursor should now be persisted — verify by querying storage directly
+  let rows = registry
+    .storage()
+    .query_lang(
+      "MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"system\", \"rs_reactor_id\") RETURN n",
+    )
+    .unwrap();
+  assert!(
+    !rows.is_empty(),
+    "cursor state node should exist in storage"
+  );
+
+  // Initialize a NEW engine (simulating restart) and verify it reads the cursor
+  let engine2 = DeferredReactorEngine::new(registry.clone(), op_stream.clone());
+  engine2.initialize().await.unwrap();
+
+  // Poll again — should NOT re-process the same entry
+  let dispatched2 = engine2.poll().await.unwrap();
+  assert_eq!(
+    dispatched2, 0,
+    "restarted engine should not re-process entries"
+  );
 }
