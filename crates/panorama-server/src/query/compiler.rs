@@ -395,12 +395,13 @@ fn compile_predicate(
     } => {
       let key = field_path_to_json_key(field_path);
       Ok((
-                format!(
-                    "json_extract(n.fields_json, '$.\"{key}\".type') = 'String' AND json_extract(n.fields_json, '$.\"{key}\".value') LIKE ?{p}",
-                    key = key, p = pi
-                ),
-                vec![ParamValue::Text(pattern.clone())],
-            ))
+        format!(
+          "json_extract(n.fields_json, '$.\"{key}\".value') LIKE ?{p}",
+          key = key,
+          p = pi
+        ),
+        vec![ParamValue::Text(pattern.clone())],
+      ))
     }
     Predicate::And(a, b) => {
       let (sa, pa) = compile_predicate(a, var, ctx, conn, pi)?;
