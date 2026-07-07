@@ -493,23 +493,8 @@ pub async fn execute_wasm_handler(
     .map_err(|e| PluginError::internal(format!("trap: {}", e)))?;
 
   let output_bytes = stdout_pipe.contents();
-
-  // Length-prefixed protocol: first 4 bytes = little-endian u32 payload length
-  if output_bytes.len() < 4 {
-    return Err(PluginError::internal(format!(
-      "stdout too short: {} bytes (need at least 4 for length prefix)",
-      output_bytes.len()
-    )));
-  }
-  let body_len = u32::from_le_bytes(output_bytes[..4].try_into().unwrap()) as usize;
-  if output_bytes.len() < 4 + body_len {
-    return Err(PluginError::internal(format!(
-      "stdout truncated: expected {} bytes, got {}",
-      4 + body_len,
-      output_bytes.len()
-    )));
-  }
-  let body_bytes = &output_bytes[4..4 + body_len];
+  let body_bytes = decode_length_prefixed(&output_bytes)
+    .map_err(|e| PluginError::internal(format!("stdout: {}", e)))?;
   let output_str = String::from_utf8_lossy(body_bytes);
   let out: serde_json::Value = serde_json::from_str(output_str.trim()).map_err(|e| {
     PluginError::internal(format!(
@@ -540,4 +525,161 @@ pub async fn execute_wasm_handler(
     headers,
     body: body_bytes,
   })
+}
+
+// ── Length-prefixed protocol ───────────────────────────────────────────────
+
+/// Decode a length-prefixed payload: first 4 bytes = little-endian u32
+/// length of the body that follows.  Returns a slice of the body bytes.
+fn decode_length_prefixed(buf: &[u8]) -> Result<&[u8], String> {
+  if buf.len() < 4 {
+    return Err(format!(
+      "too short: {} bytes (need at least 4 for length prefix)",
+      buf.len()
+    ));
+  }
+  let body_len = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
+  if buf.len() < 4 + body_len {
+    return Err(format!(
+      "truncated: expected {} bytes, got {}",
+      4 + body_len,
+      buf.len()
+    ));
+  }
+  Ok(&buf[4..4 + body_len])
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use wasmtime_wasi::{HostOutputStream, StdoutStream};
+
+  // ── UnboundedOutputPipe ───────────────────────────────────────────────
+
+  #[test]
+  fn unbounded_pipe_small_write() {
+    let pipe = UnboundedOutputPipe::new();
+    let mut stream = pipe.stream();
+    stream
+      .write(Bytes::from_static(b"hello"))
+      .expect("write should succeed");
+    let contents = pipe.contents();
+    assert_eq!(contents, b"hello");
+  }
+
+  #[test]
+  fn unbounded_pipe_exceeds_64kb() {
+    let pipe = UnboundedOutputPipe::new();
+    let mut stream = pipe.stream();
+    // Write 128 KB — double the old MemoryOutputPipe cap of 64 KB
+    let chunk = vec![0xABu8; 128 * 1024];
+    stream
+      .write(Bytes::from(chunk.clone()))
+      .expect("128KB write should succeed");
+
+    let contents = pipe.contents();
+    assert_eq!(contents.len(), 128 * 1024);
+    assert_eq!(contents, chunk);
+  }
+
+  #[test]
+  fn unbounded_pipe_multiple_writes() {
+    let pipe = UnboundedOutputPipe::new();
+    let mut stream = pipe.stream();
+    // 10 writes of 20 KB each = 200 KB total
+    for i in 0u8..10 {
+      let chunk = vec![i; 20 * 1024];
+      stream
+        .write(Bytes::from(chunk))
+        .expect("write should succeed");
+    }
+    let contents = pipe.contents();
+    assert_eq!(contents.len(), 200 * 1024);
+    // Verify each chunk landed in order
+    for i in 0u8..10 {
+      let start = i as usize * 20 * 1024;
+      assert!(contents[start..start + 20 * 1024].iter().all(|&b| b == i));
+    }
+  }
+
+  #[test]
+  fn unbounded_pipe_empty() {
+    let pipe = UnboundedOutputPipe::new();
+    assert!(pipe.contents().is_empty());
+  }
+
+  // ── Length-prefix decoding ────────────────────────────────────────────
+
+  #[test]
+  fn decode_empty_body() {
+    // length = 0
+    let buf = [0u8, 0, 0, 0];
+    let body = decode_length_prefixed(&buf).expect("should decode");
+    assert!(body.is_empty());
+  }
+
+  #[test]
+  fn decode_small_body() {
+    let body_data = b"hello world";
+    let len = body_data.len() as u32;
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&len.to_le_bytes());
+    buf.extend_from_slice(body_data);
+
+    let decoded = decode_length_prefixed(&buf).expect("should decode");
+    assert_eq!(decoded, body_data);
+  }
+
+  #[test]
+  fn decode_too_short() {
+    let buf = [1u8, 0, 0]; // only 3 bytes
+    let err = decode_length_prefixed(&buf).unwrap_err();
+    assert!(err.contains("too short"));
+  }
+
+  #[test]
+  fn decode_truncated() {
+    // Claim 100 bytes but only provide 4 + 10 bytes
+    let mut buf = vec![0u8; 4 + 10];
+    buf[0] = 100; // length = 100 (LE)
+    let err = decode_length_prefixed(&buf).unwrap_err();
+    assert!(err.contains("truncated"));
+  }
+
+  // ── Round-trip: pipe → length-prefix → decode ────────────────────────
+
+  #[test]
+  fn roundtrip_large_payload() {
+    let pipe = UnboundedOutputPipe::new();
+    let mut stream = pipe.stream();
+
+    // Build a 100 KB JSON-ish payload
+    let payload = {
+      let mut s = String::from(r#"{"status":200,"body":"#);
+      while s.len() < 100 * 1024 - 20 {
+        s.push_str("abcdefghij");
+      }
+      s.push_str(r#""}"#);
+      assert!(s.len() > 64 * 1024, "payload should exceed old 64KB cap");
+      s
+    };
+    let payload_bytes = payload.into_bytes();
+    let len = payload_bytes.len() as u32;
+
+    // Write length-prefixed (mimics wasm_adapter)
+    stream
+      .write(Bytes::copy_from_slice(&len.to_le_bytes()))
+      .expect("len write");
+    stream
+      .write(Bytes::from(payload_bytes.clone()))
+      .expect("payload write");
+
+    // Read back (mimics execute_wasm_handler)
+    let contents = pipe.contents();
+    let decoded = decode_length_prefixed(&contents).expect("should decode");
+    assert_eq!(decoded.len(), payload_bytes.len());
+    assert_eq!(decoded, payload_bytes);
+  }
 }

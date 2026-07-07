@@ -60,6 +60,7 @@ impl ApiError {
     Self::response(StatusCode::NOT_FOUND, "NOT_FOUND", msg)
   }
   fn internal(msg: String) -> (StatusCode, Json<Self>) {
+    tracing::error!(error = %msg, "Internal server error");
     Self::response(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", &msg)
   }
   fn bad_request(msg: &str) -> (StatusCode, Json<Self>) {
@@ -783,19 +784,19 @@ async fn plugin_ui_handler(
 /// builds without a pre-built `frontend/dist/`), returns 404.
 async fn frontend_spa_fallback(uri: Uri) -> Result<Response, (StatusCode, Json<ApiError>)> {
   let path = uri.path().trim_start_matches('/');
-  tracing::info!(path = %path, "SPA fallback requested");
+  tracing::debug!(path = %path, "SPA fallback requested");
 
   #[cfg(frontend_embedded)]
-  tracing::info!("frontend_embedded is active in cfg");
+  tracing::debug!("frontend_embedded is active in cfg");
   #[cfg(not(frontend_embedded))]
   tracing::warn!("frontend_embedded is NOT active in cfg!");
 
   if let Some(resp) = crate::frontend::try_serve(path) {
-    tracing::info!(path = %path, "Served static frontend asset");
+    tracing::debug!(path = %path, "Served static frontend asset");
     return Ok(resp);
   }
   if let Some(resp) = crate::frontend::serve_index() {
-    tracing::info!("Served index.html fallback");
+    tracing::debug!("Served index.html fallback");
     return Ok(resp);
   }
   tracing::error!(path = %path, "Frontend asset/index.html not found, returning NOT_FOUND");
