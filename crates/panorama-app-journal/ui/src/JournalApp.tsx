@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   api,
@@ -133,11 +133,14 @@ export function JournalApp({
     },
   });
 
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
   useEffect(() => {
     if (isTodayRoute && todayPage?.id) {
-      navigate(`page/${todayPage.id}`);
+      navigateRef.current(`page/${todayPage.id}`);
     }
-  }, [isTodayRoute, todayPage, navigate]);
+  }, [isTodayRoute, todayPage]);
 
   const updateBlock = useMutation({
     mutationFn: ({ id, ...body }: any) => api(`blocks/${id}`, "PUT", body),

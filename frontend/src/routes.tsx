@@ -11,7 +11,7 @@ import {
   useNavigate,
   useParams,
 } from "@tanstack/react-router";
-import { Suspense, useMemo } from "react";
+import { Suspense, useCallback, useMemo } from "react";
 import { listPlugins, listSchemas } from "./api/client";
 import { loadPluginComponent } from "./api/plugin-loader";
 import { AppShell } from "./components/AppShell";
@@ -105,13 +105,16 @@ function PluginAppView() {
     [pluginId],
   );
 
-  const handleNavigate = (subpath: string) => {
-    if (subpath) {
-      navigate({ to: `/app/${pluginId}/${subpath}` });
-    } else {
-      navigate({ to: `/app/${pluginId}` });
-    }
-  };
+  const handleNavigate = useCallback(
+    (subpath: string) => {
+      if (subpath) {
+        navigate({ to: `/app/${pluginId}/${subpath}` });
+      } else {
+        navigate({ to: `/app/${pluginId}` });
+      }
+    },
+    [navigate, pluginId],
+  );
 
   return (
     <div key={pluginId}>
