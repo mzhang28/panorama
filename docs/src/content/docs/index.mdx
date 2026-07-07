@@ -1,0 +1,38 @@
+---
+title: Welcome to Panorama
+description: Self-hosted data layer platform for building personal apps.
+template: splash
+hero:
+  tagline: A flexible node-based data store, sandboxed plugin system, and structured query language.
+  actions:
+    - text: Installation & Setup
+      link: /user/installation/
+      icon: right-arrow
+    - text: Custom App Guide
+      link: /developer/apps/getting-started/
+      icon: add-document
+      variant: secondary
+    - text: Read PQL Guide
+      link: /pql/syntax-guide/
+      icon: open-book
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Discover Panorama
+
+<CardGrid stagger>
+	<Card title="Flexible Node Data Store" icon="document">
+		Store data in highly dynamic **Nodes** with namespaced fields, backed by transactional Schema constraints (both Preferred and Required).
+	</Card>
+	<Card title="WASM-Sandboxed Plugins" icon="setting">
+		Build custom applications in Rust, compile to **wasm32-wasip1**, and run them safely with capability grants limiting network, filesystem, and storage access.
+	</Card>
+	<Card title="Panorama Query Language (PQL)" icon="magnifier">
+		Query nodes and follow references using a Cypher-flavored syntax featuring mandatory space boundary isolation.
+	</Card>
+	<Card title="Built-in Event & Reactor Engine" icon="rocket">
+		Implement **Eager** validation/transformation hooks, or **Deferred** post-commit background process pipelines to automate workflows.
+	</Card>
+</CardGrid>
