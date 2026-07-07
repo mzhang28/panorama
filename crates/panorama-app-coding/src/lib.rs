@@ -487,7 +487,7 @@ impl Plugin for CodingPlugin {
         let user = params.get("user").unwrap_or("current").to_string();
         let range = params.get("range").map(|s| s.to_string());
         self
-          .handle_wakatime_stats(ctx, &user, range.as_deref(), &request)
+          .handle_wakatime_stats(ctx, &user, range.as_deref())
           .await
       }
 

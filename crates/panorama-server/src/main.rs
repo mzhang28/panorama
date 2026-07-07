@@ -147,7 +147,11 @@ async fn load_plugins_in_background(
   let mut packages: Vec<(panorama_server::panoapp::PanoAppPackage, PluginStatusEntry)> = Vec::new();
 
   if plugins_dir.exists() {
-    for entry in std::fs::read_dir(&plugins_dir).into_iter().flatten().flatten() {
+    for entry in std::fs::read_dir(&plugins_dir)
+      .into_iter()
+      .flatten()
+      .flatten()
+    {
       let path = entry.path();
       if path.is_file() && path.extension().map_or(false, |e| e == "panoapp") {
         tracing::info!(file = %path.display(), "Discovered .panoapp");
@@ -209,7 +213,12 @@ async fn load_plugins_in_background(
 
         match plugin_loader.load_from_panoapp(package).await {
           Ok(_) => {
-            tracing::info!("Loaded .panoapp: {} v{} ({})", plugin_name, plugin_version, plugin_id);
+            tracing::info!(
+              "Loaded .panoapp: {} v{} ({})",
+              plugin_name,
+              plugin_version,
+              plugin_id
+            );
             let mut state = load_state.write().await;
             if let Some(e) = state.plugins.iter_mut().find(|p| p.id == plugin_id) {
               e.status = "loaded".to_string();

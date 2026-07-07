@@ -645,9 +645,7 @@ async fn complete_upload(
 
 // -- Plugin load status (for frontend long-polling during startup) --
 
-async fn get_plugin_load_status(
-  State(state): State<Arc<AppState>>,
-) -> Json<PluginLoadState> {
+async fn get_plugin_load_status(State(state): State<Arc<AppState>>) -> Json<PluginLoadState> {
   let status = state.load_state.read().await.clone();
   Json(status)
 }

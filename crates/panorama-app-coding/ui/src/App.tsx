@@ -232,6 +232,24 @@ function TimeseriesChart({ data }: { data: TimeseriesSeries[] }) {
   );
 }
 
+function ActivityChart({ pluginId }: { pluginId: string }) {
+  const { data } = useQuery({
+    queryKey: ["activity-chart"],
+    queryFn: () =>
+      callPlugin(pluginId, "activity/chart/current.svg") as Promise<{
+        svg: string;
+      }>,
+    staleTime: 3600_000,
+  });
+  if (!data?.svg) return null;
+  return (
+    <div
+      className="w-full max-w-4xl [&>svg]:w-full"
+      dangerouslySetInnerHTML={{ __html: data.svg }}
+    />
+  );
+}
+
 export default function CodingApp({ pluginId }: CodingAppProps) {
   const queryClient = useQueryClient();
   const [timeRange, setTimeRange] = useState("7d");
@@ -451,11 +469,7 @@ export default function CodingApp({ pluginId }: CodingAppProps) {
 
       {/* Activity heatmap */}
       <Panel title="Activity (Past Year)">
-        <img
-          src={`/plugin/${pluginId}/activity/chart/current.svg`}
-          alt="Activity chart"
-          className="w-full max-w-4xl"
-        />
+        <ActivityChart pluginId={pluginId} />
       </Panel>
     </div>
   );

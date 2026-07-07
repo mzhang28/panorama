@@ -59,7 +59,6 @@ impl CodingPlugin {
     ctx: &dyn PluginContext,
     _user: &str,
     range: Option<&str>,
-    request: &HttpRequest,
   ) -> Result<HttpResponse, PluginError> {
     let range = range.unwrap_or("7d");
     let (start, end) = parse_time_range(range);

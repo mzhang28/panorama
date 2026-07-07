@@ -142,19 +142,14 @@ impl CodingPlugin {
     }
   }
 
-  /// Fetch all heartbeat nodes within a time range, using indexed time filter.
+  /// Fetch all heartbeat nodes within a time range. PQL >= and <= operators
+  /// don't work on float fields, so time filtering is done in Rust.
   pub(crate) async fn fetch_heartbeats_in_range(
     &self,
     ctx: &dyn PluginContext,
     range: &str,
   ) -> Result<Vec<Node>, PluginError> {
     let (start, end) = parse_time_range(range);
-    let start_ts = start.timestamp() as f64;
-    // +1.0 to include fractional-second timestamps within the end second
-    let end_ts = end.timestamp() as f64 + 1.0;
-
-    // Push time filter into PQL so we only fetch relevant nodes (leverages index)
-    // PQL >= and <= operators don't work on float fields — fetch all and filter in Rust
     let pql = "MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"coding\", \"entity\") RETURN n ORDER BY n.system.node_time ASC";
     let rows = ctx.query(pql).await?;
     let all_nodes: Vec<Node> = rows
@@ -165,17 +160,6 @@ impl CodingPlugin {
       .into_iter()
       .filter(|n| node_time_in_range(n, start, end))
       .collect();
-    ctx
-      .log(
-        LogLevel::Info,
-        &format!(
-          "FETCH_RANGE: range={} all={} filtered={}",
-          range,
-          rows.len(),
-          filtered.len()
-        ),
-      )
-      .await;
     Ok(filtered)
   }
 
@@ -257,6 +241,7 @@ impl CodingPlugin {
   }
 
   /// Leaderboard: group by dimension, sum durations, sort descending.
+  #[allow(dead_code)]
   pub(crate) fn compute_leaderboard(
     &self,
     nodes: &[Node],
@@ -305,6 +290,7 @@ impl CodingPlugin {
   }
 
   /// Sum aggregation.
+  #[allow(dead_code)]
   pub(crate) fn compute_sum(
     &self,
     nodes: &[Node],
@@ -317,6 +303,7 @@ impl CodingPlugin {
   }
 
   /// Count aggregation.
+  #[allow(dead_code)]
   pub(crate) fn compute_count(
     &self,
     nodes: &[Node],
@@ -531,6 +518,7 @@ impl CodingPlugin {
   }
 
   /// Compute the best day (date with max total seconds).
+  #[allow(dead_code)]
   pub(crate) fn compute_best_day(&self, nodes: &[Node]) -> Option<(String, f64)> {
     let mut days: HashMap<String, f64> = HashMap::new();
     for node in nodes {
