@@ -746,6 +746,7 @@ async fn plugin_handler(
     }
     Err(e) => {
       let status = StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+      tracing::error!(status = %status, error = %e.message, code = %e.code, "Plugin dispatch error");
       Err((
         status,
         Json(ApiError {

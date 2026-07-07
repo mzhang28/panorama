@@ -171,7 +171,7 @@ impl DeferredReactorEngine {
             self.registry.record_success(reactor.id);
           }
           Err(e) => {
-            tracing::warn!(
+            tracing::error!(
                 reactor_id = %reactor.id,
                 sequence = entry.sequence,
                 error = %e,

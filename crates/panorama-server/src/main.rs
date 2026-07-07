@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate tracing;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,13 +15,25 @@ use panorama_server::reactor::registry::ReactorRegistry;
 use panorama_server::schema_registry::SchemaRegistry;
 use panorama_server::storage::{sqlite::SqliteBackend, NodeStorage};
 use tokio::sync::RwLock;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 fn main() {
+  tracing_subscriber::registry()
+    .with(tracing_subscriber::fmt::layer().with_target(false))
+    .with(
+      tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+    )
+    .with(sentry::integrations::tracing::layer())
+    .init();
+
   let _guard = std::env::var("PANORAMA_SENTRY_DSN").ok().map(|dsn| {
     let guard = sentry::init((
       dsn,
       sentry::ClientOptions {
         release: sentry::release_name!(),
+        traces_sample_rate: 1.0,
         // Capture user IPs and potentially sensitive headers when using HTTP server integrations
         // see https://docs.sentry.io/platforms/rust/data-management/data-collected for more info
         send_default_pii: true,
@@ -37,11 +52,6 @@ fn main() {
 }
 
 async fn run() {
-  tracing_subscriber::fmt()
-    .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
-    .with_target(false)
-    .init();
-
   let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
   tracing::info!(cwd = %cwd.display(), "Server process started");
 

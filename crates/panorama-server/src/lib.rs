@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate tracing;
+
 pub mod api;
 pub mod frontend;
 pub mod meta;

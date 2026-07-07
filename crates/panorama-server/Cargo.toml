@@ -34,7 +34,7 @@ wasmtime = "29"
 wasmtime-wasi = "29"
 pollster = "0.4"
 futures = "0.3"
-sentry = "0.48.3"
+sentry = { version = "0.48.3", features = ["tracing"] }
 
 [dev-dependencies]
 tempfile = "3"

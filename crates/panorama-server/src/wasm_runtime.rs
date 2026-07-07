@@ -131,7 +131,10 @@ pub fn create_prelinked_instance(
 
         let json = match std::str::from_utf8(&data[start..end]) {
           Ok(s) => s,
-          Err(_) => return 0,
+          Err(e) => {
+            error!("[host_ctx_create_nodes] UTF-8 decode failed: {}", e);
+            return 0;
+          }
         };
 
         let nodes: Vec<panorama_core::types::Node> = if let Ok(ns) = serde_json::from_str(json) {
@@ -145,6 +148,10 @@ pub fn create_prelinked_instance(
           }
           vec![n]
         } else {
+          error!(
+            "[host_ctx_create_nodes] JSON parse failed: {}",
+            &json[..json.len().min(500)]
+          );
           return 0;
         };
 
@@ -188,12 +195,22 @@ pub fn create_prelinked_instance(
 
         let json = match std::str::from_utf8(&data[start..end]) {
           Ok(s) => s,
-          Err(_) => return 0,
+          Err(e) => {
+            error!("[host_ctx_create_node] UTF-8 decode failed: {}", e);
+            return 0;
+          }
         };
         let fields: HashMap<String, panorama_core::types::FieldValue> =
           match serde_json::from_str(json) {
             Ok(f) => f,
-            Err(_) => return 0,
+            Err(e) => {
+              error!(
+                "[host_ctx_create_node] JSON parse failed: {} (input: {})",
+                e,
+                &json[..json.len().min(500)]
+              );
+              return 0;
+            }
           };
 
         let mut node = panorama_core::types::Node::new(Uuid::nil());
@@ -248,11 +265,17 @@ pub fn create_prelinked_instance(
 
         let id_str = match std::str::from_utf8(&data[start..end]) {
           Ok(s) => s,
-          Err(_) => return 0,
+          Err(e) => {
+            error!("[host_ctx_get_node] UTF-8 decode failed: {}", e);
+            return 0;
+          }
         };
         let id = match Uuid::parse_str(id_str) {
           Ok(id) => id,
-          Err(_) => return 0,
+          Err(e) => {
+            error!("[host_ctx_get_node] UUID parse failed: {} (input: {})", e, id_str);
+            return 0;
+          }
         };
 
         let result = pollster::block_on(c2.as_ref().get_node(id));
@@ -301,11 +324,17 @@ pub fn create_prelinked_instance(
         }
         let id_str = match std::str::from_utf8(&data[id_start..id_end]) {
           Ok(s) => s,
-          Err(_) => return 0,
+          Err(e) => {
+            error!("[host_ctx_update_node] UTF-8 decode failed for id: {}", e);
+            return 0;
+          }
         };
         let id = match Uuid::parse_str(id_str) {
           Ok(id) => id,
-          Err(_) => return 0,
+          Err(e) => {
+            error!("[host_ctx_update_node] UUID parse failed: {} (input: {})", e, id_str);
+            return 0;
+          }
         };
         let f_start = f_ptr as usize;
         let f_end = f_start.saturating_add(f_len as usize);
@@ -314,12 +343,22 @@ pub fn create_prelinked_instance(
         }
         let f_json = match std::str::from_utf8(&data[f_start..f_end]) {
           Ok(s) => s,
-          Err(_) => return 0,
+          Err(e) => {
+            error!("[host_ctx_update_node] UTF-8 decode failed for fields: {}", e);
+            return 0;
+          }
         };
         let fields: HashMap<String, panorama_core::types::FieldValue> =
           match serde_json::from_str(f_json) {
             Ok(f) => f,
-            Err(_) => return 0,
+            Err(e) => {
+              error!(
+                "[host_ctx_update_node] JSON parse failed: {} (input: {})",
+                e,
+                &f_json[..f_json.len().min(500)]
+              );
+              return 0;
+            }
           };
 
         let result = pollster::block_on(c3.as_ref().update_node(id, fields));
@@ -361,10 +400,15 @@ pub fn create_prelinked_instance(
         }
         let id_str = match std::str::from_utf8(&data[start..end]) {
           Ok(s) => s,
-          Err(_) => return,
+          Err(e) => {
+            error!("[host_ctx_delete_node] UTF-8 decode failed: {}", e);
+            return;
+          }
         };
         if let Ok(id) = Uuid::parse_str(id_str) {
           let _ = pollster::block_on(c4.as_ref().delete_node(id));
+        } else {
+          error!("[host_ctx_delete_node] UUID parse failed: {}", id_str);
         }
       },
     )
@@ -389,14 +433,17 @@ pub fn create_prelinked_instance(
         }
         let qs = match std::str::from_utf8(&data[start..end]) {
           Ok(s) => s,
-          Err(_) => return 0,
+          Err(e) => {
+            error!("[host_ctx_query] UTF-8 decode failed: {}", e);
+            return 0;
+          }
         };
 
         let result = pollster::block_on(c5.as_ref().query(qs));
         let rows = match result {
           Ok(r) => r,
           Err(ref e) => {
-            eprintln!(
+            error!(
               "[host_ctx_query] ERROR: {} | query={}",
               e.message,
               &qs[..qs.len().min(200)]
