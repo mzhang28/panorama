@@ -210,6 +210,7 @@ export async function spawnInstance(
   }
 
   const stop = async () => {
+    console.error(`\n--- Server logs for port ${serverPort} ---\n${serverLogs}\n--- End server logs ---\n`);
     try {
       serverProcess.kill("SIGTERM");
     } catch {

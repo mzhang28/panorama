@@ -774,13 +774,22 @@ async fn plugin_ui_handler(
 /// builds without a pre-built `frontend/dist/`), returns 404.
 async fn frontend_spa_fallback(uri: Uri) -> Result<Response, (StatusCode, Json<ApiError>)> {
   let path = uri.path().trim_start_matches('/');
+  tracing::info!(path = %path, "SPA fallback requested");
+
+  #[cfg(frontend_embedded)]
+  tracing::info!("frontend_embedded is active in cfg");
+  #[cfg(not(frontend_embedded))]
+  tracing::warn!("frontend_embedded is NOT active in cfg!");
 
   if let Some(resp) = crate::frontend::try_serve(path) {
+    tracing::info!(path = %path, "Served static frontend asset");
     return Ok(resp);
   }
   if let Some(resp) = crate::frontend::serve_index() {
+    tracing::info!("Served index.html fallback");
     return Ok(resp);
   }
+  tracing::error!(path = %path, "Frontend asset/index.html not found, returning NOT_FOUND");
   Err(ApiError::not_found("Not found"))
 }
 

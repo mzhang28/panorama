@@ -109,6 +109,11 @@ async fn main() {
     deferred_engine_bg.run_polling_loop(cancel_rx).await;
   });
 
+  #[cfg(frontend_embedded)]
+  tracing::info!("Frontend SPA is embedded in the server binary");
+  #[cfg(not(frontend_embedded))]
+  tracing::warn!("Frontend SPA is NOT embedded in the server binary!");
+
   let state = AppState {
     storage,
     schema_registry,

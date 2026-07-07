@@ -1,15 +1,20 @@
 fn main() {
   println!("cargo:rerun-if-changed=src/");
   println!("cargo::rustc-check-cfg=cfg(frontend_embedded)");
-  println!("cargo:rerun-if-changed=../../frontend/dist");
+
+  // Use CARGO_MANIFEST_DIR to determine the absolute path to frontend/dist
+  let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+  let dist_dir = std::path::Path::new(&manifest_dir).join("../../frontend/dist");
+  let index_html = dist_dir.join("index.html");
+
+  println!("cargo:rerun-if-changed={}", dist_dir.display());
+  println!("cargo:rerun-if-changed={}", index_html.display());
 
   // Detect if the frontend has been built. When present, the server embeds
   // the production frontend build and serves it as an SPA fallback.
-  let dist_dir = std::path::Path::new("../../frontend/dist");
-  let index_html = dist_dir.join("index.html");
   if index_html.exists() {
     println!("cargo:rustc-cfg=frontend_embedded");
-    walk_and_emit(dist_dir);
+    walk_and_emit(&dist_dir);
   }
 }
 

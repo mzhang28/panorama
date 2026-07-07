@@ -18,6 +18,7 @@
       "dependsOn": ["panorama-frontend:build"],
       "inputs": [
         "{projectRoot}/src/**/*",
+        "{projectRoot}/build.rs",
         "{projectRoot}/Cargo.toml",
         "{workspaceRoot}/crates/panorama-core/src/**/*",
         "{workspaceRoot}/Cargo.lock",
