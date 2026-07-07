@@ -6,6 +6,8 @@ test.describe("Coding Activity Plugin UI", () => {
     await page.click('a:has-text("Coding Activity")');
 
     await expect(page.locator("h2")).toContainText("Coding Activity");
+    // Expand the heartbeat form
+    await page.click("text=Send Test Heartbeat");
     await expect(page.locator("textarea")).toBeVisible();
     await expect(
       page.locator('button:has-text("Send Heartbeat")'),
@@ -15,6 +17,8 @@ test.describe("Coding Activity Plugin UI", () => {
   test("can send a heartbeat and see stats panels", async ({ page }) => {
     await page.goto("/");
     await page.click('a:has-text("Coding Activity")');
+    // Expand and send
+    await page.click("text=Send Test Heartbeat");
     await page.click('button:has-text("Send Heartbeat")');
     // Should show the leaderboard section (even if empty initially)
     await expect(page.locator("text=Per Project")).toBeVisible();

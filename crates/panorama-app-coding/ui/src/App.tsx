@@ -372,6 +372,29 @@ export default function CodingApp({ pluginId }: CodingAppProps) {
         </div>
       )}
 
+      {/* Setup instructions */}
+      <details className="bg-gray-800 rounded-lg border border-gray-700 group">
+        <summary className="px-4 py-2 text-xs text-gray-400 cursor-pointer hover:text-gray-200 select-none">
+          Editor Setup
+        </summary>
+        <div className="p-4 border-t border-gray-700 space-y-3 text-xs text-gray-300">
+          <p>
+            Configure your editor's WakaTime plugin to send heartbeats here.
+            Create or edit{" "}
+            <code className="text-indigo-400">~/.wakatime.cfg</code>:
+          </p>
+          <pre className="bg-gray-900 text-green-400 p-3 rounded overflow-x-auto">
+            {`[settings]
+api_url = ${window.location.origin}/plugin/io.mzhang.panorama.coding
+api_key = panorama`}
+          </pre>
+          <p className="text-gray-500">
+            The coding plugin doesn't require auth, so any api_key works.
+            Restart your editor after saving.
+          </p>
+        </div>
+      </details>
+
       {/* Stat cards */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -422,23 +445,25 @@ export default function CodingApp({ pluginId }: CodingAppProps) {
       </div>
 
       {/* Test heartbeat */}
-      <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 space-y-3">
-        <h3 className="text-xs font-medium text-gray-400">
+      <details className="bg-gray-800 rounded-lg border border-gray-700 group">
+        <summary className="px-4 py-2 text-xs text-gray-400 cursor-pointer hover:text-gray-200 select-none">
           Send Test Heartbeat
-        </h3>
-        <textarea
-          className="w-full h-28 bg-gray-900 text-green-400 font-mono text-xs p-3 rounded border border-gray-700 resize-y"
-          value={heartbeatInput}
-          onChange={(e) => setHeartbeatInput(e.target.value)}
-        />
-        <button
-          onClick={() => sendMutation.mutate()}
-          disabled={sendMutation.isPending}
-          className="px-4 py-2 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-500 disabled:opacity-50"
-        >
-          {sendMutation.isPending ? "Sending..." : "Send Heartbeat"}
-        </button>
-      </div>
+        </summary>
+        <div className="p-4 space-y-3 border-t border-gray-700">
+          <textarea
+            className="w-full h-28 bg-gray-900 text-green-400 font-mono text-xs p-3 rounded border border-gray-700 resize-y"
+            value={heartbeatInput}
+            onChange={(e) => setHeartbeatInput(e.target.value)}
+          />
+          <button
+            onClick={() => sendMutation.mutate()}
+            disabled={sendMutation.isPending}
+            className="px-4 py-2 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {sendMutation.isPending ? "Sending..." : "Send Heartbeat"}
+          </button>
+        </div>
+      </details>
 
       {/* Leaderboards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
