@@ -48,9 +48,12 @@
         "{workspaceRoot}/scripts/package-panoapp.ts",
         "{workspaceRoot}/target/wasm32-wasip1/debug/trips.wasm",
         "{workspaceRoot}/target/wasm32-wasip1/release/trips.wasm",
-        "{projectRoot}/ui/dist/**/*"
+        "{projectRoot}/ui/**/*",
+        { "dependentTasksOutputFiles": "**/*", "transitive": false }
       ],
-      "outputs": ["{workspaceRoot}/dist/panoapp/trips.panoapp"],
+      "outputs": [
+        "{workspaceRoot}/dist/panoapp/io.mzhang.panorama.trips.panoapp"
+      ],
       "cache": true
     }
   }

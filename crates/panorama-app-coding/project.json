@@ -48,9 +48,12 @@
         "{workspaceRoot}/scripts/package-panoapp.ts",
         "{workspaceRoot}/target/wasm32-wasip1/debug/coding.wasm",
         "{workspaceRoot}/target/wasm32-wasip1/release/coding.wasm",
-        "{projectRoot}/ui/dist/**/*"
+        "{projectRoot}/ui/**/*",
+        { "dependentTasksOutputFiles": "**/*", "transitive": false }
       ],
-      "outputs": ["{workspaceRoot}/dist/panoapp/coding.panoapp"],
+      "outputs": [
+        "{workspaceRoot}/dist/panoapp/io.mzhang.panorama.coding.panoapp"
+      ],
       "cache": true
     }
   }

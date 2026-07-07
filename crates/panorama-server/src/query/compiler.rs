@@ -66,7 +66,8 @@ impl rusqlite::types::ToSql for ParamValue {
 
 // ── Compilation context ─────────────────────────────────────────────────────────
 
-struct CompileCtx {
+#[derive(Clone)]
+pub(crate) struct CompileCtx {
   /// Maps variable names to their CTE names (the final CTE in the chain for each var).
   var_cte: HashMap<String, String>,
   /// Cached ns_id lookups.
@@ -75,7 +76,8 @@ struct CompileCtx {
   resolved_schemas: Vec<ResolvedSchema>,
 }
 
-struct ResolvedSchema {
+#[derive(Clone)]
+pub(crate) struct ResolvedSchema {
   variable: String,
   schema_id: String,
   physical: Option<PhysicalSchema>,
@@ -86,19 +88,25 @@ struct ResolvedSchema {
 
 // ── Public entry point ──────────────────────────────────────────────────────────
 
-/// Compile an AST query into parameterized SQL (full path: Phase 1 + Phase 2).
-pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String> {
-  let query_id = Uuid::new_v4();
-
-  // Phase 1: meta lookup — resolve physical schemas from CONFORMS TO
+/// Phase 1: meta lookup — resolve physical schemas from CONFORMS TO clauses.
+///
+/// Returns a `CompileCtx` that can be cached (by IR shape key) and reused
+/// across structurally identical queries, skipping repeated `schema_tables`
+/// and `managed_indexes` lookups (§1.4).
+pub fn compile_phase1(query: &Query, conn: &Connection) -> Result<CompileCtx, String> {
   let mut ctx = CompileCtx::new();
   for mc in &query.matches {
     if let Some(wc) = &mc.where_clause {
       extract_conforms_to(&wc.predicate, &mc.variable, conn, &mut ctx)?;
     }
   }
+  Ok(ctx)
+}
 
-  // Phase 2: generate SQL from the resolved context
+/// Compile an AST query into parameterized SQL (full path: Phase 1 + Phase 2).
+pub fn compile(query: &Query, conn: &Connection) -> Result<CompiledQuery, String> {
+  let query_id = Uuid::new_v4();
+  let ctx = compile_phase1(query, conn)?;
   compile_phase2(query, conn, ctx, query_id)
 }
 

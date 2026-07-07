@@ -206,43 +206,56 @@ async fn create_node(
   }
 
   // ── Eager reactor hooks: per-field before_field_write ──────────────────
-  // Fire BeforeFieldWrite for each initial field value, so field-scoped
-  // validate/transform reactors take effect at creation time.
+  // Fire BeforeFieldWrite for each initial field value concurrently.
+  // Field-scoped validate/transform reactors are independent — no hook
+  // depends on another field's transformation result, so running them
+  // in parallel eliminates the N×latency penalty (§1.2).
   let field_keys: Vec<String> = node.fields.keys().cloned().collect();
-  for field_path in &field_keys {
-    let current_value = node.fields.get(field_path).cloned();
-    let field_ctx = HookContext {
-      hook_point: HookPoint::BeforeFieldWrite {
-        field_path: field_path.clone(),
-        scope_schema_id: None,
-      },
-      node: Some(node.clone()),
-      node_id: None,
-      field_path: Some(field_path.clone()),
-      current_value: current_value.clone(),
-      previous_value: None,
-      schema_id: None,
-      space_id: Some(node.space_id),
-      authorized_by: None,
-    };
+  if !field_keys.is_empty() {
+    let pipeline = state.eager_pipeline.clone();
+    let futures: Vec<_> = field_keys
+      .iter()
+      .map(|field_path| {
+        let current_value = node.fields.get(field_path).cloned();
+        let field_ctx = HookContext {
+          hook_point: HookPoint::BeforeFieldWrite {
+            field_path: field_path.clone(),
+            scope_schema_id: None,
+          },
+          node: Some(node.clone()),
+          node_id: None,
+          field_path: Some(field_path.clone()),
+          current_value,
+          previous_value: None,
+          schema_id: None,
+          space_id: Some(node.space_id),
+          authorized_by: None,
+        };
+        let pipeline = pipeline.clone();
+        async move { (field_path.clone(), pipeline.execute_hook(&field_ctx).await) }
+      })
+      .collect();
 
-    match state.eager_pipeline.execute_hook(&field_ctx).await {
-      HookResult::Rejected { reason, .. } => {
-        return Err(ApiError::bad_request(&format!(
-          "Reactor rejected field '{}': {}",
-          field_path, reason
-        )));
-      }
-      HookResult::Approved {
-        transformed_value,
-        computed_fields,
-        ..
-      } => {
-        if let Some(tv) = transformed_value {
-          node.set_field(field_path, tv);
+    let results = futures::future::join_all(futures).await;
+    for (field_path, result) in results {
+      match result {
+        HookResult::Rejected { reason, .. } => {
+          return Err(ApiError::bad_request(&format!(
+            "Reactor rejected field '{}': {}",
+            field_path, reason
+          )));
         }
-        for (key, value) in &computed_fields {
-          node.set_field(key, value.clone());
+        HookResult::Approved {
+          transformed_value,
+          computed_fields,
+          ..
+        } => {
+          if let Some(tv) = transformed_value {
+            node.set_field(&field_path, tv);
+          }
+          for (key, value) in &computed_fields {
+            node.set_field(key, value.clone());
+          }
         }
       }
     }
@@ -310,41 +323,54 @@ async fn update_node(
     return Err(ApiError::bad_request(&errors.join("; ")));
   }
 
-  // ── Eager reactor hooks: before_field_write per field ────────────────
+  // ── Eager reactor hooks: before_field_write per field (concurrent) ───
   let mut final_fields = req.fields.clone();
-  for (field_path, new_value) in &req.fields {
-    let prev = existing.fields.get(field_path).cloned();
-    let hook_ctx = HookContext {
-      hook_point: HookPoint::BeforeFieldWrite {
-        field_path: field_path.clone(),
-        scope_schema_id: schemas.first().map(|s| s.schema_node_id),
-      },
-      node: Some(existing.clone()),
-      node_id: Some(id),
-      field_path: Some(field_path.clone()),
-      current_value: Some(new_value.clone()),
-      previous_value: prev,
-      schema_id: schemas.first().map(|s| s.schema_node_id),
-      space_id: Some(existing.space_id),
-      authorized_by: None,
-    };
+  if !req.fields.is_empty() {
+    let pipeline = state.eager_pipeline.clone();
+    let scope_schema_id = schemas.first().map(|s| s.schema_node_id);
+    let futures: Vec<_> = req
+      .fields
+      .iter()
+      .map(|(field_path, new_value)| {
+        let prev = existing.fields.get(field_path).cloned();
+        let hook_ctx = HookContext {
+          hook_point: HookPoint::BeforeFieldWrite {
+            field_path: field_path.clone(),
+            scope_schema_id,
+          },
+          node: Some(existing.clone()),
+          node_id: Some(id),
+          field_path: Some(field_path.clone()),
+          current_value: Some(new_value.clone()),
+          previous_value: prev,
+          schema_id: scope_schema_id,
+          space_id: Some(existing.space_id),
+          authorized_by: None,
+        };
+        let pipeline = pipeline.clone();
+        async move { (field_path.clone(), pipeline.execute_hook(&hook_ctx).await) }
+      })
+      .collect();
 
-    match state.eager_pipeline.execute_hook(&hook_ctx).await {
-      HookResult::Rejected { reason, .. } => {
-        return Err(ApiError::bad_request(&format!(
-          "Reactor rejected field '{}': {}",
-          field_path, reason
-        )));
-      }
-      HookResult::Approved {
-        transformed_value,
-        computed_fields,
-      } => {
-        if let Some(tv) = transformed_value {
-          final_fields.insert(field_path.clone(), tv);
+    let results = futures::future::join_all(futures).await;
+    for (field_path, result) in results {
+      match result {
+        HookResult::Rejected { reason, .. } => {
+          return Err(ApiError::bad_request(&format!(
+            "Reactor rejected field '{}': {}",
+            field_path, reason
+          )));
         }
-        for (key, value) in &computed_fields {
-          final_fields.insert(key.clone(), value.clone());
+        HookResult::Approved {
+          transformed_value,
+          computed_fields,
+        } => {
+          if let Some(tv) = transformed_value {
+            final_fields.insert(field_path.clone(), tv);
+          }
+          for (key, value) in &computed_fields {
+            final_fields.insert(key.clone(), value.clone());
+          }
         }
       }
     }

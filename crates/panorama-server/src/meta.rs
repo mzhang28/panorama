@@ -705,7 +705,8 @@ impl MetaStore {
   ///
   /// Called **within the same transaction** as the node INSERT/UPDATE.
   /// Deletes all existing presence rows for this node, then inserts the
-  /// current set of fields.
+  /// current set of fields using bulk SQL with `json_each` — no per-field
+  /// Rust→SQLite round-trips (§1.3).
   ///
   /// Each field key is expected to be in `"namespace:field_name"` format.
   /// Unknown namespaces are auto-registered as `kind=app`.
@@ -722,18 +723,46 @@ impl MetaStore {
       params![nid],
     )?;
 
-    // Insert current fields
+    if fields.is_empty() {
+      return Ok(());
+    }
+
+    // Build a JSON array describing each field: [{"ns":"system","name":"title","type":"String"}, ...]
+    let mut field_entries: Vec<serde_json::Value> = Vec::with_capacity(fields.len());
     for (key, value) in fields {
-      // Parse "namespace:field_name"
       if let Some((ns_str, field_name)) = key.split_once(':') {
-        let ns_id = Self::resolve_ns_id(conn, ns_str)?;
-        let value_type = Self::value_type_tag(value);
-        conn.execute(
-                    "INSERT INTO field_presence (ns_id, field_name, node_id, value_type) VALUES (?1, ?2, ?3, ?4)",
-                    params![ns_id, field_name, nid, value_type],
-                )?;
+        field_entries.push(serde_json::json!({
+          "ns": ns_str,
+          "name": field_name,
+          "type": Self::value_type_tag(value),
+        }));
       }
     }
+
+    if field_entries.is_empty() {
+      return Ok(());
+    }
+
+    let fields_json = serde_json::to_string(&field_entries).unwrap_or_default();
+
+    // Phase 1: ensure all namespaces exist (auto-register unknown as 'app').
+    // INSERT OR IGNORE skips already-registered namespaces (system, user, etc.)
+    // because stable_identifier has a UNIQUE constraint.
+    conn.execute(
+      "INSERT OR IGNORE INTO namespaces (kind, stable_identifier)
+       SELECT 'app', json_extract(value, '$.ns') FROM json_each(?1)",
+      params![fields_json],
+    )?;
+
+    // Phase 2: bulk insert into field_presence, joining on the now-guaranteed
+    // namespace rows.  The JOIN is solely on stable_identifier which is UNIQUE.
+    conn.execute(
+      "INSERT INTO field_presence (ns_id, field_name, node_id, value_type)
+       SELECT ns.ns_id, json_extract(je.value, '$.name'), ?2, json_extract(je.value, '$.type')
+       FROM json_each(?1) je
+       JOIN namespaces ns ON ns.stable_identifier = json_extract(je.value, '$.ns')",
+      params![fields_json, nid],
+    )?;
 
     Ok(())
   }
@@ -1263,5 +1292,78 @@ mod tests {
     let conn = Connection::open_in_memory().unwrap();
     MetaStore::initialize(&conn).unwrap();
     MetaStore::initialize(&conn).unwrap(); // second call should not error
+  }
+
+  /// Mirror the Journal plugin's exact create+update+verify pattern.
+  /// Regression test for bulk `sync_field_presence` via `json_each`.
+  #[test]
+  fn test_journal_style_create_update_and_verify() {
+    let conn = test_conn();
+    let node_id = Uuid::new_v4();
+
+    // Step 1: create a node with Journal-typical fields (like POST /pages)
+    let mut fields = HashMap::new();
+    fields.insert(
+      "system:node_title".to_string(),
+      panorama_core::types::FieldValue::String("Test Page".into()),
+    );
+    fields.insert(
+      "system:node_time".to_string(),
+      panorama_core::types::FieldValue::DateTime("2026-07-06T00:00:00Z".into()),
+    );
+    fields.insert(
+      "journal:content".to_string(),
+      panorama_core::types::FieldValue::String("Hello world".into()),
+    );
+    fields.insert(
+      "journal:deleted".to_string(),
+      panorama_core::types::FieldValue::Boolean(false),
+    );
+    fields.insert(
+      "journal:parent_id".to_string(),
+      panorama_core::types::FieldValue::NodeRef(Uuid::nil()),
+    );
+    fields.insert(
+      "journal:journal_day".to_string(),
+      panorama_core::types::FieldValue::String("2026-07-06".into()),
+    );
+    MetaStore::sync_field_presence(&conn, &node_id, &fields).unwrap();
+
+    // Verify every field is present
+    let sys_ns = MetaStore::resolve_ns_id(&conn, "system").unwrap();
+    let journal_ns = MetaStore::resolve_ns_id(&conn, "journal").unwrap();
+    assert!(MetaStore::has_field(&conn, sys_ns, "node_title", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, sys_ns, "node_time", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, journal_ns, "content", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, journal_ns, "deleted", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, journal_ns, "parent_id", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, journal_ns, "journal_day", &node_id).unwrap());
+
+    // Step 2: update the node (like adding journal:page_id after creation)
+    let mut merged = fields.clone();
+    merged.insert(
+      "journal:page_id".to_string(),
+      panorama_core::types::FieldValue::NodeRef(node_id),
+    );
+    MetaStore::sync_field_presence(&conn, &node_id, &merged).unwrap();
+
+    // Verify ALL fields still present (including new page_id, excluding old-only fields)
+    assert!(MetaStore::has_field(&conn, sys_ns, "node_title", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, sys_ns, "node_time", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, journal_ns, "content", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, journal_ns, "deleted", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, journal_ns, "parent_id", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, journal_ns, "journal_day", &node_id).unwrap());
+    assert!(MetaStore::has_field(&conn, journal_ns, "page_id", &node_id).unwrap());
+
+    // Verify total count = 7
+    let count: i64 = conn
+      .query_row(
+        "SELECT COUNT(*) FROM field_presence WHERE node_id = ?1",
+        params![node_id.to_string()],
+        |row| row.get(0),
+      )
+      .unwrap();
+    assert_eq!(count, 7);
   }
 }

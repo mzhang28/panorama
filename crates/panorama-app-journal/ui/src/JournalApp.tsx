@@ -125,7 +125,6 @@ export function JournalApp({
       if (block.id) queryClient.setQueryData(["journal-page", block.id], block);
       queryClient.invalidateQueries({ queryKey: ["journal-pages"] });
       queryClient.invalidateQueries({ queryKey: ["journal-children"] });
-      setShowNewBlock(false);
       queryClient.setQueryData(["journal-pages"], (old: any) => {
         const oldPages = Array.isArray(old) ? old : (old?.rows ?? []);
         return [block, ...oldPages];
@@ -164,15 +163,20 @@ export function JournalApp({
   return (
     <div className="journal-layout flex h-[calc(100vh-100px)] gap-0">
       {/* ── Sidebar ──────────────────────────────────────────────────── */}
-      <aside className="journal-sidebar w-[220px] min-w-[180px] border-r border-[var(--border)] p-[var(--space-3)] overflow-y-auto bg-[var(--bg-card)]">
+      <aside
+        data-testid="journal-sidebar"
+        className="journal-sidebar w-[220px] min-w-[180px] border-r border-[var(--border)] p-[var(--space-3)] overflow-y-auto bg-[var(--bg-card)]"
+      >
         <div className="journal-sidebar-section flex flex-col gap-[var(--space-2)] mb-[var(--space-4)]">
           <button
+            data-testid="journal-today-btn"
             className={`journal-today-btn ${sidebarLink}`}
             onClick={() => navigate("today")}
           >
             📅 Today
           </button>
           <button
+            data-testid="journal-new-page-btn"
             className={`journal-new-page-btn ${sidebarLink}`}
             onClick={() => navigate("new")}
           >
@@ -194,7 +198,10 @@ export function JournalApp({
         ) : pages.length === 0 ? (
           <p className="text-[var(--text-muted)] text-[13px]">No pages yet</p>
         ) : (
-          <div className="journal-page-list flex flex-col gap-0.5">
+          <div
+            data-testid="journal-page-list"
+            className="journal-page-list flex flex-col gap-0.5"
+          >
             {pages.map((p) => {
               const title = fStr(p, "system:node_title") || "Untitled";
               const day = fStr(p, "journal:journal_day");
@@ -254,7 +261,10 @@ export function JournalApp({
               </h2>
               <div className="journal-page-meta flex items-center gap-[var(--space-3)] text-[13px] text-[var(--text-muted)] mb-[var(--space-2)]">
                 {fStr(activePage, "journal:journal_day") && (
-                  <span className="journal-date-badge inline-flex items-center gap-[var(--space-1)] bg-[var(--badge-bg)] px-[var(--space-2)] py-[var(--space-1)] rounded-[var(--radius-sm)] text-xs">
+                  <span
+                    data-testid="journal-date-badge"
+                    className="journal-date-badge inline-flex items-center gap-[var(--space-1)] bg-[var(--badge-bg)] px-[var(--space-2)] py-[var(--space-1)] rounded-[var(--radius-sm)] text-xs"
+                  >
                     📅 {fStr(activePage, "journal:journal_day")}
                   </span>
                 )}
@@ -265,6 +275,7 @@ export function JournalApp({
                   🔗 Backlinks
                 </button>
                 <button
+                  data-testid="journal-delete-btn"
                   className={`${iconBtnSm} text-[var(--danger)] hover:text-[var(--danger-hover)]`}
                   onClick={() => {
                     if (selectedPageId && confirm("Delete this page?"))
@@ -564,6 +575,7 @@ export function NewBlockForm({
               placeholder="Page title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              data-testid="journal-new-title-input"
               className="journal-new-title-input w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text)] text-[14px]"
             />
           )}
@@ -590,6 +602,7 @@ export function NewBlockForm({
               />
             )}
             <button
+              data-testid="journal-create-page-btn"
               onClick={handleSubmit}
               className="bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-text)] text-[12px] px-[var(--space-3)] py-[var(--space-1)] rounded-[var(--radius-sm)] hover:bg-[var(--accent-hover)]"
             >

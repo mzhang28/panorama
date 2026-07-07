@@ -4,6 +4,13 @@
 //! They go through `RuntimeContext`, which enforces capability checks,
 //! schema validation, and meta-table invariants — exactly the same path
 //! native plugins take.  No backdoors.
+//!
+//! ## Linker caching (§1.1)
+//!
+//! `create_prelinked_instance` builds a `wasmtime::Linker`, registers all 6
+//! host functions, and returns an `InstancePre`.  The caller caches this
+//! per-plugin so `execute_wasm_handler` skips linking entirely — only the
+//! per-request WASI stdin/stdout store is built fresh.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,49 +25,34 @@ use crate::plugin_runtime::RuntimeContext;
 use crate::schema_registry::SchemaRegistry;
 use crate::storage::NodeStorage;
 
-type WasiCtx = wasmtime_wasi::preview1::WasiP1Ctx;
+pub(crate) type WasiCtx = wasmtime_wasi::preview1::WasiP1Ctx;
 
-pub async fn execute_wasm_handler(
+/// Build a pre-linked `InstancePre` for a WASM plugin.
+///
+/// Creates the linker, registers WASI + all 6 host functions, and returns
+/// an `InstancePre` that can be instantiated nearly instantly per-request.
+/// The returned `InstancePre` is safe to clone and share across threads.
+///
+/// This should be called **once** at plugin load time, not per-request.
+pub fn create_prelinked_instance(
   engine: &wasmtime::Engine,
   module: &wasmtime::Module,
-  endpoint: &str,
-  request: &HttpRequest,
   plugin_id: &str,
   capabilities: &CapabilityGrants,
   storage: &NodeStorage,
   schema_registry: &SchemaRegistry,
   object_storage: &ObjectStorage,
-) -> Result<HttpResponse, PluginError> {
-  // Build WASI context with stdin from request JSON
-  let input_json = serde_json::to_vec(&serde_json::json!({
-      "endpoint": endpoint,
-      "request": {
-          "method": &request.method, "path": &request.path,
-          "query_params": &request.query_params, "headers": &request.headers,
-          "body": request.body.as_ref().map(|b| String::from_utf8_lossy(b).to_string()),
-      },
-  }))
-  .map_err(|e| PluginError::internal(format!("json: {}", e)))?;
-
-  let stdout_pipe = wasmtime_wasi::pipe::MemoryOutputPipe::new(65536);
-  let stdin_pipe = wasmtime_wasi::pipe::MemoryInputPipe::new(Bytes::from(input_json));
-
-  let mut builder = wasmtime_wasi::WasiCtxBuilder::new();
-  builder.stdin(stdin_pipe);
-  builder.stdout(stdout_pipe.clone());
-  let wasi_ctx = builder.build_p1();
-
-  let mut store = wasmtime::Store::new(engine, wasi_ctx);
+) -> Result<wasmtime::InstancePre<WasiCtx>, PluginError> {
   let mut linker = wasmtime::Linker::new(engine);
 
+  // ── WASI ──────────────────────────────────────────────────────────────
   wasmtime_wasi::preview1::wasi_snapshot_preview1::add_to_linker(
     &mut linker,
     |cx: &mut WasiCtx| cx,
   )
   .map_err(|e| PluginError::internal(format!("wasi: {}", e)))?;
 
-  // ── Build RuntimeContext (shared by all host functions) ──────────────
-
+  // ── RuntimeContext (shared by all host functions) ─────────────────────
   let ctx = Arc::new(RuntimeContext::new(
     plugin_id,
     storage.clone(),
@@ -70,7 +62,6 @@ pub async fn execute_wasm_handler(
   ));
 
   // ── host_ctx_create_nodes ──────────────────────────────────────────
-
   let c1 = ctx.clone();
   linker
     .func_wrap(
@@ -128,7 +119,6 @@ pub async fn execute_wasm_handler(
     .map_err(|e| PluginError::internal(format!("link host_ctx_create_nodes: {}", e)))?;
 
   // ── host_ctx_create_node ───────────────────────────────────────────
-
   let c1_single = ctx.clone();
   linker
     .func_wrap(
@@ -185,7 +175,6 @@ pub async fn execute_wasm_handler(
     .map_err(|e| PluginError::internal(format!("link host_ctx_create_node: {}", e)))?;
 
   // ── host_ctx_get_node ──────────────────────────────────────────────
-
   let c2 = ctx.clone();
   linker
     .func_wrap(
@@ -238,7 +227,6 @@ pub async fn execute_wasm_handler(
     .map_err(|e| PluginError::internal(format!("link host_ctx_get_node: {}", e)))?;
 
   // ── host_ctx_update_node ───────────────────────────────────────────
-
   let c3 = ctx.clone();
   linker
     .func_wrap(
@@ -256,7 +244,6 @@ pub async fn execute_wasm_handler(
           None => return 0,
         };
         let data = mem.data(&caller);
-        // Read id
         let id_start = id_ptr as usize;
         let id_end = id_start.saturating_add(id_len as usize);
         if id_end > data.len() {
@@ -270,7 +257,6 @@ pub async fn execute_wasm_handler(
           Ok(id) => id,
           Err(_) => return 0,
         };
-        // Read fields JSON
         let f_start = f_ptr as usize;
         let f_end = f_start.saturating_add(f_len as usize);
         if f_end > data.len() {
@@ -307,7 +293,6 @@ pub async fn execute_wasm_handler(
     .map_err(|e| PluginError::internal(format!("link host_ctx_update_node: {}", e)))?;
 
   // ── host_ctx_delete_node ───────────────────────────────────────────
-
   let c4 = ctx.clone();
   linker
     .func_wrap(
@@ -336,7 +321,6 @@ pub async fn execute_wasm_handler(
     .map_err(|e| PluginError::internal(format!("link host_ctx_delete_node: {}", e)))?;
 
   // ── host_ctx_query ─────────────────────────────────────────────────
-
   let c5 = ctx.clone();
   linker
     .func_wrap(
@@ -361,7 +345,14 @@ pub async fn execute_wasm_handler(
         let result = pollster::block_on(c5.as_ref().query(qs));
         let rows = match result {
           Ok(r) => r,
-          Err(_) => vec![],
+          Err(ref e) => {
+            eprintln!(
+              "[host_ctx_query] ERROR: {} | query={}",
+              e.message,
+              &qs[..qs.len().min(200)]
+            );
+            vec![]
+          }
         };
         let json = serde_json::to_vec(&rows).unwrap_or_default();
 
@@ -378,7 +369,6 @@ pub async fn execute_wasm_handler(
     .map_err(|e| PluginError::internal(format!("link host_ctx_query: {}", e)))?;
 
   // ── host_ctx_log ───────────────────────────────────────────────────
-
   let c6 = ctx.clone();
   linker
     .func_wrap(
@@ -402,10 +392,45 @@ pub async fn execute_wasm_handler(
     )
     .map_err(|e| PluginError::internal(format!("link host_ctx_log: {}", e)))?;
 
-  // ── Instantiate & run ───────────────────────────────────────────────
+  // ── Pre-link ───────────────────────────────────────────────────────
+  linker
+    .instantiate_pre(module)
+    .map_err(|e| PluginError::internal(format!("pre-link: {}", e)))
+}
 
-  let instance = linker
-    .instantiate_async(&mut store, module)
+/// Execute a WASM handler using a pre-built `InstancePre`.
+///
+/// Only the per-request WASI context (stdin/stdout pipes) is created fresh;
+/// all host function linking was done at plugin load time via
+/// `create_prelinked_instance` (§1.1).
+pub async fn execute_wasm_handler(
+  engine: &wasmtime::Engine,
+  instance_pre: &wasmtime::InstancePre<WasiCtx>,
+  endpoint: &str,
+  request: &HttpRequest,
+) -> Result<HttpResponse, PluginError> {
+  let input_json = serde_json::to_vec(&serde_json::json!({
+      "endpoint": endpoint,
+      "request": {
+          "method": &request.method, "path": &request.path,
+          "query_params": &request.query_params, "headers": &request.headers,
+          "body": request.body.as_ref().map(|b| String::from_utf8_lossy(b).to_string()),
+      },
+  }))
+  .map_err(|e| PluginError::internal(format!("json: {}", e)))?;
+
+  let stdout_pipe = wasmtime_wasi::pipe::MemoryOutputPipe::new(65536);
+  let stdin_pipe = wasmtime_wasi::pipe::MemoryInputPipe::new(Bytes::from(input_json));
+
+  let mut builder = wasmtime_wasi::WasiCtxBuilder::new();
+  builder.stdin(stdin_pipe);
+  builder.stdout(stdout_pipe.clone());
+  let wasi_ctx = builder.build_p1();
+
+  let mut store = wasmtime::Store::new(engine, wasi_ctx);
+
+  let instance = instance_pre
+    .instantiate_async(&mut store)
     .await
     .map_err(|e| PluginError::internal(format!("instantiate: {}", e)))?;
 
@@ -416,8 +441,6 @@ pub async fn execute_wasm_handler(
     .call_async(&mut store, ())
     .await
     .map_err(|e| PluginError::internal(format!("trap: {}", e)))?;
-
-  // ── Read stdout ────────────────────────────────────────────────────
 
   let output_bytes = stdout_pipe.contents();
   let output_str = String::from_utf8_lossy(&output_bytes);

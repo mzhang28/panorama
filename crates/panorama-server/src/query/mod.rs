@@ -6,4 +6,4 @@ pub mod compiler;
 pub mod physical;
 
 pub use cache::StatementCache;
-pub use compiler::compile;
+pub use compiler::{compile, compile_phase1, compile_phase2};

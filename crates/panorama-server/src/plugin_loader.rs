@@ -39,11 +39,13 @@ pub struct PluginInfo {
 struct WasmPlugin {
   info: LoadedPluginInfo,
   wasm_bytes: Vec<u8>,
-  /// Pre-compiled WASM module + engine — shared across requests
+  /// Pre-compiled WASM module — shared across requests
   compiled: Arc<wasmtime::Module>,
   /// Engine that owns the module (must outlive it)
   _engine: Arc<wasmtime::Engine>,
   ui_files: HashMap<String, Vec<u8>>,
+  /// Pre-linked InstancePre — linker + host functions done once at load time (§1.1)
+  instance_pre: wasmtime::InstancePre<crate::wasm_runtime::WasiCtx>,
 }
 
 pub struct PluginLoader {
@@ -161,6 +163,20 @@ impl PluginLoader {
         .map_err(|e| format!("wasm compile: {}", e))?;
       tracing::info!(plugin = %plugin_id, "Pre-compiled WASM module");
 
+      // Pre-link: build linker, register WASI + all 6 host functions,
+      // and cache an InstancePre so per-request instantiation is nearly free (§1.1).
+      let instance_pre = crate::wasm_runtime::create_prelinked_instance(
+        &self.wasm_engine,
+        &compiled,
+        &info.info.id,
+        &info.capabilities,
+        &self.storage,
+        &self.schema_registry,
+        &self.object_storage,
+      )
+      .map_err(|e| format!("wasm pre-link: {}", e.message))?;
+      tracing::info!(plugin = %plugin_id, "Cached pre-linked InstancePre");
+
       self.wasm_plugins.write().await.insert(
         plugin_id.clone(),
         WasmPlugin {
@@ -169,6 +185,7 @@ impl PluginLoader {
           compiled: Arc::new(compiled),
           _engine: self.wasm_engine.clone(),
           ui_files: package.ui_files.clone(),
+          instance_pre,
         },
       );
     }
@@ -244,25 +261,17 @@ impl PluginLoader {
     if let Some(wp) = wasm_plugin {
       // Execute via WASM runtime on a blocking thread — host functions
       // use pollster::block_on which would otherwise starve tokio workers.
+      // The InstancePre was pre-linked at load time (§1.1); only the WASI
+      // stdin/stdout store is created per-request.
       let engine = wp._engine.clone();
-      let compiled = wp.compiled.clone();
-      let plugin_id = wp.info.info.id.clone();
-      let capabilities = wp.info.capabilities.clone();
-      let storage = self.storage.clone();
-      let schema_registry = self.schema_registry.clone();
-      let object_storage = self.object_storage.clone();
+      let instance_pre = wp.instance_pre.clone();
       let endpoint = endpoint.to_string();
       let result = tokio::task::spawn_blocking(move || {
         pollster::block_on(wasm_runtime::execute_wasm_handler(
           &engine,
-          &compiled,
+          &instance_pre,
           &endpoint,
           &request,
-          &plugin_id,
-          &capabilities,
-          &storage,
-          &schema_registry,
-          &object_storage,
         ))
       })
       .await
@@ -298,11 +307,6 @@ impl PluginLoader {
   /// WASM module's `_start` entry point. The module reads stdin, processes,
   /// and writes the result to stdout.
   ///
-  /// The WASM module sees the full `ReactorActionInput` serialized as the
-  /// request body, with the function name as the "endpoint". This allows
-  /// the module to dispatch to different internal functions based on the
-  /// endpoint name.
-  ///
   /// Returns `Ok(None)` if the plugin is not a WASM plugin. Returns the
   /// reactor's output on success, or an error string on failure.
   pub async fn execute_reactor_action(
@@ -336,14 +340,10 @@ impl PluginLoader {
       body: Some(bytes::Bytes::from(body_json)),
     };
 
-    // Clone everything needed by the 'static spawn_blocking closure
+    // Clone everything needed by the 'static spawn_blocking closure.
+    // The InstancePre was pre-linked at load time (§1.1); no linker work here.
     let engine = wp._engine.clone();
-    let module = wp.compiled.clone();
-    let capabilities = wp.info.capabilities.clone();
-    let plugin_id_owned = plugin_id.to_string();
-    let storage = self.storage.clone();
-    let schema_registry = self.schema_registry.clone();
-    let object_storage = self.object_storage.clone();
+    let instance_pre = wp.instance_pre.clone();
     let path = request.path.clone();
 
     // Execute via the same WASM runtime used for HTTP handlers.
@@ -352,14 +352,9 @@ impl PluginLoader {
     let result = tokio::task::spawn_blocking(move || {
       pollster::block_on(crate::wasm_runtime::execute_wasm_handler(
         &engine,
-        &module,
+        &instance_pre,
         &path,
         &request,
-        &plugin_id_owned,
-        &capabilities,
-        &storage,
-        &schema_registry,
-        &object_storage,
       ))
     })
     .await
@@ -379,11 +374,7 @@ impl PluginLoader {
         })?;
         Ok(Some(output))
       }
-      Err(e) => {
-        // WASM execution failed — this is a runtime error, not a validation
-        // rejection. The caller should handle this based on quarantine policy.
-        Err(format!("WASM execution error: {}", e))
-      }
+      Err(e) => Err(format!("WASM execution error: {}", e)),
     }
   }
 }

@@ -48,9 +48,12 @@
         "{workspaceRoot}/scripts/package-panoapp.ts",
         "{workspaceRoot}/target/wasm32-wasip1/debug/music.wasm",
         "{workspaceRoot}/target/wasm32-wasip1/release/music.wasm",
-        "{projectRoot}/ui/dist/**/*"
+        "{projectRoot}/ui/**/*",
+        { "dependentTasksOutputFiles": "**/*", "transitive": false }
       ],
-      "outputs": ["{workspaceRoot}/dist/panoapp/music.panoapp"],
+      "outputs": [
+        "{workspaceRoot}/dist/panoapp/io.mzhang.panorama.music.panoapp"
+      ],
       "cache": true
     }
   }

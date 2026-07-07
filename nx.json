@@ -16,9 +16,11 @@
     "default": [
       "{projectRoot}/src/**/*",
       "{projectRoot}/vite.config.ts",
+      "{projectRoot}/uno.config.ts",
       "{projectRoot}/package.json",
       "{projectRoot}/index.html",
-      "{projectRoot}/tsconfig.json"
+      "{projectRoot}/tsconfig.json",
+      "{workspaceRoot}/.env"
     ]
   }
 }

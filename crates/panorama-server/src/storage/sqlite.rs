@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use super::StorageBackend;
 use crate::meta::MetaStore;
-use crate::query::compiler::{compile, CompiledQuery};
+use crate::query::compiler::{compile_phase1, compile_phase2, CompiledQuery};
 
 // ── Connection manager ──────────────────────────────────────────────────────
 
@@ -59,9 +59,14 @@ impl SqliteBackend {
       path: db_path.clone(),
       flags: OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
     };
+    // Use READ_WRITE for the read pool as well.  SQLITE_OPEN_READ_ONLY
+    // connections in WAL mode may not see recently committed writes (the
+    // WAL file may not be checkpointed yet), causing queries to return
+    // stale/empty results and namespace auto-registration to fail with
+    // "attempt to write a readonly database".
     let read_mgr = SqliteConnManager {
-      path: db_path,
-      flags: OpenFlags::SQLITE_OPEN_READ_ONLY,
+      path: db_path.clone(),
+      flags: OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
     };
 
     let write_pool = r2d2::Pool::builder().max_size(1).build(write_mgr).unwrap();
@@ -136,7 +141,15 @@ impl SqliteBackend {
     })
   }
 
+  /// Execute a compiled query with type-aware row deserialization (§1.5).
+  ///
+  /// Uses `row.get_ref(i)` to inspect the underlying SQLite data type instead
+  /// of fetching every column as a String and running it through `serde_json::from_str`.
+  /// Only JSON-parse columns that end with `_json`; everything else uses
+  /// native type conversion.
   fn execute_compiled(&self, compiled: &CompiledQuery) -> Result<Vec<serde_json::Value>, String> {
+    use rusqlite::types::ValueRef;
+
     let conn = self.read_conn()?;
     let mut stmt = conn
       .prepare(&compiled.sql)
@@ -152,14 +165,24 @@ impl SqliteBackend {
       .query_map(params_refs.as_slice(), |row| {
         let mut obj = serde_json::Map::new();
         for (i, col) in cols.iter().enumerate() {
-          let val: Result<String, _> = row.get(i);
-          obj.insert(
-            col.clone(),
-            match val {
-              Ok(s) => serde_json::from_str(&s).unwrap_or(serde_json::Value::String(s)),
-              Err(_) => serde_json::Value::Null,
-            },
-          );
+          let val = match row.get_ref(i) {
+            Ok(ValueRef::Null) => serde_json::Value::Null,
+            Ok(ValueRef::Integer(i)) => serde_json::Value::Number(i.into()),
+            Ok(ValueRef::Real(f)) => serde_json::Number::from_f64(f)
+              .map(serde_json::Value::Number)
+              .unwrap_or(serde_json::Value::Null),
+            Ok(ValueRef::Text(bytes)) => {
+              let s = std::str::from_utf8(bytes).unwrap_or("");
+              if col.ends_with("_json") {
+                serde_json::from_str(s).unwrap_or_else(|_| serde_json::Value::String(s.to_string()))
+              } else {
+                serde_json::Value::String(s.to_string())
+              }
+            }
+            Ok(ValueRef::Blob(_)) => serde_json::Value::Null,
+            Err(_) => serde_json::Value::Null,
+          };
+          obj.insert(col.clone(), val);
         }
         if let Some(v) = obj.get("fields_json").cloned() {
           obj.insert("fields".to_string(), v);
@@ -186,34 +209,39 @@ impl SqliteBackend {
 // ── StorageBackend impl ─────────────────────────────────────────────────────
 
 impl StorageBackend for SqliteBackend {
+  /// Query with statement caching by IR shape (§1.4 + §7.3).
+  ///
+  /// On cache hit: reuses both the cached SQL template AND the cached
+  /// `CompileCtx` (Phase 1 result).  Calls `compile_phase2` directly to
+  /// regenerate params, skipping the expensive meta-table lookups.
+  /// On cache miss: runs Phase 1 + Phase 2, then caches both.
   fn query(&self, pql: &str) -> Result<Vec<serde_json::Value>, String> {
     let ast = panorama_core::query::parse_query(pql).map_err(|e| format!("parse: {}", e))?;
-
-    // Compute the IR-shape cache key (§7.3: "cache keyed on the IR shape
-    // (query structure minus parameter values)").
     let ir = panorama_core::query::ir::lower_to_ir(&ast);
     let cache_key = ir.cache_key();
 
-    // Check the statement cache. On hit, compile to get fresh params
-    // (since literal values differ between structurally identical queries),
-    // then execute using the cached SQL template plus fresh params.
-    if let Some(cached_sql) = self.statement_cache.get_sql(cache_key) {
+    // Cache hit with Phase-1 context: skip meta-table lookups (§1.4).
+    if let Some((cached_sql, Some(cached_ctx))) = self.statement_cache.get_sql(cache_key) {
+      let query_id = uuid::Uuid::new_v4();
       let conn = self.read_conn()?;
-      let compiled = compile(&ast, &conn).map_err(|e| format!("compile: {}", e))?;
+      let mut compiled =
+        compile_phase2(&ast, &conn, cached_ctx, query_id).map_err(|e| format!("compile: {}", e))?;
       drop(conn);
-      let mut compiled = compiled;
       compiled.sql = cached_sql;
       return self.execute_compiled(&compiled);
     }
 
+    // Cache miss: full compilation, then store both SQL and Phase-1 context.
     let conn = self.read_conn()?;
-    let compiled = compile(&ast, &conn).map_err(|e| format!("compile: {}", e))?;
+    let ctx = compile_phase1(&ast, &conn).map_err(|e| format!("compile: {}", e))?;
+    let query_id = uuid::Uuid::new_v4();
+    let compiled =
+      compile_phase2(&ast, &conn, ctx.clone(), query_id).map_err(|e| format!("compile: {}", e))?;
     drop(conn);
 
-    // Store SQL template by IR shape key
     self
       .statement_cache
-      .insert_sql(cache_key, compiled.sql.clone());
+      .insert_sql(cache_key, compiled.sql.clone(), ctx);
 
     self.execute_compiled(&compiled)
   }
@@ -385,5 +413,78 @@ impl StorageBackend for SqliteBackend {
 
   fn has_ready_index(&self, _schema_id: &str, _field: &str) -> Result<bool, String> {
     Ok(false)
+  }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::collections::HashMap;
+  use tempfile::TempDir;
+
+  /// Regression test: mirror the Journal E2E test's create → query → query-again
+  /// pattern.  The second query must return the same rows as the first.
+  #[test]
+  fn test_journal_list_pages_returns_data_after_repeated_query() {
+    let dir = TempDir::new().unwrap();
+    let be = SqliteBackend::new(dir.path().to_path_buf());
+
+    // Step 1: create a node with Journal-typical fields (like POST /pages)
+    let node_id = Uuid::new_v4();
+    let mut fields = HashMap::new();
+    fields.insert(
+      "system:node_title".to_string(),
+      FieldValue::String("Test Page".into()),
+    );
+    fields.insert(
+      "system:node_time".to_string(),
+      FieldValue::DateTime("2026-07-06T00:00:00Z".into()),
+    );
+    fields.insert(
+      "journal:content".to_string(),
+      FieldValue::String("Hello world".into()),
+    );
+    fields.insert("journal:deleted".to_string(), FieldValue::Boolean(false));
+    fields.insert(
+      "journal:journal_day".to_string(),
+      FieldValue::String("2026-07-06".into()),
+    );
+    // Top-level page: no parent_id set
+
+    let mut node = Node::new(Uuid::nil());
+    node.id = node_id;
+    for (k, v) in &fields {
+      node.set_field(k, v.clone());
+    }
+
+    let created = be.create_node(node).unwrap();
+    assert_eq!(created.id, node_id);
+
+    // Step 2: update to add journal:page_id (like the plugin does post-create)
+    let mut patch = HashMap::new();
+    patch.insert("journal:page_id".to_string(), FieldValue::NodeRef(node_id));
+    be.update_node(node_id, patch).unwrap();
+
+    // Step 3: run the exact listPages query used by the Journal plugin
+    let pql = r#"MATCH (n) IN space("default") WHERE HAS_FIELD(n, "journal", "content") AND SCAN(n.journal.parent_id IS NULL) RETURN n ORDER BY n.system.node_time DESC LIMIT 100"#;
+    let rows1 = be.query(pql).unwrap();
+    assert!(
+      !rows1.is_empty(),
+      "first query should return the created page"
+    );
+    assert_eq!(rows1.len(), 1);
+
+    // Step 4: run it again — simulates navigating away and back
+    let rows2 = be.query(pql).unwrap();
+    assert!(
+      !rows2.is_empty(),
+      "second query should also return the page (re-navigation)"
+    );
+    assert_eq!(rows2.len(), 1, "second query should return same count");
+
+    // keep dir alive until end of test
+    drop(dir);
   }
 }

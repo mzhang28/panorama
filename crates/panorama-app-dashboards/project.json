@@ -48,9 +48,12 @@
         "{workspaceRoot}/scripts/package-panoapp.ts",
         "{workspaceRoot}/target/wasm32-wasip1/debug/dashboards.wasm",
         "{workspaceRoot}/target/wasm32-wasip1/release/dashboards.wasm",
-        "{projectRoot}/ui/dist/**/*"
+        "{projectRoot}/ui/**/*",
+        { "dependentTasksOutputFiles": "**/*", "transitive": false }
       ],
-      "outputs": ["{workspaceRoot}/dist/panoapp/dashboards.panoapp"],
+      "outputs": [
+        "{workspaceRoot}/dist/panoapp/io.mzhang.panorama.dashboards.panoapp"
+      ],
       "cache": true
     }
   }

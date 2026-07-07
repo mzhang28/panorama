@@ -22,13 +22,13 @@ build-panoapps-release:
 
 # Build everything in debug mode (fastest for development)
 build:
-    bun x nx run-many -t package-panoapp -c development
-    bun x nx build panorama-server -c development
+    bun x nx run-many --no-tui -t package-panoapp -c development
+    bun x nx build --no-tui panorama-server -c development
 
 # Build everything in release mode (production binaries)
 build-release:
-    bun x nx run-many -t package-panoapp -c release
-    bun x nx build panorama-server -c release
+    bun x nx run-many --no-tui -t package-panoapp -c release
+    bun x nx build --no-tui panorama-server -c release
 
 # Build + start the server in debug mode
 serve: build
@@ -52,7 +52,7 @@ test-setup: install-frontend
 
 # Run isolated E2E tests against pre-built server & apps (pass arguments directly to e2e.ts / playwright)
 test-e2e *args:
-    bun x nx run e2e:test -- {{ args }}
+    NX_DAEMON=false NX_ISOLATE_PLUGINS=false bun x nx run e2e:test -- {{ args }}
 
 # Alias for test-e2e (runs without building by default)
 test-e2e-quick *args:
@@ -119,4 +119,3 @@ fuzz-promql:
 # Run AFL++ fuzzing on PanoramaQL (PQL) parser
 fuzz-pql:
     docker run -it --rm -v $(pwd)/fuzz/findings:/workspace/fuzz/findings panorama-fuzz pql
-

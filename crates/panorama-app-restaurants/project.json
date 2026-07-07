@@ -48,9 +48,12 @@
         "{workspaceRoot}/scripts/package-panoapp.ts",
         "{workspaceRoot}/target/wasm32-wasip1/debug/restaurants.wasm",
         "{workspaceRoot}/target/wasm32-wasip1/release/restaurants.wasm",
-        "{projectRoot}/ui/dist/**/*"
+        "{projectRoot}/ui/**/*",
+        { "dependentTasksOutputFiles": "**/*", "transitive": false }
       ],
-      "outputs": ["{workspaceRoot}/dist/panoapp/restaurants.panoapp"],
+      "outputs": [
+        "{workspaceRoot}/dist/panoapp/io.mzhang.panorama.restaurants.panoapp"
+      ],
       "cache": true
     }
   }
