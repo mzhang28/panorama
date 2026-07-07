@@ -190,8 +190,8 @@ pub struct ProjectColumn {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProjectExpr {
-  Field(String),  // "namespace:field"
-  Node(String),   // variable name
+  Field(String), // "namespace:field"
+  Node(String),  // variable name
   Aggregate(AggregateFunc, Box<ProjectExpr>),
 }
 

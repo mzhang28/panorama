@@ -62,74 +62,40 @@ impl CodingPlugin {
     request: &HttpRequest,
   ) -> Result<HttpResponse, PluginError> {
     let range = range.unwrap_or("7d");
-    let nodes = self.fetch_heartbeats_in_range(ctx, range).await?;
     let (start, end) = parse_time_range(range);
-
-    if nodes.is_empty() {
-      return HttpResponse::json(&serde_json::json!({
-        "data": {
-          "username": "current",
-          "user_id": "current",
-          "start": start.to_rfc3339(),
-          "end": end.to_rfc3339(),
-          "status": "ok",
-          "timezone": "UTC",
-          "total_seconds": 0.0,
-          "daily_average": 0.0,
-          "days_including_holidays": (end - start).num_days().max(1),
-          "range": range,
-          "human_readable_range": range,
-          "human_readable_total": "0 secs",
-          "human_readable_daily_average": "0 secs",
-          "is_coding_activity_visible": true,
-          "is_other_usage_visible": true,
-          "projects": [],
-          "languages": [],
-          "editors": [],
-          "operating_systems": [],
-          "machines": [],
-          "categories": [],
-        }
-      }));
-    }
-
-    // Apply optional query-param filters (project, language, editor, etc.)
-    let mut filter_parts: Vec<String> = Vec::new();
-    for param in &[
-      "project",
-      "language",
-      "editor",
-      "operating_system",
-      "machine",
-      "label",
-    ] {
-      if let Some(v) = request.query_params.get(*param) {
-        filter_parts.push(format!("{}={}", param, v));
-      }
-    }
-    let filter_opt = if filter_parts.is_empty() {
-      None
-    } else {
-      Some(filter_parts.join(","))
-    };
-
-    let filtered: Vec<Node> = if let Some(ref f) = filter_opt {
-      self.apply_filter(&nodes, &Some(f.clone()))
-    } else {
-      nodes
-    };
-
-    let total_seconds: f64 = filtered.iter().map(|n| node_duration_seconds(n)).sum();
     let days = (end - start).num_days().max(1) as f64;
-    let daily_average = total_seconds / days;
 
-    // Per-dimension groupings
-    let by_project = self.group_and_sum(&filtered, "project", None);
-    let by_language = self.group_and_sum(&filtered, "language", None);
-    let by_editor = self.group_and_sum(&filtered, "editor", None);
-    let by_os = self.group_and_sum(&filtered, "operating_system", None);
-    let by_machine = self.group_and_sum(&filtered, "machine_name_id", None);
-    let by_category = self.group_and_sum(&filtered, "category", None);
+    async fn dim(
+      plugin: &CodingPlugin,
+      ctx: &dyn PluginContext,
+      range: &str,
+      field: &str,
+    ) -> Result<HashMap<String, f64>, PluginError> {
+      let rows = plugin
+        .execute_aggregate_query(ctx, range, field, "SUM", None)
+        .await?;
+      let mut map = HashMap::new();
+      for row in &rows {
+        let key = row
+          .get("key")
+          .and_then(|v| v.as_str())
+          .unwrap_or("(unknown)")
+          .to_string();
+        let val = row.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        map.insert(key, val);
+      }
+      Ok(map)
+    }
+
+    let by_project = dim(self, ctx, range, "project").await?;
+    let by_language = dim(self, ctx, range, "language").await?;
+    let by_editor = dim(self, ctx, range, "editor").await?;
+    let by_os = dim(self, ctx, range, "operating_system").await?;
+    let by_machine = dim(self, ctx, range, "machine_name_id").await?;
+    let by_category = dim(self, ctx, range, "category").await?;
+
+    let total_seconds: f64 = by_project.values().sum();
+    let daily_average = total_seconds / days;
 
     let sort_entries = |map: HashMap<String, f64>| -> Vec<serde_json::Value> {
       let mut entries: Vec<(String, f64)> = map.into_iter().collect();
@@ -140,7 +106,23 @@ impl CodingPlugin {
         .collect()
     };
 
-    let best_day = self.compute_best_day(&filtered);
+    // best_day via PQL: group by date, find max
+    let best_day = {
+      let day_rows = self
+        .execute_aggregate_query(ctx, range, "time", "SUM", None)
+        .await?;
+      day_rows
+        .iter()
+        .filter_map(|row| {
+          let key = row.get("key")?.as_str()?;
+          let val = row.get("value")?.as_f64()?;
+          let ts = key.parse::<f64>().ok()? as i64;
+          let date =
+            chrono::DateTime::from_timestamp(ts, 0).map(|d| d.format("%Y-%m-%d").to_string())?;
+          Some((date, val))
+        })
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    };
 
     HttpResponse::json(&serde_json::json!({
       "data": {

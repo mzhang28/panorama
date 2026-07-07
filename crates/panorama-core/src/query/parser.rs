@@ -1116,10 +1116,8 @@ mod tests {
 
   #[test]
   fn test_aggregate_sum_field() {
-    let q = parse_query(
-      r#"MATCH (n) IN space("personal") RETURN SUM(n.coding.duration) AS total"#,
-    )
-    .unwrap();
+    let q = parse_query(r#"MATCH (n) IN space("personal") RETURN SUM(n.coding.duration) AS total"#)
+      .unwrap();
     let col = &q.return_clause.columns[0];
     match &col.expression {
       ReturnExpr::Aggregate { func, expr } => {
@@ -1140,8 +1138,7 @@ mod tests {
 
   #[test]
   fn test_aggregate_without_alias() {
-    let q =
-      parse_query(r#"MATCH (n) IN space("personal") RETURN MAX(n.coding.time)"#).unwrap();
+    let q = parse_query(r#"MATCH (n) IN space("personal") RETURN MAX(n.coding.time)"#).unwrap();
     let col = &q.return_clause.columns[0];
     match &col.expression {
       ReturnExpr::Aggregate { func, .. } => {
@@ -1195,10 +1192,8 @@ mod tests {
 
   #[test]
   fn test_aggregate_case_insensitive() {
-    let q = parse_query(
-      r#"MATCH (n) IN space("default") RETURN count(n.coding.entity) AS c"#,
-    )
-    .unwrap();
+    let q =
+      parse_query(r#"MATCH (n) IN space("default") RETURN count(n.coding.entity) AS c"#).unwrap();
     match &q.return_clause.columns[0].expression {
       ReturnExpr::Aggregate { func, .. } => assert_eq!(*func, AggregateFunc::Count),
       _ => panic!("expected Aggregate"),

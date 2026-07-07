@@ -647,7 +647,10 @@ fn check_aggregate(nodes: &[Node], pql: &str, conn: &Connection) {
     sql_rows.len(),
     mem_rows.len(),
     "\nPQL: {}\nSQL: {}\nSQL rows: {:?}\nMem rows: {:?}",
-    pql, compiled.sql, sql_rows, mem_rows,
+    pql,
+    compiled.sql,
+    sql_rows,
+    mem_rows,
   );
 
   // Row count matches — now compare each row, sorted by all column values.
@@ -756,19 +759,47 @@ fn aggregate_deterministic_sum_grouped() {
   }
   insert_nodes(&conn, &nodes);
 
-  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, SUM(n."app".val) AS total"#, &conn);
-  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, SUM(n."app".score) AS total"#, &conn);
-  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, COUNT(n) AS cnt"#, &conn);
-  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, AVG(n."app".val) AS avg_val"#, &conn);
-  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN MIN(n."app".val) AS min_val, MAX(n."app".val) AS max_val"#, &conn);
-  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN COUNT(n) AS cnt, SUM(n."app".val) AS total"#, &conn);
+  check_aggregate(
+    &nodes,
+    r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, SUM(n."app".val) AS total"#,
+    &conn,
+  );
+  check_aggregate(
+    &nodes,
+    r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, SUM(n."app".score) AS total"#,
+    &conn,
+  );
+  check_aggregate(
+    &nodes,
+    r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, COUNT(n) AS cnt"#,
+    &conn,
+  );
+  check_aggregate(
+    &nodes,
+    r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, AVG(n."app".val) AS avg_val"#,
+    &conn,
+  );
+  check_aggregate(
+    &nodes,
+    r#"MATCH (n) IN space("default") RETURN MIN(n."app".val) AS min_val, MAX(n."app".val) AS max_val"#,
+    &conn,
+  );
+  check_aggregate(
+    &nodes,
+    r#"MATCH (n) IN space("default") RETURN COUNT(n) AS cnt, SUM(n."app".val) AS total"#,
+    &conn,
+  );
 }
 
 /// Aggregate-specific node generator — uses bounded integer range to avoid
 /// i64 overflow in SUM and float precision edge cases.
 fn gen_agg_node() -> impl Strategy<Value = Node> {
-  (-100_000i64..100_000i64, (0.01f64..1_000_000.0f64), any::<bool>()).prop_map(
-    |(count, score, active)| {
+  (
+    -100_000i64..100_000i64,
+    (0.01f64..1_000_000.0f64),
+    any::<bool>(),
+  )
+    .prop_map(|(count, score, active)| {
       let mut map: HashMap<String, FieldValue> = HashMap::new();
       map.insert("title".into(), FieldValue::String("hello".into()));
       map.insert("app:count".into(), FieldValue::Integer(count));
@@ -783,13 +814,11 @@ fn gen_agg_node() -> impl Strategy<Value = Node> {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
       }
-    },
-  )
+    })
 }
 
 /// Pick one field from the node as grouping dimension and another to aggregate.
-fn agg_nodes_and_two_fields(
-) -> impl Strategy<Value = (Vec<Node>, String, String)> {
+fn agg_nodes_and_two_fields() -> impl Strategy<Value = (Vec<Node>, String, String)> {
   proptest::collection::vec(gen_agg_node(), 2..10)
     .prop_flat_map(|nodes| {
       let mut keys: Vec<String> = Vec::new();
@@ -800,7 +829,11 @@ fn agg_nodes_and_two_fields(
       }
       keys.sort();
       keys.dedup();
-      (Just(nodes), proptest::sample::select(keys.clone()), proptest::sample::select(keys))
+      (
+        Just(nodes),
+        proptest::sample::select(keys.clone()),
+        proptest::sample::select(keys),
+      )
     })
     .prop_map(|(nodes, gk, ak)| (nodes, gk, ak))
 }

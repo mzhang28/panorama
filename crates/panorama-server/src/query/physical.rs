@@ -143,8 +143,8 @@ pub fn resolve_physical_schema(
   // add Indexed entries.  The target_field column may hold a JSON array
   // for composite indexes, so we parse it and mark every component field.
   for idx in &indexes {
-    let target_fields: Vec<String> = serde_json::from_str(&idx.target_field)
-      .unwrap_or_else(|_| vec![idx.target_field.clone()]);
+    let target_fields: Vec<String> =
+      serde_json::from_str(&idx.target_field).unwrap_or_else(|_| vec![idx.target_field.clone()]);
 
     for field in &target_fields {
       if !fields.contains_key(field) {

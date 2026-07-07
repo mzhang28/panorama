@@ -52,30 +52,89 @@ fn default_limit() -> usize {
 
 impl CodingPlugin {
   /// Execute a stats query against stored heartbeats.
+  /// Uses PQL aggregation for leaderboard/sum/count, falls back to in-memory
+  /// for avg_daily and timeseries which need per-node computation.
   pub(crate) async fn execute_stats(
     &self,
     ctx: &dyn PluginContext,
     query: &StatsQuery,
   ) -> Result<serde_json::Value, PluginError> {
-    let all_nodes = self.fetch_heartbeats_in_range(ctx, &query.range).await?;
-
-    if all_nodes.is_empty() {
-      return Ok(serde_json::json!([]));
-    }
-
-    // Apply field filter if present
-    let filtered = self.apply_filter(&all_nodes, &query.filter);
-
-    // Build grouping key function
     let group_by = query.group_by.as_deref().unwrap_or("project");
-    let sub_group = query.sub_group_by.as_deref();
 
     match query.aggregation.as_str() {
-      "leaderboard" => self.compute_leaderboard(&filtered, group_by, sub_group, query.limit),
-      "sum" => self.compute_sum(&filtered, group_by, sub_group),
-      "count" => self.compute_count(&filtered, group_by, sub_group, query.limit),
-      "avg_daily" => self.compute_avg_daily(&filtered, group_by, &query.range),
-      "timeseries" => self.compute_timeseries(&filtered, group_by, &query.bucket, &query.range),
+      "leaderboard" => {
+        let rows = self
+          .execute_aggregate_query(ctx, &query.range, group_by, "SUM", Some(query.limit))
+          .await?;
+        let entries: Vec<serde_json::Value> = rows
+          .iter()
+          .map(|row| {
+            let key = row
+              .get("key")
+              .and_then(|v| v.as_str())
+              .unwrap_or("(unknown)");
+            let total: f64 = row.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            serde_json::json!({
+              "key": key,
+              "total_seconds": total,
+              "hours": (total / 3600.0 * 10.0).round() / 10.0,
+            })
+          })
+          .collect();
+        Ok(serde_json::json!(entries))
+      }
+      "sum" => {
+        let rows = self
+          .execute_aggregate_query(ctx, &query.range, group_by, "SUM", None)
+          .await?;
+        let result: serde_json::Map<_, _> = rows
+          .iter()
+          .map(|row| {
+            let key = row
+              .get("key")
+              .and_then(|v| v.as_str())
+              .unwrap_or("(unknown)");
+            let total = row.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            (
+              key.to_string(),
+              serde_json::Value::Number(
+                serde_json::Number::from_f64((total * 10.0).round() / 10.0).unwrap_or(0.into()),
+              ),
+            )
+          })
+          .collect();
+        Ok(serde_json::Value::Object(result))
+      }
+      "count" => {
+        let rows = self
+          .execute_aggregate_query(ctx, &query.range, group_by, "COUNT", Some(query.limit))
+          .await?;
+        let entries: Vec<serde_json::Value> = rows
+          .iter()
+          .map(|row| {
+            let key = row
+              .get("key")
+              .and_then(|v| v.as_str())
+              .unwrap_or("(unknown)");
+            let count = row.get("value").and_then(|v| v.as_i64()).unwrap_or(0);
+            serde_json::json!({"key": key, "count": count})
+          })
+          .collect();
+        Ok(serde_json::json!(entries))
+      }
+      "avg_daily" | "timeseries" => {
+        // These need per-node processing (date bucketing)
+        let all_nodes = self.fetch_heartbeats_in_range(ctx, &query.range).await?;
+        if all_nodes.is_empty() {
+          return Ok(serde_json::json!([]));
+        }
+        let filtered = self.apply_filter(&all_nodes, &query.filter);
+        match query.aggregation.as_str() {
+          "avg_daily" => self.compute_avg_daily(&filtered, group_by, &query.range),
+          "timeseries" => self.compute_timeseries(&filtered, group_by, &query.bucket, &query.range),
+          _ => unreachable!(),
+        }
+      }
       _ => Err(PluginError::bad_request(&format!(
         "Unknown aggregation: {}. Supported: leaderboard, sum, count, avg_daily, timeseries",
         query.aggregation
@@ -83,26 +142,50 @@ impl CodingPlugin {
     }
   }
 
-  /// Fetch all heartbeat nodes within a time range.
+  /// Fetch all heartbeat nodes within a time range, using indexed time filter.
   pub(crate) async fn fetch_heartbeats_in_range(
     &self,
     ctx: &dyn PluginContext,
     range: &str,
   ) -> Result<Vec<Node>, PluginError> {
-    let rows = ctx
-            .query("MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"coding\", \"entity\") RETURN n ORDER BY n.system.node_time ASC")
-            .await?;
-    let all_nodes: Vec<Node> = rows
+    let (start, end) = parse_time_range(range);
+    let start_ts = start.timestamp() as f64;
+    let end_ts = end.timestamp() as f64;
+
+    // Push time filter into PQL so we only fetch relevant nodes (leverages index)
+    let pql = format!(
+      "MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"coding\", \"entity\") AND n.coding.time >= {} AND n.coding.time <= {} RETURN n ORDER BY n.system.node_time ASC",
+      start_ts, end_ts
+    );
+    let rows = ctx.query(&pql).await?;
+    let nodes: Vec<Node> = rows
       .iter()
       .filter_map(panorama_core::query::row_to_node)
       .collect();
+    Ok(nodes)
+  }
 
+  /// Execute a PQL aggregate query and return the JSON result.
+  pub(crate) async fn execute_aggregate_query(
+    &self,
+    ctx: &dyn PluginContext,
+    range: &str,
+    group_field: &str,
+    aggregate_func: &str,
+    limit: Option<usize>,
+  ) -> Result<Vec<serde_json::Value>, PluginError> {
     let (start, end) = parse_time_range(range);
-    let filtered: Vec<Node> = all_nodes
-      .into_iter()
-      .filter(|n| node_time_in_range(n, start, end))
-      .collect();
-    Ok(filtered)
+    let start_ts = start.timestamp() as f64;
+    let end_ts = end.timestamp() as f64;
+
+    let limit_clause = limit.map(|l| format!("LIMIT {}", l)).unwrap_or_default();
+
+    let pql = format!(
+      "MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"coding\", \"entity\") AND n.coding.time >= {} AND n.coding.time <= {} RETURN n.coding.{} AS key, {}(n.coding.duration) AS value ORDER BY value DESC {}",
+      start_ts, end_ts, group_field, aggregate_func, limit_clause
+    );
+    let rows = ctx.query(&pql).await?;
+    Ok(rows)
   }
 
   /// Apply a filter to nodes. Supports comma-separated OR values.

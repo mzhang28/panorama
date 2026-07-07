@@ -632,9 +632,7 @@ fn compile_aggregate_inner(
   match expr {
     ReturnExpr::Node(_) => Ok("*".into()),
     ReturnExpr::Field(fp) => compile_field_access(fp, ctx, from_table, node_cte),
-    ReturnExpr::Aggregate { .. } => {
-      Err("nested aggregate functions are not supported".into())
-    }
+    ReturnExpr::Aggregate { .. } => Err("nested aggregate functions are not supported".into()),
   }
 }
 
@@ -1287,8 +1285,7 @@ mod tests {
   #[test]
   fn test_compile_aggregate_count_star() {
     let conn = setup_conn();
-    let q =
-      parse_query(r#"MATCH (n) IN space("default") RETURN COUNT(n) AS cnt"#).unwrap();
+    let q = parse_query(r#"MATCH (n) IN space("default") RETURN COUNT(n) AS cnt"#).unwrap();
     let compiled = compile(&q, &conn).unwrap();
     assert!(
       compiled.sql.contains("COUNT(*)"),

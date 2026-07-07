@@ -141,11 +141,8 @@ impl Schema {
   /// Verifies that all fields referenced in indexes exist in the schema.
   pub fn validate_definition(&self) -> Result<(), String> {
     // Collect all valid logical field names declared in this schema
-    let defined_fields: std::collections::HashSet<&str> = self
-      .fields
-      .iter()
-      .map(|f| f.name.as_str())
-      .collect();
+    let defined_fields: std::collections::HashSet<&str> =
+      self.fields.iter().map(|f| f.name.as_str()).collect();
 
     for index in &self.indexes {
       if index.fields.is_empty() {

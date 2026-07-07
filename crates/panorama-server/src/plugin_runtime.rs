@@ -139,7 +139,10 @@ impl PluginContext for RuntimeContext {
   }
 
   async fn register_schema(&self, schema: Schema) -> Result<Schema, PluginError> {
-    self.schema_registry.register(schema).map_err(|e| PluginError::internal(e))
+    self
+      .schema_registry
+      .register(schema)
+      .map_err(|e| PluginError::internal(e))
   }
 
   async fn get_schema(&self, schema_node_id: Uuid) -> Result<Option<Schema>, PluginError> {

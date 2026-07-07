@@ -181,8 +181,7 @@ impl ManagedIndex {
   /// Parse `target_field` as a JSON array of field names.
   /// Falls back to treating it as a single field name if not valid JSON.
   pub fn target_fields(&self) -> Vec<String> {
-    serde_json::from_str(&self.target_field)
-      .unwrap_or_else(|_| vec![self.target_field.clone()])
+    serde_json::from_str(&self.target_field).unwrap_or_else(|_| vec![self.target_field.clone()])
   }
 }
 
@@ -751,9 +750,7 @@ impl MetaStore {
       let mut columns: Vec<String> = Vec::new();
       for field_name in &schema_index.fields {
         let entry = &raw_mappings[field_name];
-        let col = entry["column"]
-          .as_str()
-          .unwrap_or(field_name);
+        let col = entry["column"].as_str().unwrap_or(field_name);
         columns.push(col.to_string());
       }
       let col_list = columns.join(", ");
@@ -1526,9 +1523,7 @@ mod tests {
 
     // Create a schema data table with promoted columns
     conn
-      .execute_batch(
-        "CREATE TABLE schema_data_test (start_col TEXT, end_col TEXT);",
-      )
+      .execute_batch("CREATE TABLE schema_data_test (start_col TEXT, end_col TEXT);")
       .unwrap();
 
     // Register the schema table
@@ -1580,9 +1575,7 @@ mod tests {
 
     // Create nodes table (simplified)
     conn
-      .execute_batch(
-        "CREATE TABLE nodes (node_id TEXT PRIMARY KEY, fields_json TEXT);",
-      )
+      .execute_batch("CREATE TABLE nodes (node_id TEXT PRIMARY KEY, fields_json TEXT);")
       .unwrap();
 
     let schema_id = Uuid::new_v4();

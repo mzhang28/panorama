@@ -20,11 +20,21 @@ fn setup_test_env() -> (PluginLoader, tempfile::TempDir) {
   let object_storage = ObjectStorage::new(tmp.path().join("objects"));
 
   // Register system schemas
-  schema_registry.register(panorama_core::schema::system_schemas::node_time_schema()).unwrap();
-  schema_registry.register(panorama_core::schema::system_schemas::node_info_schema()).unwrap();
-  schema_registry.register(panorama_core::schema::system_schemas::reactors_schema()).unwrap();
-  schema_registry.register(panorama_core::schema::system_schemas::op_stream_schema()).unwrap();
-  schema_registry.register(panorama_core::schema::system_schemas::reactor_state_schema()).unwrap();
+  schema_registry
+    .register(panorama_core::schema::system_schemas::node_time_schema())
+    .unwrap();
+  schema_registry
+    .register(panorama_core::schema::system_schemas::node_info_schema())
+    .unwrap();
+  schema_registry
+    .register(panorama_core::schema::system_schemas::reactors_schema())
+    .unwrap();
+  schema_registry
+    .register(panorama_core::schema::system_schemas::op_stream_schema())
+    .unwrap();
+  schema_registry
+    .register(panorama_core::schema::system_schemas::reactor_state_schema())
+    .unwrap();
 
   let loader = PluginLoader::new(storage, schema_registry, object_storage);
   (loader, tmp)

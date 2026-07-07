@@ -67,10 +67,7 @@ pub fn eval_query(query: &Query, nodes: &[Node]) -> Vec<serde_json::Value> {
 
 /// Evaluate an aggregated query: group by non-aggregate columns, compute
 /// aggregate functions per group, return one row per group.
-fn eval_aggregated(
-  query: &Query,
-  matched: &[(&str, &Node)],
-) -> Vec<serde_json::Value> {
+fn eval_aggregated(query: &Query, matched: &[(&str, &Node)]) -> Vec<serde_json::Value> {
   let rc = &query.return_clause;
 
   // Separate aggregate and non-aggregate (grouping) columns
@@ -122,7 +119,13 @@ fn eval_aggregated(
 
   let mut rows: Vec<serde_json::Value> = Vec::new();
   for (key, group_nodes) in &groups {
-    rows.push(eval_aggregate_row(rc, &agg_cols, &group_cols, group_nodes, key));
+    rows.push(eval_aggregate_row(
+      rc,
+      &agg_cols,
+      &group_cols,
+      group_nodes,
+      key,
+    ));
   }
 
   // ORDER BY (on aggregate results)
@@ -192,7 +195,11 @@ fn compute_aggregate(expr: &ReturnExpr, nodes: &[(&str, &Node)]) -> serde_json::
           // Use i128 for exact integer summing (avoids i64 overflow)
           let all_ints = values.iter().all(|v| v.as_i64().is_some());
           if all_ints {
-            let sum: i128 = values.iter().filter_map(|v| v.as_i64()).map(|v| v as i128).sum();
+            let sum: i128 = values
+              .iter()
+              .filter_map(|v| v.as_i64())
+              .map(|v| v as i128)
+              .sum();
             serde_json::json!(sum as f64)
           } else {
             let sum: f64 = values.iter().filter_map(|v| v.as_f64()).sum();
@@ -201,13 +208,16 @@ fn compute_aggregate(expr: &ReturnExpr, nodes: &[(&str, &Node)]) -> serde_json::
           }
         }
         AggregateFunc::Avg => {
-          let non_null: Vec<&serde_json::Value> =
-            values.iter().filter(|v| !v.is_null()).collect();
+          let non_null: Vec<&serde_json::Value> = values.iter().filter(|v| !v.is_null()).collect();
           if non_null.is_empty() {
             serde_json::Value::Null
           } else if non_null.iter().all(|v| v.as_i64().is_some()) {
             // Integer path: sum as i128 then cast to f64 for division
-            let sum: i128 = non_null.iter().filter_map(|v| v.as_i64()).map(|v| v as i128).sum();
+            let sum: i128 = non_null
+              .iter()
+              .filter_map(|v| v.as_i64())
+              .map(|v| v as i128)
+              .sum();
             serde_json::json!(sum as f64 / non_null.len() as f64)
           } else {
             let sum: f64 = non_null.iter().filter_map(|v| v.as_f64()).sum();
