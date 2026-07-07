@@ -5,6 +5,19 @@ use uuid::Uuid;
 use crate::types::FieldValue;
 pub use crate::types::SchemaVersion;
 
+/// Represents an index declared on a schema.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SchemaIndex {
+  /// Optional name of the index. If not provided, a name is generated.
+  pub name: Option<String>,
+  /// Logical field names (defined in the same schema) to index.
+  /// Ordering dictates index column order.
+  pub fields: Vec<String>,
+  /// Whether this index enforces a uniqueness constraint.
+  #[serde(default)]
+  pub unique: bool,
+}
+
 /// A schema defines a group of fields with requirements.
 /// Schemas are themselves nodes (with the Schema schema type).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +36,9 @@ pub struct Schema {
   pub previous_versions: Vec<SchemaVersionRef>,
   /// Migration scripts for upgrading from previous versions
   pub migrations: Vec<Migration>,
+  /// List of indexes declared on this schema
+  #[serde(default)]
+  pub indexes: Vec<SchemaIndex>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +137,39 @@ pub struct SchemaError {
 }
 
 impl Schema {
+  /// Validate that the schema definition is self-consistent.
+  /// Verifies that all fields referenced in indexes exist in the schema.
+  pub fn validate_definition(&self) -> Result<(), String> {
+    // Collect all valid logical field names declared in this schema
+    let defined_fields: std::collections::HashSet<&str> = self
+      .fields
+      .iter()
+      .map(|f| f.name.as_str())
+      .collect();
+
+    for index in &self.indexes {
+      if index.fields.is_empty() {
+        return Err(format!(
+          "Schema '{}': Index '{}' must specify at least one field.",
+          self.name,
+          index.name.as_deref().unwrap_or("<unnamed>")
+        ));
+      }
+
+      for field in &index.fields {
+        if !defined_fields.contains(field.as_str()) {
+          return Err(format!(
+            "Schema '{}': Index '{}' references field '{}' which is not defined in the schema.",
+            self.name,
+            index.name.as_deref().unwrap_or(&index.fields.join("_")),
+            field
+          ));
+        }
+      }
+    }
+    Ok(())
+  }
+
   /// Validate a set of fields against this schema
   pub fn validate(&self, fields: &HashMap<String, FieldValue>) -> SchemaValidationResult {
     let mut warnings = Vec::new();
@@ -270,6 +319,7 @@ pub mod system_schemas {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 
@@ -453,6 +503,7 @@ pub mod system_schemas {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 
@@ -551,6 +602,7 @@ pub mod system_schemas {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 
@@ -613,6 +665,7 @@ pub mod system_schemas {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 
@@ -651,6 +704,129 @@ pub mod system_schemas {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn make_field(name: &str) -> SchemaField {
+    SchemaField {
+      name: name.into(),
+      namespace: "test".into(),
+      field_type: Some(FieldTypeConstraint {
+        type_tag: "String".into(),
+        element_type: None,
+      }),
+      required: false,
+      default: None,
+      description: None,
+      computed: None,
+    }
+  }
+
+  #[test]
+  fn test_validate_definition_empty_indexes() {
+    let schema = Schema {
+      node_id: Uuid::new_v4(),
+      name: "Test".into(),
+      version: SchemaVersion::new(1, 0),
+      fields: vec![make_field("title")],
+      schema_mode: SchemaMode::Preferred,
+      previous_versions: vec![],
+      migrations: vec![],
+      indexes: vec![],
+    };
+    assert!(schema.validate_definition().is_ok());
+  }
+
+  #[test]
+  fn test_validate_definition_valid_single_field_index() {
+    let schema = Schema {
+      node_id: Uuid::new_v4(),
+      name: "Test".into(),
+      version: SchemaVersion::new(1, 0),
+      fields: vec![make_field("title"), make_field("score")],
+      schema_mode: SchemaMode::Preferred,
+      previous_versions: vec![],
+      migrations: vec![],
+      indexes: vec![SchemaIndex {
+        name: Some("idx_title".into()),
+        fields: vec!["title".into()],
+        unique: false,
+      }],
+    };
+    assert!(schema.validate_definition().is_ok());
+  }
+
+  #[test]
+  fn test_validate_definition_valid_composite_index() {
+    let schema = Schema {
+      node_id: Uuid::new_v4(),
+      name: "Test".into(),
+      version: SchemaVersion::new(1, 0),
+      fields: vec![make_field("first_name"), make_field("last_name")],
+      schema_mode: SchemaMode::Preferred,
+      previous_versions: vec![],
+      migrations: vec![],
+      indexes: vec![SchemaIndex {
+        name: Some("idx_name".into()),
+        fields: vec!["first_name".into(), "last_name".into()],
+        unique: true,
+      }],
+    };
+    assert!(schema.validate_definition().is_ok());
+  }
+
+  #[test]
+  fn test_validate_definition_invalid_field_reference() {
+    let schema = Schema {
+      node_id: Uuid::new_v4(),
+      name: "Test".into(),
+      version: SchemaVersion::new(1, 0),
+      fields: vec![make_field("title")],
+      schema_mode: SchemaMode::Preferred,
+      previous_versions: vec![],
+      migrations: vec![],
+      indexes: vec![SchemaIndex {
+        name: Some("idx_bad".into()),
+        fields: vec!["nonexistent".into()],
+        unique: false,
+      }],
+    };
+    let err = schema.validate_definition().unwrap_err();
+    assert!(err.contains("nonexistent"));
+    assert!(err.contains("Test"));
+  }
+
+  #[test]
+  fn test_validate_definition_empty_fields_in_index() {
+    let schema = Schema {
+      node_id: Uuid::new_v4(),
+      name: "Test".into(),
+      version: SchemaVersion::new(1, 0),
+      fields: vec![make_field("title")],
+      schema_mode: SchemaMode::Preferred,
+      previous_versions: vec![],
+      migrations: vec![],
+      indexes: vec![SchemaIndex {
+        name: Some("idx_empty".into()),
+        fields: vec![],
+        unique: false,
+      }],
+    };
+    let err = schema.validate_definition().unwrap_err();
+    assert!(err.contains("must specify at least one field"));
+  }
+
+  #[test]
+  fn test_schema_index_serde_default_unique() {
+    let json = r#"{"name": "idx_test", "fields": ["a", "b"]}"#;
+    let idx: SchemaIndex = serde_json::from_str(json).unwrap();
+    assert!(!idx.unique); // default is false
+    assert_eq!(idx.fields.len(), 2);
   }
 }

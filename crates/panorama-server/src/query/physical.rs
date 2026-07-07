@@ -140,17 +140,23 @@ pub fn resolve_physical_schema(
   }
 
   // For any fields that have expression indexes but are NOT promoted,
-  // add Indexed entries.
+  // add Indexed entries.  The target_field column may hold a JSON array
+  // for composite indexes, so we parse it and mark every component field.
   for idx in &indexes {
-    if !fields.contains_key(&idx.target_field) {
-      let json_path = idx.target_field.clone(); // index target is the JSON path
-      fields.insert(
-        idx.target_field.clone(),
-        FieldAccess::Indexed {
-          index_name: idx.physical_index_name.clone(),
-          json_path,
-        },
-      );
+    let target_fields: Vec<String> = serde_json::from_str(&idx.target_field)
+      .unwrap_or_else(|_| vec![idx.target_field.clone()]);
+
+    for field in &target_fields {
+      if !fields.contains_key(field) {
+        let json_path = field.clone();
+        fields.insert(
+          field.clone(),
+          FieldAccess::Indexed {
+            index_name: idx.physical_index_name.clone(),
+            json_path,
+          },
+        );
+      }
     }
   }
 
@@ -167,7 +173,7 @@ pub fn resolve_physical_schema(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::meta::{MetaStore, MigrationState, StorageMode};
+  use crate::meta::{IndexStatus, MetaStore, MigrationState, StorageMode};
   use rusqlite::Connection;
 
   fn setup() -> Connection {
@@ -262,5 +268,107 @@ mod tests {
       access.sql_value_expr("n", "sd"),
       "json_extract(n.fields_json, '$.\"app:title\".value')"
     );
+  }
+
+  #[test]
+  fn test_composite_index_all_fields_marked_indexed() {
+    let conn = setup();
+    let schema_id = Uuid::new_v4();
+
+    // Register schema table with no promoted fields (all jsonb)
+    MetaStore::upsert_schema_table(
+      &conn,
+      &schema_id,
+      "schema_data_jsonb",
+      &serde_json::json!({}),
+      StorageMode::Jsonb,
+      MigrationState::Stable,
+    )
+    .unwrap();
+
+    // Create a composite index entry with a JSON array target_field
+    let index_id = Uuid::new_v4();
+    MetaStore::create_index(
+      &conn,
+      &index_id,
+      Some(&schema_id),
+      &["first_name".to_string(), "last_name".to_string()],
+      "unique",
+      "idx_composite_name",
+    )
+    .unwrap();
+
+    // Transition to ready so it's picked up
+    MetaStore::transition_index_status(&conn, &index_id, IndexStatus::Ready).unwrap();
+
+    let ps = resolve_physical_schema(&conn, &schema_id).unwrap().unwrap();
+
+    // Both fields should be Indexed (not Unpromoted)
+    match ps.field_access("first_name", None) {
+      FieldAccess::Indexed { index_name, .. } => {
+        assert_eq!(index_name, "idx_composite_name");
+      }
+      other => panic!("expected Indexed for first_name, got {:?}", other),
+    }
+
+    match ps.field_access("last_name", None) {
+      FieldAccess::Indexed { index_name, .. } => {
+        assert_eq!(index_name, "idx_composite_name");
+      }
+      other => panic!("expected Indexed for last_name, got {:?}", other),
+    }
+
+    // Neither should require SCAN
+    assert!(!ps.field_access("first_name", None).requires_scan());
+    assert!(!ps.field_access("last_name", None).requires_scan());
+
+    // Unknown field still requires SCAN
+    assert!(ps.field_access("unknown", None).requires_scan());
+  }
+
+  #[test]
+  fn test_composite_index_with_promoted_fields_not_overwritten() {
+    let conn = setup();
+    let schema_id = Uuid::new_v4();
+
+    // Register schema table with one promoted field
+    MetaStore::upsert_schema_table(
+      &conn,
+      &schema_id,
+      "schema_data_abc",
+      &serde_json::json!({
+        "first_name": {"column": "first_col", "type": "String"},
+      }),
+      StorageMode::Hybrid,
+      MigrationState::Stable,
+    )
+    .unwrap();
+
+    // Create an index that covers both the promoted and an unpromoted field
+    let index_id = Uuid::new_v4();
+    MetaStore::create_index(
+      &conn,
+      &index_id,
+      Some(&schema_id),
+      &["first_name".to_string(), "last_name".to_string()],
+      "btree",
+      "idx_name",
+    )
+    .unwrap();
+    MetaStore::transition_index_status(&conn, &index_id, IndexStatus::Ready).unwrap();
+
+    let ps = resolve_physical_schema(&conn, &schema_id).unwrap().unwrap();
+
+    // first_name is promoted — should stay Promoted, not be overwritten by Indexed
+    match ps.field_access("first_name", None) {
+      FieldAccess::Promoted { column, .. } => assert_eq!(column, "first_col"),
+      other => panic!("expected Promoted for first_name, got {:?}", other),
+    }
+
+    // last_name is not promoted — should be Indexed
+    match ps.field_access("last_name", None) {
+      FieldAccess::Indexed { .. } => {}
+      other => panic!("expected Indexed for last_name, got {:?}", other),
+    }
   }
 }

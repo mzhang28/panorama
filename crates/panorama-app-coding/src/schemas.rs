@@ -162,6 +162,7 @@ pub(crate) fn heartbeat_schema() -> Schema {
     schema_mode: SchemaMode::Preferred,
     previous_versions: vec![],
     migrations: vec![],
+    indexes: vec![],
   }
 }
 
@@ -211,6 +212,7 @@ pub(crate) fn duration_schema() -> Schema {
     schema_mode: SchemaMode::Preferred,
     previous_versions: vec![],
     migrations: vec![],
+    indexes: vec![],
   }
 }
 
@@ -257,6 +259,7 @@ pub(crate) fn daily_summary_schema() -> Schema {
     schema_mode: SchemaMode::Preferred,
     previous_versions: vec![],
     migrations: vec![],
+    indexes: vec![],
   }
 }
 

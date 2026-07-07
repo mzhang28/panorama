@@ -45,11 +45,11 @@ fn setup_reactor_test_env() -> (
   let schema_registry = SchemaRegistry::new();
 
   // Register system schemas needed by the reactor subsystem
-  schema_registry.register(panorama_core::schema::system_schemas::node_time_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::node_info_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::reactors_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::op_stream_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::reactor_state_schema());
+  schema_registry.register(panorama_core::schema::system_schemas::node_time_schema()).unwrap();
+  schema_registry.register(panorama_core::schema::system_schemas::node_info_schema()).unwrap();
+  schema_registry.register(panorama_core::schema::system_schemas::reactors_schema()).unwrap();
+  schema_registry.register(panorama_core::schema::system_schemas::op_stream_schema()).unwrap();
+  schema_registry.register(panorama_core::schema::system_schemas::reactor_state_schema()).unwrap();
 
   let registry = Arc::new(ReactorRegistry::new(storage.clone(), schema_registry));
   let pipeline = Arc::new(EagerReactorPipeline::new(registry.clone()));
@@ -603,8 +603,9 @@ async fn test_schema_ownership_enforced_for_eager() {
     schema_mode: panorama_core::schema::SchemaMode::Preferred,
     previous_versions: vec![],
     migrations: vec![],
+    indexes: vec![],
   };
-  registry.schema_registry.register(schema.clone());
+  registry.schema_registry.register(schema.clone()).unwrap();
 
   // Try to register an eager reactor on that schema with a DIFFERENT plugin
   let mut reactor = mk_reactor(
@@ -637,8 +638,9 @@ async fn test_schema_ownership_allows_owning_app() {
     schema_mode: panorama_core::schema::SchemaMode::Preferred,
     previous_versions: vec![],
     migrations: vec![],
+    indexes: vec![],
   };
-  registry.schema_registry.register(schema.clone());
+  registry.schema_registry.register(schema.clone()).unwrap();
 
   let mut reactor = mk_reactor(
     ReactorMode::Eager,
@@ -768,11 +770,11 @@ fn setup_full_state() -> (Arc<AppState>, Arc<DeferredReactorEngine>, tempfile::T
   let schema_registry = SchemaRegistry::new();
   let object_storage = ObjectStorage::new(tmp.path().join("objects"));
 
-  schema_registry.register(panorama_core::schema::system_schemas::node_time_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::node_info_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::reactors_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::op_stream_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::reactor_state_schema());
+  schema_registry.register(panorama_core::schema::system_schemas::node_time_schema()).unwrap();
+  schema_registry.register(panorama_core::schema::system_schemas::node_info_schema()).unwrap();
+  schema_registry.register(panorama_core::schema::system_schemas::reactors_schema()).unwrap();
+  schema_registry.register(panorama_core::schema::system_schemas::op_stream_schema()).unwrap();
+  schema_registry.register(panorama_core::schema::system_schemas::reactor_state_schema()).unwrap();
 
   let plugin_loader = Arc::new(PluginLoader::new(
     storage.clone(),

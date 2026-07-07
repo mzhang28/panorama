@@ -38,6 +38,7 @@ impl MusicPlugin {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 
@@ -99,6 +100,7 @@ impl MusicPlugin {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 
@@ -184,6 +186,7 @@ impl MusicPlugin {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 }

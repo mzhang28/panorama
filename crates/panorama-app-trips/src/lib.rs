@@ -64,6 +64,7 @@ impl TripsPlugin {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 
@@ -173,6 +174,7 @@ impl TripsPlugin {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 }

@@ -96,7 +96,7 @@ impl PluginLoader {
 
     let mut registered_schemas = Vec::new();
     for schema in plugin.schemas() {
-      registered_schemas.push(self.schema_registry.register(schema));
+      registered_schemas.push(self.schema_registry.register(schema)?);
     }
 
     let info = LoadedPluginInfo {
@@ -140,7 +140,7 @@ impl PluginLoader {
     // Register schemas from manifest
     let mut registered_schemas = Vec::new();
     for schema in package.to_schemas() {
-      registered_schemas.push(self.schema_registry.register(schema));
+      registered_schemas.push(self.schema_registry.register(schema)?);
     }
 
     let info = LoadedPluginInfo {

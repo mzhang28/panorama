@@ -634,6 +634,7 @@ impl DashboardsPlugin {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 
@@ -671,6 +672,7 @@ impl DashboardsPlugin {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 }

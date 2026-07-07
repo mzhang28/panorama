@@ -23,14 +23,17 @@ impl SchemaRegistry {
     }
   }
 
-  pub fn register(&self, mut schema: Schema) -> Schema {
+  pub fn register(&self, mut schema: Schema) -> Result<Schema, String> {
+    // Validate schema definition before registering
+    schema.validate_definition()?;
+
     // Assign a node ID if not already set
     if schema.node_id.is_nil() {
       schema.node_id = Uuid::new_v4();
     }
     self.name_index.insert(schema.name.clone(), schema.node_id);
     self.schemas.insert(schema.node_id, schema.clone());
-    schema
+    Ok(schema)
   }
 
   pub fn get(&self, schema_node_id: &Uuid) -> Option<Schema> {

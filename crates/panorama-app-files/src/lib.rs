@@ -89,6 +89,7 @@ impl FilesPlugin {
       schema_mode: SchemaMode::Preferred,
       previous_versions: vec![],
       migrations: vec![],
+      indexes: vec![],
     }
   }
 }

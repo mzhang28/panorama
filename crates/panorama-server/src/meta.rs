@@ -168,11 +168,22 @@ pub struct SchemaTable {
 pub struct ManagedIndex {
   pub index_id: Uuid,
   pub target_schema_id: Option<Uuid>,
+  /// Stores serialized JSON array of logical field names for composite indexes,
+  /// or a single field name string for backward compatibility.
   pub target_field: String,
   pub index_type: String,
   pub physical_index_name: String,
   pub status: IndexStatus,
   pub created_at: DateTime<Utc>,
+}
+
+impl ManagedIndex {
+  /// Parse `target_field` as a JSON array of field names.
+  /// Falls back to treating it as a single field name if not valid JSON.
+  pub fn target_fields(&self) -> Vec<String> {
+    serde_json::from_str(&self.target_field)
+      .unwrap_or_else(|_| vec![self.target_field.clone()])
+  }
 }
 
 /// A row in the `field_presence` table.
@@ -556,22 +567,25 @@ impl MetaStore {
   // ── Managed indexes ───────────────────────────────────────────────────────
 
   /// Register a new index.  Initial status is `building` (not used by planner).
+  /// `target_fields` is serialized as a JSON array in the `target_field` column,
+  /// supporting both single-field and composite indexes.
   pub fn create_index(
     conn: &Connection,
     index_id: &Uuid,
     target_schema_id: Option<&Uuid>,
-    target_field: &str,
+    target_fields: &[String],
     index_type: &str,
     physical_index_name: &str,
   ) -> Result<(), rusqlite::Error> {
     let now = Utc::now().to_rfc3339();
+    let target_field_json = serde_json::to_string(target_fields).unwrap_or_default();
     conn.execute(
             "INSERT INTO managed_indexes (index_id, target_schema_id, target_field, index_type, physical_index_name, status, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, 'building', ?6)",
             params![
                 index_id.to_string(),
                 target_schema_id.map(|id| id.to_string()),
-                target_field,
+                target_field_json,
                 index_type,
                 physical_index_name,
                 now,
@@ -697,6 +711,92 @@ impl MetaStore {
       Some(Err(e)) => Err(e),
       None => Ok(None),
     }
+  }
+
+  /// Generate and execute a `CREATE INDEX` DDL statement for a schema-level
+  /// index declaration.
+  ///
+  /// If all target fields are promoted to columns on the schema data table,
+  /// a standard composite index is created there.  Otherwise an expression-based
+  /// index on `nodes.fields_json` is used.
+  ///
+  /// `field_mappings` maps logical field name → physical column name for
+  /// promoted fields.  Fields absent from this map are assumed unpromoted.
+  pub fn create_physical_index(
+    conn: &Connection,
+    schema_id: &Uuid,
+    physical_table_name: &str,
+    field_mappings: &serde_json::Value,
+    schema_index: &panorama_core::schema::SchemaIndex,
+  ) -> Result<(), String> {
+    // Determine which fields are promoted (have column mappings)
+    let raw_mappings: HashMap<String, serde_json::Value> =
+      serde_json::from_value(field_mappings.clone()).unwrap_or_default();
+
+    let index_name = schema_index
+      .name
+      .clone()
+      .unwrap_or_else(|| format!("idx_{}", schema_index.fields.join("_")));
+
+    let unique_kw = if schema_index.unique { "UNIQUE " } else { "" };
+
+    // Check if all target fields are promoted
+    let all_promoted = schema_index
+      .fields
+      .iter()
+      .all(|f| raw_mappings.contains_key(f));
+
+    if all_promoted {
+      // Build column list from promoted mappings
+      let mut columns: Vec<String> = Vec::new();
+      for field_name in &schema_index.fields {
+        let entry = &raw_mappings[field_name];
+        let col = entry["column"]
+          .as_str()
+          .unwrap_or(field_name);
+        columns.push(col.to_string());
+      }
+      let col_list = columns.join(", ");
+      let sql = format!(
+        "CREATE {unique}INDEX IF NOT EXISTS {idx_name} ON {table} ({cols})",
+        unique = unique_kw,
+        idx_name = index_name,
+        table = physical_table_name,
+        cols = col_list,
+      );
+      conn
+        .execute(&sql, [])
+        .map_err(|e| format!("Failed to create promoted index '{}': {}", index_name, e))?;
+    } else {
+      // Build json_extract expression list for unpromoted fields
+      let ns = ""; // TODO: derive namespace from schema ownership
+      let mut expressions: Vec<String> = Vec::new();
+      for field_name in &schema_index.fields {
+        // The JSON path uses the "<namespace>:<field>" convention within fields_json
+        let json_path = if field_name.contains(':') {
+          field_name.clone()
+        } else {
+          // Look up the namespace from the raw mappings or default to empty
+          format!("{}:{}", ns, field_name)
+        };
+        expressions.push(format!(
+          "json_extract(fields_json, '$.\"{}\".value')",
+          json_path
+        ));
+      }
+      let expr_list = expressions.join(", ");
+      let sql = format!(
+        "CREATE {unique}INDEX IF NOT EXISTS {idx_name} ON nodes ({exprs})",
+        unique = unique_kw,
+        idx_name = index_name,
+        exprs = expr_list,
+      );
+      conn
+        .execute(&sql, [])
+        .map_err(|e| format!("Failed to create expression index '{}': {}", index_name, e))?;
+    }
+
+    Ok(())
   }
 
   // ── Field presence ────────────────────────────────────────────────────────
@@ -1254,7 +1354,7 @@ mod tests {
       &conn,
       &index_id,
       Some(&schema_id),
-      "title",
+      &["title".to_string()],
       "btree",
       "idx_schema_abc_title",
     )
@@ -1365,5 +1465,162 @@ mod tests {
       )
       .unwrap();
     assert_eq!(count, 7);
+  }
+
+  #[test]
+  fn test_managed_index_target_fields_single() {
+    let idx = ManagedIndex {
+      index_id: Uuid::new_v4(),
+      target_schema_id: None,
+      target_field: "title".to_string(),
+      index_type: "btree".into(),
+      physical_index_name: "idx_title".into(),
+      status: IndexStatus::Ready,
+      created_at: Utc::now(),
+    };
+    let fields = idx.target_fields();
+    assert_eq!(fields, vec!["title"]);
+  }
+
+  #[test]
+  fn test_managed_index_target_fields_composite_json() {
+    let idx = ManagedIndex {
+      index_id: Uuid::new_v4(),
+      target_schema_id: None,
+      target_field: r#"["first_name","last_name"]"#.to_string(),
+      index_type: "unique".into(),
+      physical_index_name: "idx_name".into(),
+      status: IndexStatus::Ready,
+      created_at: Utc::now(),
+    };
+    let fields = idx.target_fields();
+    assert_eq!(fields, vec!["first_name", "last_name"]);
+  }
+
+  #[test]
+  fn test_create_index_stores_json_array() {
+    let conn = test_conn();
+    let index_id = Uuid::new_v4();
+    let schema_id = Uuid::new_v4();
+    let target_fields = vec!["first_name".to_string(), "last_name".to_string()];
+
+    MetaStore::create_index(
+      &conn,
+      &index_id,
+      Some(&schema_id),
+      &target_fields,
+      "unique",
+      "idx_composite",
+    )
+    .unwrap();
+
+    let idx = MetaStore::get_index(&conn, &index_id).unwrap().unwrap();
+    let parsed = idx.target_fields();
+    assert_eq!(parsed, target_fields);
+  }
+
+  #[test]
+  fn test_create_physical_index_promoted() {
+    let conn = test_conn();
+    let schema_id = Uuid::new_v4();
+
+    // Create a schema data table with promoted columns
+    conn
+      .execute_batch(
+        "CREATE TABLE schema_data_test (start_col TEXT, end_col TEXT);",
+      )
+      .unwrap();
+
+    // Register the schema table
+    MetaStore::upsert_schema_table(
+      &conn,
+      &schema_id,
+      "schema_data_test",
+      &serde_json::json!({
+        "start_time": {"column": "start_col", "type": "DateTime"},
+        "end_time": {"column": "end_col", "type": "DateTime"},
+      }),
+      StorageMode::Hybrid,
+      MigrationState::Stable,
+    )
+    .unwrap();
+
+    let schema_index = panorama_core::schema::SchemaIndex {
+      name: Some("idx_event_range".into()),
+      fields: vec!["start_time".into(), "end_time".into()],
+      unique: false,
+    };
+
+    MetaStore::create_physical_index(
+      &conn,
+      &schema_id,
+      "schema_data_test",
+      &serde_json::json!({
+        "start_time": {"column": "start_col", "type": "DateTime"},
+        "end_time": {"column": "end_col", "type": "DateTime"},
+      }),
+      &schema_index,
+    )
+    .unwrap();
+
+    // Verify index exists
+    let count: i64 = conn
+      .query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_event_range'",
+        [],
+        |row| row.get(0),
+      )
+      .unwrap();
+    assert_eq!(count, 1);
+  }
+
+  #[test]
+  fn test_create_physical_index_jsonb_expression() {
+    let conn = test_conn();
+
+    // Create nodes table (simplified)
+    conn
+      .execute_batch(
+        "CREATE TABLE nodes (node_id TEXT PRIMARY KEY, fields_json TEXT);",
+      )
+      .unwrap();
+
+    let schema_id = Uuid::new_v4();
+
+    // Register schema with no promoted columns
+    MetaStore::upsert_schema_table(
+      &conn,
+      &schema_id,
+      "schema_data_jsonb",
+      &serde_json::json!({}),
+      StorageMode::Jsonb,
+      MigrationState::Stable,
+    )
+    .unwrap();
+
+    let schema_index = panorama_core::schema::SchemaIndex {
+      name: Some("idx_expr_title".into()),
+      fields: vec!["title".into()],
+      unique: false,
+    };
+
+    MetaStore::create_physical_index(
+      &conn,
+      &schema_id,
+      "schema_data_jsonb",
+      &serde_json::json!({}),
+      &schema_index,
+    )
+    .unwrap();
+
+    // Verify expression index exists on nodes table
+    let count: i64 = conn
+      .query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_expr_title'",
+        [],
+        |row| row.get(0),
+      )
+      .unwrap();
+    assert_eq!(count, 1);
   }
 }

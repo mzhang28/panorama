@@ -31,11 +31,11 @@ async fn main() {
   let schema_registry = SchemaRegistry::new();
   let object_storage = ObjectStorage::new(data_path.join("objects"));
 
-  schema_registry.register(panorama_core::schema::system_schemas::node_time_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::node_info_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::reactors_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::op_stream_schema());
-  schema_registry.register(panorama_core::schema::system_schemas::reactor_state_schema());
+  schema_registry.register(panorama_core::schema::system_schemas::node_time_schema()).expect("node_time schema");
+  schema_registry.register(panorama_core::schema::system_schemas::node_info_schema()).expect("node_info schema");
+  schema_registry.register(panorama_core::schema::system_schemas::reactors_schema()).expect("reactors schema");
+  schema_registry.register(panorama_core::schema::system_schemas::op_stream_schema()).expect("op_stream schema");
+  schema_registry.register(panorama_core::schema::system_schemas::reactor_state_schema()).expect("reactor_state schema");
 
   let plugin_loader = Arc::new(PluginLoader::new(
     storage.clone(),
