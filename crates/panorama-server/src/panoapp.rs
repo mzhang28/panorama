@@ -56,6 +56,8 @@ pub struct ManifestSchema {
   pub version: SchemaVersion,
   pub fields: Vec<SchemaField>,
   pub schema_mode: SchemaMode,
+  #[serde(default)]
+  pub indexes: Vec<panorama_core::schema::SchemaIndex>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,7 +145,7 @@ impl PanoAppPackage {
         schema_mode: ms.schema_mode.clone(),
         previous_versions: vec![],
         migrations: vec![],
-        indexes: vec![],
+        indexes: ms.indexes.clone(),
       })
       .collect()
   }

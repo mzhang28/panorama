@@ -29,7 +29,7 @@ async fn main() {
 
   let backend = std::sync::Arc::new(SqliteBackend::new(data_path.join("nodes")));
   let storage = NodeStorage::new(backend);
-  let schema_registry = SchemaRegistry::new();
+  let schema_registry = SchemaRegistry::new(Some(storage.clone()));
   let object_storage = ObjectStorage::new(data_path.join("objects"));
 
   schema_registry

@@ -6,6 +6,8 @@ use panorama_core::schema::Schema;
 use panorama_core::types::{FieldValue, SchemaRef};
 use uuid::Uuid;
 
+use crate::storage::NodeStorage;
+
 /// Registry for all schemas in the platform.
 /// Schemas are stored as nodes but also indexed here for fast lookup.
 #[derive(Clone)]
@@ -13,13 +15,16 @@ pub struct SchemaRegistry {
   schemas: Arc<DashMap<Uuid, Schema>>,
   /// name -> latest version's schema node ID
   name_index: Arc<DashMap<String, Uuid>>,
+  /// Optional storage backend for materializing schema indexes.
+  storage: Option<NodeStorage>,
 }
 
 impl SchemaRegistry {
-  pub fn new() -> Self {
+  pub fn new(storage: Option<NodeStorage>) -> Self {
     Self {
       schemas: Arc::new(DashMap::new()),
       name_index: Arc::new(DashMap::new()),
+      storage,
     }
   }
 
@@ -31,6 +36,17 @@ impl SchemaRegistry {
     if schema.node_id.is_nil() {
       schema.node_id = Uuid::new_v4();
     }
+
+    // Materialize indexes in the database (idempotent)
+    if let Some(ref storage) = self.storage {
+      storage.create_schema_indexes(&schema).map_err(|e| {
+        format!(
+          "failed to create indexes for schema '{}': {}",
+          schema.name, e
+        )
+      })?;
+    }
+
     self.name_index.insert(schema.name.clone(), schema.node_id);
     self.schemas.insert(schema.node_id, schema.clone());
     Ok(schema)
@@ -97,6 +113,6 @@ impl SchemaRegistry {
 
 impl Default for SchemaRegistry {
   fn default() -> Self {
-    Self::new()
+    Self::new(None)
   }
 }

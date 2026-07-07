@@ -62,6 +62,10 @@ pub trait StorageBackend: Send + Sync {
 
   /// Check whether a ready managed index exists for the given (schema, field).
   fn has_ready_index(&self, schema_id: &str, field: &str) -> Result<bool, String>;
+
+  /// Create physical indexes and managed_index entries for a schema's declared indexes.
+  /// Idempotent — skips indexes that already exist.
+  fn create_schema_indexes(&self, schema: &panorama_core::schema::Schema) -> Result<(), String>;
 }
 
 // ── NodeStorage — thin wrapper ───────────────────────────────────────────────
@@ -124,5 +128,13 @@ impl NodeStorage {
   /// Check for a ready index (used by the query compiler).
   pub fn has_ready_index(&self, schema_id: &str, field: &str) -> Result<bool, String> {
     self.backend.has_ready_index(schema_id, field)
+  }
+
+  /// Create physical indexes and managed_index entries for a schema's declared indexes.
+  pub fn create_schema_indexes(
+    &self,
+    schema: &panorama_core::schema::Schema,
+  ) -> Result<(), String> {
+    self.backend.create_schema_indexes(schema)
   }
 }

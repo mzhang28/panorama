@@ -414,6 +414,76 @@ impl StorageBackend for SqliteBackend {
   fn has_ready_index(&self, _schema_id: &str, _field: &str) -> Result<bool, String> {
     Ok(false)
   }
+
+  fn create_schema_indexes(&self, schema: &panorama_core::schema::Schema) -> Result<(), String> {
+    if schema.indexes.is_empty() {
+      return Ok(());
+    }
+    let conn = self
+      .write_conn()
+      .map_err(|e| format!("write conn: {}", e))?;
+
+    // Store schema name → ID mapping for CONFORMS TO resolution
+    MetaStore::upsert_schema_name(&conn, &schema.name, &schema.node_id)
+      .map_err(|e| format!("upsert_schema_name: {}", e))?;
+
+    // Build namespace lookup: field_name → namespace
+    let ns_map: std::collections::HashMap<&str, &str> = schema
+      .fields
+      .iter()
+      .map(|f| (f.name.as_str(), f.namespace.as_str()))
+      .collect();
+
+    for index in &schema.indexes {
+      // Build fully-qualified field names (ns:field) for unpromoted indexes
+      let qualified: Vec<String> = index
+        .fields
+        .iter()
+        .map(|f| {
+          if f.contains(':') {
+            f.clone()
+          } else {
+            let ns = ns_map.get(f.as_str()).copied().unwrap_or("");
+            if ns.is_empty() {
+              f.clone()
+            } else {
+              format!("{}:{}", ns, f)
+            }
+          }
+        })
+        .collect();
+
+      let index_name = index
+        .name
+        .clone()
+        .unwrap_or_else(|| format!("idx_{}", qualified.join("_")));
+
+      // Check if already exists
+      let existing = MetaStore::get_index_by_name(&conn, &index_name)
+        .map_err(|e| format!("check index: {}", e))?;
+      if existing.is_some() {
+        continue;
+      }
+
+      let index_id = uuid::Uuid::new_v4();
+      MetaStore::create_index(
+        &conn,
+        &index_id,
+        Some(&schema.node_id),
+        &qualified,
+        "btree",
+        &index_name,
+      )
+      .map_err(|e| format!("create_index meta: {}", e))?;
+
+      MetaStore::create_physical_index(&conn, &schema.node_id, "", &serde_json::json!({}), index)
+        .map_err(|e| format!("create_physical_index: {}", e))?;
+
+      MetaStore::transition_index_status(&conn, &index_id, crate::meta::IndexStatus::Ready)
+        .map_err(|e| format!("transition index: {}", e))?;
+    }
+    Ok(())
+  }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

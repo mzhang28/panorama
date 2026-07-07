@@ -275,9 +275,10 @@ impl CodingPlugin {
     );
     node.set_field("coding:hash", FieldValue::String(hash.clone()));
 
-    // Check for existing node with same hash — if found, skip creation
+    // Check for existing node with same hash — if found, skip creation.
+    // CONFORMS TO resolves the schema's index on coding:hash, avoiding a SCAN error.
     let check_query = format!(
-      "MATCH (n) IN space(\"default\") WHERE n.coding.hash = \"{}\" RETURN n LIMIT 1",
+      "MATCH (n) IN space(\"default\") WHERE n CONFORMS TO schema(\"coding/Heartbeat\") AND n.coding.hash = \"{}\" RETURN n LIMIT 1",
       hash
     );
     if let Ok(rows) = ctx.query(&check_query).await {

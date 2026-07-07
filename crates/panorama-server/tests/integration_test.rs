@@ -16,7 +16,7 @@ fn setup_test_env() -> (PluginLoader, tempfile::TempDir) {
   let tmp = tempfile::tempdir().unwrap();
   let backend = Arc::new(SqliteBackend::new(tmp.path().join("nodes")));
   let storage = NodeStorage::new(backend);
-  let schema_registry = SchemaRegistry::new();
+  let schema_registry = SchemaRegistry::new(None);
   let object_storage = ObjectStorage::new(tmp.path().join("objects"));
 
   // Register system schemas

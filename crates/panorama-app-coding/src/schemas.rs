@@ -162,7 +162,11 @@ pub(crate) fn heartbeat_schema() -> Schema {
     schema_mode: SchemaMode::Preferred,
     previous_versions: vec![],
     migrations: vec![],
-    indexes: vec![],
+    indexes: vec![SchemaIndex {
+      name: Some("idx_coding_heartbeat_hash".into()),
+      fields: vec!["hash".into()],
+      unique: false,
+    }],
   }
 }
 

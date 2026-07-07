@@ -42,7 +42,7 @@ fn setup_reactor_test_env() -> (
   let tmp = tempfile::tempdir().unwrap();
   let backend = Arc::new(SqliteBackend::new(tmp.path().join("nodes")));
   let storage = NodeStorage::new(backend);
-  let schema_registry = SchemaRegistry::new();
+  let schema_registry = SchemaRegistry::new(None);
 
   // Register system schemas needed by the reactor subsystem
   schema_registry
@@ -777,7 +777,7 @@ fn setup_full_state() -> (Arc<AppState>, Arc<DeferredReactorEngine>, tempfile::T
   let tmp = tempfile::tempdir().unwrap();
   let backend = Arc::new(SqliteBackend::new(tmp.path().join("nodes")));
   let storage = NodeStorage::new(backend);
-  let schema_registry = SchemaRegistry::new();
+  let schema_registry = SchemaRegistry::new(None);
   let object_storage = ObjectStorage::new(tmp.path().join("objects"));
 
   schema_registry
@@ -1274,7 +1274,7 @@ async fn setup_loader_with_test_wasm() -> (Arc<PluginLoader>, tempfile::TempDir)
   let tmp = tempfile::tempdir().unwrap();
   let backend = Arc::new(SqliteBackend::new(tmp.path().join("nodes")));
   let storage = NodeStorage::new(backend);
-  let schema_registry = SchemaRegistry::new();
+  let schema_registry = SchemaRegistry::new(None);
   let object_storage = ObjectStorage::new(tmp.path().join("objects"));
 
   let loader = Arc::new(PluginLoader::new(storage, schema_registry, object_storage));

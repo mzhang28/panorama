@@ -514,7 +514,13 @@ fn extract_conforms_to(
     Predicate::ConformsTo {
       schema_id, field, ..
     } => {
-      let sid = Uuid::parse_str(schema_id).unwrap_or_else(|_| Uuid::nil());
+      // Try UUID first, then name-based lookup via schema_names table
+      let sid = Uuid::parse_str(schema_id).unwrap_or_else(|_| {
+        MetaStore::lookup_schema_id_by_name(conn, schema_id)
+          .ok()
+          .flatten()
+          .unwrap_or_else(Uuid::nil)
+      });
       let physical = resolve_physical_schema(conn, &sid)?;
 
       let data_cte = physical

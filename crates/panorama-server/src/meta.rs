@@ -308,6 +308,12 @@ impl MetaStore {
                 updated_at     TEXT NOT NULL,
                 PRIMARY KEY (ns_id, field_name, window_start)
             );
+
+            -- Schema name -> ID resolution for CONFORMS TO schema('name') queries
+            CREATE TABLE IF NOT EXISTS schema_names (
+                name       TEXT PRIMARY KEY,
+                schema_id  TEXT NOT NULL
+            );
             ",
         )?;
 
@@ -563,6 +569,36 @@ impl MetaStore {
     }
   }
 
+  // ── Schema name registry ──────────────────────────────────────────────────
+
+  /// Store a schema name → ID mapping for CONFORMS TO name resolution.
+  pub fn upsert_schema_name(
+    conn: &Connection,
+    name: &str,
+    schema_id: &Uuid,
+  ) -> Result<(), rusqlite::Error> {
+    conn.execute(
+      "INSERT INTO schema_names (name, schema_id) VALUES (?1, ?2)
+       ON CONFLICT(name) DO UPDATE SET schema_id = excluded.schema_id",
+      params![name, schema_id.to_string()],
+    )?;
+    Ok(())
+  }
+
+  /// Resolve a schema name to its UUID (for CONFORMS TO schema("name")).
+  pub fn lookup_schema_id_by_name(
+    conn: &Connection,
+    name: &str,
+  ) -> Result<Option<Uuid>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT schema_id FROM schema_names WHERE name = ?1")?;
+    let mut rows = stmt.query_map(params![name], |row| row.get::<_, String>(0))?;
+    match rows.next() {
+      Some(Ok(id_str)) => Ok(Uuid::parse_str(&id_str).ok()),
+      Some(Err(e)) => Err(e),
+      None => Ok(None),
+    }
+  }
+
   // ── Managed indexes ───────────────────────────────────────────────────────
 
   /// Register a new index.  Initial status is `building` (not used by planner).
@@ -712,6 +748,38 @@ impl MetaStore {
     }
   }
 
+  /// Look up a managed index by physical index name (for idempotent creation).
+  pub fn get_index_by_name(
+    conn: &Connection,
+    name: &str,
+  ) -> Result<Option<ManagedIndex>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+      "SELECT index_id, target_schema_id, target_field, index_type, physical_index_name, status, created_at
+       FROM managed_indexes WHERE physical_index_name = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![name], |row| {
+      let sid_str: Option<String> = row.get(1)?;
+      let status_str: String = row.get(5)?;
+      let ca_str: String = row.get(6)?;
+      Ok(ManagedIndex {
+        index_id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_else(|_| Uuid::nil()),
+        target_schema_id: sid_str.and_then(|s| Uuid::parse_str(&s).ok()),
+        target_field: row.get(2)?,
+        index_type: row.get(3)?,
+        physical_index_name: row.get(4)?,
+        status: IndexStatus::from_str(&status_str),
+        created_at: DateTime::parse_from_rfc3339(&ca_str)
+          .map(|d| d.with_timezone(&Utc))
+          .unwrap_or_else(|_| Utc::now()),
+      })
+    })?;
+    match rows.next() {
+      Some(Ok(idx)) => Ok(Some(idx)),
+      Some(Err(e)) => Err(e),
+      None => Ok(None),
+    }
+  }
+
   /// Generate and execute a `CREATE INDEX` DDL statement for a schema-level
   /// index declaration.
   ///
@@ -765,17 +833,13 @@ impl MetaStore {
         .execute(&sql, [])
         .map_err(|e| format!("Failed to create promoted index '{}': {}", index_name, e))?;
     } else {
-      // Build json_extract expression list for unpromoted fields
-      let ns = ""; // TODO: derive namespace from schema ownership
+      // Build json_extract expression list for unpromoted fields.
+      // Field names are expected to be fully qualified (e.g. "coding:hash")
+      // by the caller.  If a field already contains ':', use it as-is;
+      // otherwise treat it as a bare JSON path.
       let mut expressions: Vec<String> = Vec::new();
       for field_name in &schema_index.fields {
-        // The JSON path uses the "<namespace>:<field>" convention within fields_json
-        let json_path = if field_name.contains(':') {
-          field_name.clone()
-        } else {
-          // Look up the namespace from the raw mappings or default to empty
-          format!("{}:{}", ns, field_name)
-        };
+        let json_path = field_name.clone();
         expressions.push(format!(
           "json_extract(fields_json, '$.\"{}\".value')",
           json_path
