@@ -264,6 +264,7 @@ export default function CodingApp({ pluginId }: CodingAppProps) {
         qs,
       ) as Promise<WakaTimeStats>;
     },
+    placeholderData: (prev: WakaTimeStats | undefined) => prev,
   });
 
   const timeseriesQuery = useQuery({
@@ -275,6 +276,7 @@ export default function CodingApp({ pluginId }: CodingAppProps) {
         aggregation: "timeseries",
         bucket: "day",
       }) as Promise<TimeseriesSeries[]>,
+    placeholderData: (prev: TimeseriesSeries[] | undefined) => prev,
   });
 
   const sendMutation = useMutation({
@@ -289,8 +291,6 @@ export default function CodingApp({ pluginId }: CodingAppProps) {
     },
   });
 
-  const stats = statsQuery.data?.data;
-
   const buildBars = (entries: SummariesEntry[] | undefined) => {
     if (!entries?.length) return [];
     const maxVal = entries[0]?.total_seconds ?? 1;
@@ -301,20 +301,30 @@ export default function CodingApp({ pluginId }: CodingAppProps) {
     }));
   };
 
-  const isLoading = statsQuery.isLoading || timeseriesQuery.isLoading;
+  const isInitialLoad = !statsQuery.data && statsQuery.isLoading;
+  const isFetching = statsQuery.isFetching || timeseriesQuery.isFetching;
   const error = statsQuery.error || timeseriesQuery.error;
 
-  if (isLoading) {
+  if (isInitialLoad) {
     return (
       <div className="max-w-6xl mx-auto p-6 text-gray-400">Loading...</div>
     );
   }
 
+  const stats = statsQuery.data?.data;
+
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-lg font-semibold text-white">Coding Activity</h2>
+        <h2 className="text-lg font-semibold text-white">
+          Coding Activity
+          {isFetching && (
+            <span className="ml-2 text-xs text-gray-500 animate-pulse">
+              refreshing...
+            </span>
+          )}
+        </h2>
         <div className="flex gap-1.5">
           {["24h", "7d", "30d", "90d", "365d", "all"].map((r) => (
             <button

@@ -277,7 +277,7 @@ impl CodingPlugin {
 
     // Check for existing node with same hash — if found, skip creation
     let check_query = format!(
-      "MATCH (n) IN space(\"default\") WHERE n.coding.hash = \"{}\" RETURN n LIMIT 1",
+      "MATCH (n) IN space(\"default\") WHERE SCAN(n.coding.hash = \"{}\") RETURN n LIMIT 1",
       hash
     );
     if let Ok(rows) = ctx.query(&check_query).await {
