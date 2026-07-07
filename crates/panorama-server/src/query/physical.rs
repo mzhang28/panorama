@@ -149,20 +149,29 @@ pub fn resolve_physical_schema(
   // For any fields that have expression indexes but are NOT promoted,
   // add Indexed entries.  The target_field column may hold a JSON array
   // for composite indexes, so we parse it and mark every component field.
+  // Index entries are stored under fully-qualified names (e.g. "coding:hash")
+  // but field_access lookups come in with bare names ("hash") + namespace.
+  // We insert under both keys so callers don't need to care about the format.
   for idx in &indexes {
     let target_fields: Vec<String> =
       serde_json::from_str(&idx.target_field).unwrap_or_else(|_| vec![idx.target_field.clone()]);
 
     for field in &target_fields {
+      let json_path = field.clone();
+      let access = FieldAccess::Indexed {
+        index_name: idx.physical_index_name.clone(),
+        json_path,
+      };
+      // Insert under the fully-qualified name
       if !fields.contains_key(field) {
-        let json_path = field.clone();
-        fields.insert(
-          field.clone(),
-          FieldAccess::Indexed {
-            index_name: idx.physical_index_name.clone(),
-            json_path,
-          },
-        );
+        fields.insert(field.clone(), access.clone());
+      }
+      // Also insert under the bare field name (strip "ns:" prefix) so that
+      // field_access("hash", Some("coding")) finds it on the first lookup.
+      if let Some(bare) = field.split(':').nth(1) {
+        if !fields.contains_key(bare) {
+          fields.insert(bare.to_string(), access);
+        }
       }
     }
   }
