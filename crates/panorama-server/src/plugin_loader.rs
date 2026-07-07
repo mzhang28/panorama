@@ -379,6 +379,52 @@ impl PluginLoader {
   }
 }
 
+// ── Plugin load state tracking ──────────────────────────────────────────────
+
+/// Tracks the progress of plugin loading at startup.
+///
+/// This is exposed via `GET /api/plugins/status` so the frontend can
+/// long-poll until all plugins are ready, rather than showing a blank
+/// screen while the server boots.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PluginLoadState {
+  pub phase: LoadPhase,
+  pub total: u32,
+  pub loaded: u32,
+  pub failed: u32,
+  pub plugins: Vec<PluginStatusEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LoadPhase {
+  Scanning,
+  Loading,
+  Ready,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PluginStatusEntry {
+  pub id: String,
+  pub name: String,
+  pub version: String,
+  pub status: String, // "pending" | "loading" | "loaded" | "failed"
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+}
+
+impl PluginLoadState {
+  pub fn new() -> Self {
+    Self {
+      phase: LoadPhase::Scanning,
+      total: 0,
+      loaded: 0,
+      failed: 0,
+      plugins: Vec::new(),
+    }
+  }
+}
+
 /// Map a file path to its MIME type based on extension.
 fn mime_for_path(path: &str) -> &'static str {
   let ext = path.rsplit('.').next().unwrap_or("");

@@ -4,13 +4,14 @@ use std::sync::Arc;
 
 use panorama_server::api::{build_router, AppState};
 use panorama_server::object_store::ObjectStorage;
-use panorama_server::plugin_loader::PluginLoader;
+use panorama_server::plugin_loader::{PluginLoadState, PluginLoader, PluginStatusEntry};
 use panorama_server::reactor::deferred::DeferredReactorEngine;
 use panorama_server::reactor::eager::EagerReactorPipeline;
 use panorama_server::reactor::op_stream::OpStream;
 use panorama_server::reactor::registry::ReactorRegistry;
 use panorama_server::schema_registry::SchemaRegistry;
 use panorama_server::storage::{sqlite::SqliteBackend, NodeStorage};
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() {
@@ -42,41 +43,7 @@ async fn main() {
     schema_registry.clone(),
     object_storage.clone(),
   ));
-
-  // The ONLY hardcoded behavior: the directory to load .panoapp files from
-  let plugins_dir = data_path.join("plugins");
-  tracing::info!(plugins_dir = %plugins_dir.display(), exists = plugins_dir.exists(), "Scanning for plugins");
-  if plugins_dir.exists() {
-    let mut count = 0u32;
-    for entry in std::fs::read_dir(&plugins_dir)
-      .into_iter()
-      .flatten()
-      .flatten()
-    {
-      let path = entry.path();
-      if path.is_file() && path.extension().map_or(false, |e| e == "panoapp") {
-        count += 1;
-        tracing::info!(file = %path.display(), "Loading .panoapp");
-        match panorama_server::panoapp::PanoAppPackage::load_from_file(&path) {
-          Ok(package) => {
-            let name = package.manifest.name.clone();
-            let version = package.manifest.version.clone();
-            let id = package.manifest.id.clone();
-            match plugin_loader.load_from_panoapp(package).await {
-              Ok(_) => {
-                tracing::info!("Loaded .panoapp: {} v{} ({})", name, version, id)
-              }
-              Err(e) => tracing::error!("Failed .panoapp '{}': {}", name, e),
-            }
-          }
-          Err(e) => tracing::warn!("Skipping {}: {}", path.display(), e),
-        }
-      }
-    }
-    tracing::info!(count = count, "Finished scanning plugins dir");
-  } else {
-    tracing::warn!("Plugins directory does not exist");
-  }
+  let load_state = Arc::new(RwLock::new(PluginLoadState::new()));
 
   // ── Reactor subsystem ──────────────────────────────────────────────────
   let reactor_registry = Arc::new(ReactorRegistry::new(
@@ -118,7 +85,8 @@ async fn main() {
     storage,
     schema_registry,
     object_storage,
-    plugin_loader,
+    plugin_loader: plugin_loader.clone(),
+    load_state: load_state.clone(),
     reactor_registry,
     eager_pipeline,
     op_stream,
@@ -134,7 +102,7 @@ async fn main() {
   tracing::info!(addr = %addr, "Binding listener");
   let listener = match tokio::net::TcpListener::bind(addr).await {
     Ok(l) => {
-      tracing::info!(addr = %addr, "Listener bound, starting serve");
+      tracing::info!(addr = %addr, "Listener bound, HTTP server is LIVE");
       l
     }
     Err(e) => {
@@ -142,5 +110,130 @@ async fn main() {
       std::process::exit(1);
     }
   };
+
+  // ── Plugin loading runs in background after HTTP is live ───────────────
+  let plugins_dir = data_path.join("plugins");
+  let loader_bg = plugin_loader.clone();
+  let state_bg = load_state.clone();
+  tokio::spawn(async move {
+    load_plugins_in_background(loader_bg, state_bg, plugins_dir).await;
+  });
+
   axum::serve(listener, app).await.unwrap();
+}
+
+/// Scan the plugins directory and load all `.panoapp` files concurrently.
+///
+/// Updates `load_state` throughout so the frontend can observe progress
+/// via `GET /api/plugins/status`.
+async fn load_plugins_in_background(
+  plugin_loader: Arc<PluginLoader>,
+  load_state: Arc<RwLock<PluginLoadState>>,
+  plugins_dir: PathBuf,
+) {
+  tracing::info!(plugins_dir = %plugins_dir.display(), exists = plugins_dir.exists(), "Scanning for plugins");
+
+  // Phase 1: Scan directory for .panoapp files and parse manifests
+  let mut packages: Vec<(panorama_server::panoapp::PanoAppPackage, PluginStatusEntry)> = Vec::new();
+
+  if plugins_dir.exists() {
+    for entry in std::fs::read_dir(&plugins_dir).into_iter().flatten().flatten() {
+      let path = entry.path();
+      if path.is_file() && path.extension().map_or(false, |e| e == "panoapp") {
+        tracing::info!(file = %path.display(), "Discovered .panoapp");
+        match panorama_server::panoapp::PanoAppPackage::load_from_file(&path) {
+          Ok(package) => {
+            let entry = PluginStatusEntry {
+              id: package.manifest.id.clone(),
+              name: package.manifest.name.clone(),
+              version: package.manifest.version.clone(),
+              status: "pending".to_string(),
+              error: None,
+            };
+            packages.push((package, entry));
+          }
+          Err(e) => {
+            tracing::warn!("Skipping {}: {}", path.display(), e);
+          }
+        }
+      }
+    }
+  } else {
+    tracing::warn!("Plugins directory does not exist, no plugins to load");
+  }
+
+  if packages.is_empty() {
+    let mut state = load_state.write().await;
+    state.phase = panorama_server::plugin_loader::LoadPhase::Ready;
+    tracing::info!("No plugins found, load phase = Ready");
+    return;
+  }
+
+  // Phase 2: Transition to Loading and publish the pending list
+  {
+    let mut state = load_state.write().await;
+    state.total = packages.len() as u32;
+    state.plugins = packages.iter().map(|(_, e)| e.clone()).collect();
+    state.phase = panorama_server::plugin_loader::LoadPhase::Loading;
+    tracing::info!(total = state.total, "Plugin loading phase = Loading");
+  }
+
+  // Phase 3: Load all plugins concurrently
+  let futures: Vec<_> = packages
+    .into_iter()
+    .map(|(package, entry)| {
+      let plugin_loader = plugin_loader.clone();
+      let load_state = load_state.clone();
+      async move {
+        // Mark as loading
+        {
+          let mut state = load_state.write().await;
+          if let Some(e) = state.plugins.iter_mut().find(|p| p.id == entry.id) {
+            e.status = "loading".to_string();
+          }
+        }
+
+        let plugin_id = entry.id.clone();
+        let plugin_name = entry.name.clone();
+        let plugin_version = entry.version.clone();
+
+        match plugin_loader.load_from_panoapp(package).await {
+          Ok(_) => {
+            tracing::info!("Loaded .panoapp: {} v{} ({})", plugin_name, plugin_version, plugin_id);
+            let mut state = load_state.write().await;
+            if let Some(e) = state.plugins.iter_mut().find(|p| p.id == plugin_id) {
+              e.status = "loaded".to_string();
+            }
+            state.loaded += 1;
+          }
+          Err(err) => {
+            tracing::error!("Failed .panoapp '{}': {}", plugin_name, err);
+            let mut state = load_state.write().await;
+            if let Some(e) = state.plugins.iter_mut().find(|p| p.id == plugin_id) {
+              e.status = "failed".to_string();
+              e.error = Some(err.to_string());
+            }
+            state.failed += 1;
+          }
+        }
+      }
+    })
+    .collect();
+
+  futures::future::join_all(futures).await;
+
+  // Phase 4: All done
+  {
+    let state = load_state.read().await;
+    tracing::info!(
+      total = state.total,
+      loaded = state.loaded,
+      failed = state.failed,
+      "Plugin loading complete"
+    );
+  }
+  {
+    let mut state = load_state.write().await;
+    state.phase = panorama_server::plugin_loader::LoadPhase::Ready;
+  }
 }

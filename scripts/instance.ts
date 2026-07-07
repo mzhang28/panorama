@@ -82,6 +82,49 @@ export async function waitForUrl(
   return false;
 }
 
+/** Poll /api/plugins/status until all plugins are loaded or timeout. */
+export async function waitForPluginLoad(
+  baseUrl: string,
+  attempts = 600,
+  interval = 100,
+): Promise<boolean> {
+  const isVerbose =
+    process.env.VERBOSE === "true" ||
+    process.env.VERBOSE === "1" ||
+    process.env.E2E_VERBOSE === "true" ||
+    process.env.E2E_VERBOSE === "1";
+
+  const statusUrl = `${baseUrl}/api/plugins/status`;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(statusUrl);
+      if (!res.ok) {
+        await new Promise((r) => setTimeout(r, interval));
+        continue;
+      }
+      const status = await res.json();
+      if (status.phase === "ready") {
+        if (isVerbose) {
+          console.error(
+            `  ✓ plugins ready after ${i * interval}ms (${status.loaded}/${status.total} loaded, ${status.failed} failed)`,
+          );
+        }
+        return true;
+      }
+      if (isVerbose && i === 0) {
+        console.error(
+          `  … waiting for plugins (phase=${status.phase}, ${status.loaded}/${status.total} loaded)`,
+        );
+      }
+    } catch {
+      // Server may not be fully up yet
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  console.error(`  ✗ Timed out waiting for plugins to load`);
+  return false;
+}
+
 export async function spawnInstance(
   customRepoRoot?: string,
 ): Promise<ServerInstance> {
@@ -189,14 +232,22 @@ export async function spawnInstance(
   }
 
   const url = `http://127.0.0.1:${serverPort}`;
-  const ready = await waitForUrl(
+
+  // First, wait for the HTTP server to be reachable at all
+  const httpUp = await waitForUrl(
     `${url}/api/plugins`,
-    600,
+    300,
     100,
-    `instance on port ${serverPort}`,
+    `HTTP server on port ${serverPort}`,
   );
 
-  if (!ready) {
+  if (!httpUp) {
+    throw new Error(`HTTP server failed to start on port ${serverPort}`);
+  }
+
+  // Then, wait for all plugins to finish loading (they load in background)
+  const pluginsReady = await waitForPluginLoad(url);
+  if (!pluginsReady) {
     if (serverLogs) {
       console.error(
         `--- Server logs for port ${serverPort} ---\n${serverLogs}\n--- End server logs ---`,
@@ -206,7 +257,7 @@ export async function spawnInstance(
     }
     serverProcess.kill("SIGKILL");
     fs.rmSync(tempDir, { recursive: true, force: true });
-    throw new Error(`Server failed to start on port ${serverPort}`);
+    throw new Error(`Plugin loading timed out on port ${serverPort}`);
   }
 
   const stop = async () => {

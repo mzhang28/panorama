@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::object_store::ObjectStorage;
-use crate::plugin_loader::PluginLoader;
+use crate::plugin_loader::{PluginLoadState, PluginLoader};
 use crate::reactor::deferred::DeferredReactorEngine;
 use crate::reactor::eager::{EagerReactorPipeline, HookContext, HookResult};
 use crate::reactor::op_stream::OpStream;
@@ -31,6 +31,7 @@ pub struct AppState {
   pub schema_registry: SchemaRegistry,
   pub object_storage: ObjectStorage,
   pub plugin_loader: Arc<PluginLoader>,
+  pub load_state: Arc<tokio::sync::RwLock<PluginLoadState>>,
   pub reactor_registry: Arc<ReactorRegistry>,
   pub eager_pipeline: Arc<EagerReactorPipeline>,
   pub op_stream: Arc<OpStream>,
@@ -93,6 +94,7 @@ pub fn build_router(state: AppState) -> Router {
     .route("/api/uploads/{id}/complete", post(complete_upload))
     // Plugin metadata
     .route("/api/plugins", get(list_plugins))
+    .route("/api/plugins/status", get(get_plugin_load_status))
     .route("/api/plugins/{id}", get(get_plugin))
     .route("/api/plugins/{id}/static", get(get_plugin_static_files))
     .route("/api/plugins/{id}/files", get(get_plugin_static_files))
@@ -639,6 +641,15 @@ async fn complete_upload(
     .complete_upload(&upload_id)
     .map_err(|e| ApiError::internal(e))?;
   Ok(Json(serde_json::to_value(obj).unwrap_or_default()))
+}
+
+// -- Plugin load status (for frontend long-polling during startup) --
+
+async fn get_plugin_load_status(
+  State(state): State<Arc<AppState>>,
+) -> Json<PluginLoadState> {
+  let status = state.load_state.read().await.clone();
+  Json(status)
 }
 
 // -- Plugin metadata handlers --

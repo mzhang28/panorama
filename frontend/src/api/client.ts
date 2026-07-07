@@ -132,6 +132,28 @@ export async function getPlugin(id: string): Promise<PluginInfo> {
   return res.json();
 }
 
+export interface PluginLoadState {
+  phase: "scanning" | "loading" | "ready";
+  total: number;
+  loaded: number;
+  failed: number;
+  plugins: PluginStatusEntry[];
+}
+
+export interface PluginStatusEntry {
+  id: string;
+  name: string;
+  version: string;
+  status: "pending" | "loading" | "loaded" | "failed";
+  error?: string;
+}
+
+/** Long-poll the plugin load status until all plugins are loaded. */
+export async function getPluginLoadStatus(): Promise<PluginLoadState> {
+  const res = await fetch(`${BASE}/api/plugins/status`);
+  return res.json();
+}
+
 // Object storage API
 export async function uploadObject(
   bucket: string,
