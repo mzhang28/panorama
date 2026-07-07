@@ -381,36 +381,197 @@ fn default_limit() -> usize {
 }
 
 impl CodingPlugin {
-  /// Execute a stats query against stored heartbeats.
+  /// Execute a stats query against stored heartbeats using PQL aggregation.
+  ///
+  /// Instead of loading all heartbeats into memory, this constructs a PQL query
+  /// with aggregate functions (COUNT, SUM) and implicit GROUP BY so that the
+  /// storage engine (SQLite) performs the aggregation and returns only the
+  /// final summary rows.
   async fn execute_stats(
     &self,
     ctx: &dyn PluginContext,
     query: &StatsQuery,
   ) -> Result<serde_json::Value, PluginError> {
-    let all_nodes = self.fetch_heartbeats_in_range(ctx, &query.range).await?;
-
-    if all_nodes.is_empty() {
-      return Ok(serde_json::json!([]));
-    }
-
-    // Apply field filter if present
-    let filtered = self.apply_filter(&all_nodes, &query.filter);
-
-    // Build grouping key function
     let group_by = query.group_by.as_deref().unwrap_or("project");
-    let sub_group = query.sub_group_by.as_deref();
 
+    // Map leaderboard/sum aggregations to DB-side PQL queries.
     match query.aggregation.as_str() {
-      "leaderboard" => self.compute_leaderboard(&filtered, group_by, sub_group, query.limit),
-      "sum" => self.compute_sum(&filtered, group_by, sub_group),
-      "count" => self.compute_count(&filtered, group_by, sub_group, query.limit),
-      "avg_daily" => self.compute_avg_daily(&filtered, group_by, &query.range),
-      "timeseries" => self.compute_timeseries(&filtered, group_by, &query.bucket, &query.range),
+      "leaderboard" | "sum" => {
+        self.execute_aggregated_leaderboard(ctx, query, group_by).await
+      }
+      "count" => {
+        self.execute_aggregated_count(ctx, query, group_by).await
+      }
+      "avg_daily" => {
+        // Compute via PQL sum first, then divide by day count.
+        let sum_result = self
+          .execute_aggregated_leaderboard(ctx, query, group_by)
+          .await?;
+        let (start, end) = parse_time_range(&query.range);
+        let days = (end - start).num_days().max(1) as f64;
+        let adjusted: Vec<serde_json::Value> = match sum_result {
+          serde_json::Value::Array(entries) => {
+            entries
+              .into_iter()
+              .map(|mut entry| {
+                if let Some(obj) = entry.as_object_mut() {
+                  if let Some(total) = obj.get("total_seconds").and_then(|v| v.as_f64()) {
+                    obj.insert(
+                      "avg_seconds_per_day".into(),
+                      serde_json::json!(total / days),
+                    );
+                    obj.insert(
+                      "avg_hours_per_day".into(),
+                      serde_json::json!(total / days / 3600.0),
+                    );
+                  }
+                }
+                entry
+              })
+              .collect()
+          }
+          _ => return Ok(sum_result),
+        };
+        Ok(serde_json::json!(adjusted))
+      }
+      "timeseries" => {
+        // Timeseries is complex (time bucketing). Fall back to in-memory
+        // for now; future work can push bucketing into SQL.
+        let all_nodes = self.fetch_heartbeats_in_range(ctx, &query.range).await?;
+        if all_nodes.is_empty() {
+          return Ok(serde_json::json!([]));
+        }
+        let filtered = self.apply_filter(&all_nodes, &query.filter);
+        self.compute_timeseries(&filtered, group_by, &query.bucket, &query.range)
+      }
       _ => Err(PluginError::bad_request(&format!(
         "Unknown aggregation: {}. Supported: leaderboard, sum, count, avg_daily, timeseries",
         query.aggregation
       ))),
     }
+  }
+
+  /// Execute a PQL SUM aggregation query grouped by a dimension.
+  /// Used for leaderboard and sum aggregations.
+  async fn execute_aggregated_leaderboard(
+    &self,
+    ctx: &dyn PluginContext,
+    query: &StatsQuery,
+    group_by: &str,
+  ) -> Result<serde_json::Value, PluginError> {
+    let (start_epoch, end_epoch) = parse_time_range_epoch(&query.range);
+
+    // Build time filter predicates
+    let time_filter = format!(
+      "AND SCAN(n.coding.time >= {}) AND SCAN(n.coding.time <= {})",
+      start_epoch, end_epoch
+    );
+
+    // Optional key=value filter
+    let filter_clause = build_filter_clause(&query.filter);
+
+    let pql = format!(
+      "MATCH (n) IN space(\"default\") \
+       WHERE HAS_FIELD(n, \"coding\", \"entity\") \
+         {} {} \
+       RETURN n.coding.{} AS key, SUM(n.coding.duration) AS total_seconds",
+      time_filter, filter_clause, group_by
+    );
+
+    let rows = ctx.query(&pql).await?;
+
+    // Post-process: sort descending, apply limit, compute hours
+    let mut entries: Vec<serde_json::Value> = rows
+      .into_iter()
+      .map(|row| {
+        let total_seconds = row
+          .get("total_seconds")
+          .and_then(|v| v.as_f64())
+          .unwrap_or(0.0);
+        let key = row
+          .get("key")
+          .and_then(|v| v.as_str())
+          .unwrap_or("(unknown)")
+          .to_string();
+        serde_json::json!({
+          "key": key,
+          "total_seconds": total_seconds,
+          "hours": (total_seconds / 3600.0 * 10.0).round() / 10.0,
+        })
+      })
+      .collect();
+
+    // Sort descending by total_seconds
+    entries.sort_by(|a, b| {
+      b["total_seconds"]
+        .as_f64()
+        .unwrap_or(0.0)
+        .partial_cmp(&a["total_seconds"].as_f64().unwrap_or(0.0))
+        .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Apply limit
+    let limit = query.limit;
+    if entries.len() > limit {
+      entries.truncate(limit);
+    }
+
+    Ok(serde_json::json!(entries))
+  }
+
+  /// Execute a PQL COUNT aggregation query grouped by a dimension.
+  async fn execute_aggregated_count(
+    &self,
+    ctx: &dyn PluginContext,
+    query: &StatsQuery,
+    group_by: &str,
+  ) -> Result<serde_json::Value, PluginError> {
+    let (start_epoch, end_epoch) = parse_time_range_epoch(&query.range);
+
+    let time_filter = format!(
+      "AND SCAN(n.coding.time >= {}) AND SCAN(n.coding.time <= {})",
+      start_epoch, end_epoch
+    );
+
+    let filter_clause = build_filter_clause(&query.filter);
+
+    let pql = format!(
+      "MATCH (n) IN space(\"default\") \
+       WHERE HAS_FIELD(n, \"coding\", \"entity\") \
+         {} {} \
+       RETURN n.coding.{} AS key, COUNT(n) AS count",
+      time_filter, filter_clause, group_by
+    );
+
+    let rows = ctx.query(&pql).await?;
+
+    let mut entries: Vec<serde_json::Value> = rows
+      .into_iter()
+      .map(|row| {
+        let count = row.get("count").and_then(|v| v.as_f64()).unwrap_or(0.0) as u64;
+        let key = row
+          .get("key")
+          .and_then(|v| v.as_str())
+          .unwrap_or("(unknown)")
+          .to_string();
+        serde_json::json!({ "key": key, "count": count })
+      })
+      .collect();
+
+    // Sort descending by count
+    entries.sort_by(|a, b| {
+      b["count"]
+        .as_u64()
+        .unwrap_or(0)
+        .cmp(&a["count"].as_u64().unwrap_or(0))
+    });
+
+    let limit = query.limit;
+    if entries.len() > limit {
+      entries.truncate(limit);
+    }
+
+    Ok(serde_json::json!(entries))
   }
 
   /// Fetch all heartbeat nodes within a time range.
@@ -461,114 +622,6 @@ impl CodingPlugin {
       })
       .cloned()
       .collect()
-  }
-
-  /// Leaderboard: group by dimension, sum durations, sort descending.
-  fn compute_leaderboard(
-    &self,
-    nodes: &[Node],
-    group_by: &str,
-    sub_group_by: Option<&str>,
-    limit: usize,
-  ) -> Result<serde_json::Value, PluginError> {
-    let grouped = self.group_and_sum(nodes, group_by, sub_group_by);
-    let mut entries: Vec<serde_json::Value> = grouped
-      .into_iter()
-      .map(|(key, seconds)| {
-        let hours = seconds / 3600.0;
-        if let Some(sg) = sub_group_by {
-          // key is "primary::secondary"
-          let parts: Vec<&str> = key.splitn(2, "::").collect();
-          serde_json::json!({
-              group_by: parts.first().copied().unwrap_or(""),
-              sg: parts.get(1).copied().unwrap_or(""),
-              "total_seconds": seconds,
-              "hours": (hours * 10.0).round() / 10.0,
-          })
-        } else {
-          serde_json::json!({
-              "key": key,
-              "total_seconds": seconds,
-              "hours": (hours * 10.0).round() / 10.0,
-          })
-        }
-      })
-      .collect();
-
-    // Sort descending by hours
-    entries.sort_by(|a, b| {
-      b["total_seconds"]
-        .as_f64()
-        .unwrap_or(0.0)
-        .partial_cmp(&a["total_seconds"].as_f64().unwrap_or(0.0))
-        .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    if entries.len() > limit {
-      entries.truncate(limit);
-    }
-
-    Ok(serde_json::json!(entries))
-  }
-
-  /// Sum aggregation.
-  fn compute_sum(
-    &self,
-    nodes: &[Node],
-    group_by: &str,
-    sub_group_by: Option<&str>,
-  ) -> Result<serde_json::Value, PluginError> {
-    let grouped = self.group_and_sum(nodes, group_by, sub_group_by);
-    let result: BTreeMap<String, f64> = grouped.into_iter().collect();
-    Ok(serde_json::json!(result))
-  }
-
-  /// Count aggregation.
-  fn compute_count(
-    &self,
-    nodes: &[Node],
-    group_by: &str,
-    sub_group_by: Option<&str>,
-    limit: usize,
-  ) -> Result<serde_json::Value, PluginError> {
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for node in nodes {
-      let key = self.group_key(node, group_by, sub_group_by);
-      *counts.entry(key).or_default() += 1;
-    }
-    let mut entries: Vec<serde_json::Value> = counts
-      .into_iter()
-      .map(|(key, count)| serde_json::json!({"key": key, "count": count}))
-      .collect();
-    entries.sort_by(|a, b| b["count"].as_u64().cmp(&a["count"].as_u64()));
-    if entries.len() > limit {
-      entries.truncate(limit);
-    }
-    Ok(serde_json::json!(entries))
-  }
-
-  /// Average daily duration.
-  fn compute_avg_daily(
-    &self,
-    nodes: &[Node],
-    group_by: &str,
-    range: &str,
-  ) -> Result<serde_json::Value, PluginError> {
-    let (start, end) = parse_time_range(range);
-    let days = (end - start).num_days().max(1) as f64;
-
-    let grouped = self.group_and_sum(nodes, group_by, None);
-    let result: Vec<serde_json::Value> = grouped
-      .into_iter()
-      .map(|(key, total_seconds)| {
-        serde_json::json!({
-            "key": key,
-            "avg_seconds_per_day": total_seconds / days,
-            "avg_hours_per_day": total_seconds / days / 3600.0,
-        })
-      })
-      .collect();
-    Ok(serde_json::json!(result))
   }
 
   /// Time-series: bucketed data points over the time range.
@@ -670,22 +723,6 @@ impl CodingPlugin {
       t += interval;
     }
     result
-  }
-
-  /// Group nodes by dimension(s) and sum their durations.
-  fn group_and_sum(
-    &self,
-    nodes: &[Node],
-    group_by: &str,
-    sub_group_by: Option<&str>,
-  ) -> HashMap<String, f64> {
-    let mut groups: HashMap<String, f64> = HashMap::new();
-    for node in nodes {
-      let key = self.group_key(node, group_by, sub_group_by);
-      let duration = node_duration_seconds(node);
-      *groups.entry(key).or_default() += duration;
-    }
-    groups
   }
 
   /// Build a grouping key for a node.
@@ -840,6 +877,25 @@ fn parse_time_range(range: &str) -> (DateTime<Utc>, DateTime<Utc>) {
           .unwrap_or_else(|_| (now - Duration::days(7), now))
       }
     }
+  }
+}
+
+/// Parse a time range string into (start_epoch, end_epoch) as f64 epoch seconds.
+/// Uses the same range format as `parse_time_range`.
+fn parse_time_range_epoch(range: &str) -> (f64, f64) {
+  let (start, end) = parse_time_range(range);
+  (start.timestamp() as f64, end.timestamp() as f64)
+}
+
+/// Build an optional filter clause from a `key=value` string.
+/// Returns a PQL snippet like `AND n.coding.project = 'panorama'` or empty.
+fn build_filter_clause(filter: &Option<String>) -> String {
+  match filter {
+    Some(f) if f.contains('=') => {
+      let (key, value) = f.split_once('=').unwrap();
+      format!("AND n.coding.{} = '{}'", key, value)
+    }
+    _ => String::new(),
   }
 }
 

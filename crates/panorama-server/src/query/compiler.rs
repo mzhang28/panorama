@@ -379,8 +379,66 @@ pub fn compile_phase2(
         let expr = compile_field_access(fp, &ctx, &effective_from, &effective_from)?;
         select_cols.push(format!("{} AS {}", expr, col_alias));
       }
+      ReturnExpr::Aggregate { func, expr } => {
+        let col_alias = col.alias.clone().unwrap_or_else(|| match func {
+          AggregateFunc::Count => "count".into(),
+          AggregateFunc::Sum => "sum".into(),
+          AggregateFunc::Avg => "avg".into(),
+          AggregateFunc::Min => "min".into(),
+          AggregateFunc::Max => "max".into(),
+        });
+        let inner_sql = compile_aggregate_inner(expr, &ctx, &effective_from, &effective_from)?;
+        let agg_sql = match func {
+          AggregateFunc::Count => {
+            // COUNT(n) → COUNT(*), COUNT(n.field) → COUNT(expr)
+            match expr.as_ref() {
+              ReturnExpr::Node(_) => "COUNT(*)".into(),
+              _ => format!("COUNT({})", inner_sql),
+            }
+          }
+          AggregateFunc::Sum => format!("SUM({})", inner_sql),
+          AggregateFunc::Avg => format!("AVG({})", inner_sql),
+          AggregateFunc::Min => format!("MIN({})", inner_sql),
+          AggregateFunc::Max => format!("MAX({})", inner_sql),
+        };
+        select_cols.push(format!("{} AS {}", agg_sql, col_alias));
+      }
     }
   }
+
+  // Detect aggregates and build GROUP BY from non-aggregate columns.
+  let has_aggregate = query
+    .return_clause
+    .columns
+    .iter()
+    .any(|c| matches!(c.expression, ReturnExpr::Aggregate { .. }));
+
+  let group_by_parts: Vec<String> = if has_aggregate {
+    query
+      .return_clause
+      .columns
+      .iter()
+      .filter(|c| !matches!(c.expression, ReturnExpr::Aggregate { .. }))
+      .map(|c| {
+        Ok(match &c.expression {
+          ReturnExpr::Field(fp) => {
+            compile_field_access(fp, &ctx, &effective_from, &effective_from)?
+          }
+          ReturnExpr::Node(var) => {
+            let cte = ctx
+              .var_cte
+              .get(var)
+              .cloned()
+              .unwrap_or_else(|| "nodes".into());
+            format!("{}.id", cte)
+          }
+          ReturnExpr::Aggregate { .. } => unreachable!(), // filtered above
+        })
+      })
+      .collect::<Result<Vec<String>, String>>()?
+  } else {
+    Vec::new()
+  };
 
   // Assemble the final SQL.
   let select_sql = select_cols.join(", ");
@@ -396,6 +454,11 @@ pub fn compile_phase2(
   // Final WHERE clause (field predicates)
   if !final_where_parts.is_empty() {
     sql.push_str(&format!(" WHERE {}", final_where_parts.join(" AND ")));
+  }
+
+  // GROUP BY (when aggregates are present)
+  if !group_by_parts.is_empty() {
+    sql.push_str(&format!("\nGROUP BY {}", group_by_parts.join(", ")));
   }
 
   // ORDER BY
@@ -556,6 +619,23 @@ fn field_path_to_json_key(fp: &FieldPath) -> String {
 /// subpath from the JSON envelope `{"type": "String", "value": ...}`.
 fn json_extract_expr(column_ref: &str, key: &str) -> String {
   format!("json_extract({}, '$.\"{}\".value')", column_ref, key)
+}
+
+/// Compile the inner expression of an aggregate function to SQL.
+/// For `COUNT(n)` → `*`, for `SUM(n.field)` → compiled field access.
+fn compile_aggregate_inner(
+  expr: &ReturnExpr,
+  ctx: &CompileCtx,
+  from_table: &str,
+  node_cte: &str,
+) -> Result<String, String> {
+  match expr {
+    ReturnExpr::Node(_) => Ok("*".into()),
+    ReturnExpr::Field(fp) => compile_field_access(fp, ctx, from_table, node_cte),
+    ReturnExpr::Aggregate { .. } => {
+      Err("nested aggregate functions are not supported".into())
+    }
+  }
 }
 
 // ── Predicate compilation (for final WHERE clause) ──────────────────────────────
@@ -1200,5 +1280,103 @@ mod tests {
       "should reject boolean ordering: {}",
       err
     );
+  }
+
+  // ── Aggregate query tests ──────────────────────────────────────────────
+
+  #[test]
+  fn test_compile_aggregate_count_star() {
+    let conn = setup_conn();
+    let q =
+      parse_query(r#"MATCH (n) IN space("default") RETURN COUNT(n) AS cnt"#).unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+    assert!(
+      compiled.sql.contains("COUNT(*)"),
+      "COUNT(n) should compile to COUNT(*): {}",
+      compiled.sql
+    );
+    assert!(compiled.sql.contains("AS cnt"));
+  }
+
+  #[test]
+  fn test_compile_aggregate_sum_with_group_by() {
+    let conn = setup_conn();
+    let q = parse_query(
+      r#"MATCH (n) IN space("default") RETURN n.coding.project AS project, SUM(n.coding.duration) AS total"#,
+    )
+    .unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+    assert!(
+      compiled.sql.contains("SUM("),
+      "should contain SUM(): {}",
+      compiled.sql
+    );
+    assert!(
+      compiled.sql.contains("GROUP BY"),
+      "should contain GROUP BY when mixing aggregates and non-aggregates: {}",
+      compiled.sql
+    );
+    assert!(compiled.sql.contains("AS project"));
+    assert!(compiled.sql.contains("AS total"));
+  }
+
+  #[test]
+  fn test_compile_aggregate_no_group_by_when_no_non_aggregates() {
+    let conn = setup_conn();
+    let q = parse_query(
+      r#"MATCH (n) IN space("default") RETURN COUNT(n) AS cnt, AVG(n.coding.duration) AS avg_dur"#,
+    )
+    .unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+    assert!(
+      !compiled.sql.contains("GROUP BY"),
+      "no GROUP BY when all columns are aggregates: {}",
+      compiled.sql
+    );
+    assert!(compiled.sql.contains("COUNT(*)"));
+    assert!(compiled.sql.contains("AVG("));
+  }
+
+  #[test]
+  fn test_compile_aggregate_min_max() {
+    let conn = setup_conn();
+    let q = parse_query(
+      r#"MATCH (n) IN space("default") RETURN MIN(n.coding.time) AS first, MAX(n.coding.time) AS last"#,
+    )
+    .unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+    assert!(compiled.sql.contains("MIN("));
+    assert!(compiled.sql.contains("MAX("));
+  }
+
+  #[test]
+  fn test_compile_aggregate_count_field() {
+    let conn = setup_conn();
+    let q = parse_query(
+      r#"MATCH (n) IN space("default") RETURN n.coding.project AS project, COUNT(n.coding.entity) AS cnt"#,
+    )
+    .unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+    // COUNT(field) should NOT be COUNT(*) — it should count the specific field
+    assert!(
+      compiled.sql.contains("COUNT("),
+      "should contain COUNT expression: {}",
+      compiled.sql
+    );
+    assert!(compiled.sql.contains("GROUP BY"));
+  }
+
+  #[test]
+  fn test_compile_aggregate_with_where_and_group_by() {
+    let conn = setup_conn();
+    let q = parse_query(
+      r#"MATCH (n) IN space("default") WHERE SCAN(n.coding.time >= 1700000000) RETURN n.coding.project AS project, SUM(n.coding.duration) AS total"#,
+    )
+    .unwrap();
+    let compiled = compile(&q, &conn).unwrap();
+    assert!(compiled.sql.contains("SUM("));
+    assert!(compiled.sql.contains("GROUP BY"));
+    // WHERE predicate should be present
+    assert!(compiled.sql.contains("WHERE") || compiled.sql.contains("1700000000"));
   }
 }

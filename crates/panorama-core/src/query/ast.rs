@@ -159,12 +159,26 @@ pub struct ReturnColumn {
   pub alias: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AggregateFunc {
+  Count,
+  Sum,
+  Avg,
+  Min,
+  Max,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ReturnExpr {
   /// Whole node: `RETURN n`
   Node(String),
   /// Field projection: `RETURN n.field` or `n.ns.field`
   Field(FieldPath),
+  /// Aggregate function: `RETURN COUNT(n)` or `SUM(n.coding.duration)`
+  Aggregate {
+    func: AggregateFunc,
+    expr: Box<ReturnExpr>,
+  },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

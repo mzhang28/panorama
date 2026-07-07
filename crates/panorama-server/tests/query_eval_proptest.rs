@@ -633,3 +633,287 @@ mod schema_tests {
     let _compiled = compile(&q, &conn).unwrap();
   }
 }
+
+// ── Mode 3: Aggregate queries (GROUP BY, COUNT, SUM, AVG, MIN, MAX) ──────────
+
+/// Compare SQL compiler results against in-memory evaluator for aggregate queries.
+fn check_aggregate(nodes: &[Node], pql: &str, conn: &Connection) {
+  let ast = parse_query(pql).unwrap();
+  let compiled = compile(&ast, conn).unwrap();
+  let sql_rows = execute_sql(conn, &compiled.sql, &compiled.params);
+  let mem_rows = eval_query(&ast, nodes);
+
+  assert_eq!(
+    sql_rows.len(),
+    mem_rows.len(),
+    "\nPQL: {}\nSQL: {}\nSQL rows: {:?}\nMem rows: {:?}",
+    pql, compiled.sql, sql_rows, mem_rows,
+  );
+
+  // Row count matches — now compare each row, sorted by all column values.
+  fn sort_key(row: &serde_json::Value) -> Vec<String> {
+    let mut keys: Vec<String> = row
+      .as_object()
+      .iter()
+      .flat_map(|o| o.keys().cloned())
+      .collect();
+    keys.sort();
+    keys
+      .into_iter()
+      .map(|k| {
+        row
+          .get(&k)
+          .map(|v| match v {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Number(n) => format!("{:.6}", n.as_f64().unwrap_or(0.0)),
+            serde_json::Value::Bool(b) => b.to_string(),
+            serde_json::Value::Null => "<null>".into(),
+            _ => format!("{:?}", v),
+          })
+          .unwrap_or_else(|| "<missing>".into())
+      })
+      .collect()
+  }
+
+  let mut sql_sorted: Vec<&serde_json::Value> = sql_rows.iter().collect();
+  let mut mem_sorted: Vec<&serde_json::Value> = mem_rows.iter().collect();
+  sql_sorted.sort_by_key(|r| sort_key(r));
+  mem_sorted.sort_by_key(|r| sort_key(r));
+
+  for (i, (sr, mr)) in sql_sorted.iter().zip(mem_sorted.iter()).enumerate() {
+    let s_obj = sr.as_object();
+    let m_obj = mr.as_object();
+    let mut all_keys: Vec<&str> = s_obj
+      .iter()
+      .flat_map(|o| o.keys().map(|k| k.as_str()))
+      .chain(m_obj.iter().flat_map(|o| o.keys().map(|k| k.as_str())))
+      .collect();
+    all_keys.sort();
+    all_keys.dedup();
+
+    for key in &all_keys {
+      let sv = s_obj.and_then(|o| o.get(*key));
+      let mv = m_obj.and_then(|o| o.get(*key));
+      // Compare values, with epsilon tolerance for floats (JSON round-trip
+      // through SQLite text encoding can cause sub-ULP differences).
+      match (sv, mv) {
+        (Some(serde_json::Value::Number(sn)), Some(serde_json::Value::Number(mn))) => {
+          let sf = sn.as_f64().unwrap_or(0.0);
+          let mf = mn.as_f64().unwrap_or(0.0);
+          let diff = (sf - mf).abs();
+          // Allow tiny relative or absolute error from float serialization
+          let tol = (sf.abs() + mf.abs()) * 1e-12 + 1e-9;
+          if diff > tol && !(sf.is_nan() && mf.is_nan()) {
+            panic!(
+              "\nRow {i} key '{key}' numeric mismatch (diff={diff}, tol={tol}):\n\
+               PQL: {pql}\nSQL: {}\n\
+               SQL val: {sv:?}\nMem val: {mv:?}\n\
+               SQL rows: {sql_rows:?}\nMem rows: {mem_rows:?}",
+              compiled.sql,
+            );
+          }
+        }
+        (Some(serde_json::Value::Bool(sb)), Some(serde_json::Value::Bool(mb))) => {
+          assert_eq!(sb, mb,
+            "\nRow {i} key '{key}' bool mismatch:\nPQL: {pql}\nSQL: {}\nSQL rows: {sql_rows:?}\nMem rows: {mem_rows:?}",
+            compiled.sql,
+          );
+        }
+        (sv, mv) => {
+          assert_eq!(sv, mv,
+            "\nRow {i} key '{key}' mismatch:\nPQL: {pql}\nSQL: {}\nSQL rows: {sql_rows:?}\nMem rows: {mem_rows:?}",
+            compiled.sql,
+          );
+        }
+      }
+    }
+  }
+}
+
+/// Pick one field from the node to use as a grouping dimension and another
+/// (numeric) field to aggregate.
+// ── Deterministic aggregate sanity checks ─────────────────────────────
+
+#[test]
+fn aggregate_deterministic_sum_grouped() {
+  let conn = setup_conn();
+  let mut nodes = Vec::new();
+  for i in 0..5i64 {
+    let mut fields = HashMap::new();
+    let cat = if i < 3 { "a" } else { "b" };
+    fields.insert("app:cat".into(), FieldValue::String(cat.into()));
+    fields.insert("app:val".into(), FieldValue::Integer(i * 10));
+    fields.insert("app:score".into(), FieldValue::Float(i as f64 * 1.5));
+    nodes.push(Node {
+      id: Uuid::new_v4(),
+      fields,
+      space_id: Uuid::nil(),
+      preferred_schemas: vec![],
+      app_managed: None,
+      created_at: chrono::Utc::now(),
+      updated_at: chrono::Utc::now(),
+    });
+  }
+  insert_nodes(&conn, &nodes);
+
+  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, SUM(n."app".val) AS total"#, &conn);
+  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, SUM(n."app".score) AS total"#, &conn);
+  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, COUNT(n) AS cnt"#, &conn);
+  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN n."app".cat AS key, AVG(n."app".val) AS avg_val"#, &conn);
+  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN MIN(n."app".val) AS min_val, MAX(n."app".val) AS max_val"#, &conn);
+  check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN COUNT(n) AS cnt, SUM(n."app".val) AS total"#, &conn);
+}
+
+/// Aggregate-specific node generator — uses bounded integer range to avoid
+/// i64 overflow in SUM and float precision edge cases.
+fn gen_agg_node() -> impl Strategy<Value = Node> {
+  (-100_000i64..100_000i64, (0.01f64..1_000_000.0f64), any::<bool>()).prop_map(
+    |(count, score, active)| {
+      let mut map: HashMap<String, FieldValue> = HashMap::new();
+      map.insert("title".into(), FieldValue::String("hello".into()));
+      map.insert("app:count".into(), FieldValue::Integer(count));
+      map.insert("app:score".into(), FieldValue::Float(score));
+      map.insert("app:active".into(), FieldValue::Boolean(active));
+      Node {
+        id: Uuid::new_v4(),
+        fields: map,
+        space_id: Uuid::nil(),
+        preferred_schemas: vec![],
+        app_managed: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+      }
+    },
+  )
+}
+
+/// Pick one field from the node as grouping dimension and another to aggregate.
+fn agg_nodes_and_two_fields(
+) -> impl Strategy<Value = (Vec<Node>, String, String)> {
+  proptest::collection::vec(gen_agg_node(), 2..10)
+    .prop_flat_map(|nodes| {
+      let mut keys: Vec<String> = Vec::new();
+      for n in &nodes {
+        for k in n.fields.keys() {
+          keys.push(k.clone());
+        }
+      }
+      keys.sort();
+      keys.dedup();
+      (Just(nodes), proptest::sample::select(keys.clone()), proptest::sample::select(keys))
+    })
+    .prop_map(|(nodes, gk, ak)| (nodes, gk, ak))
+}
+
+proptest! {
+  #![proptest_config(ProptestConfig { fork: false, cases: 64, ..ProptestConfig::default() })]
+
+  #[test]
+  fn aggregate_count_all(
+    nodes in proptest::collection::vec(gen_agg_node(), 1..10),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    check_aggregate(&nodes, r#"MATCH (n) IN space("default") RETURN COUNT(n) AS cnt"#, &conn);
+  }
+
+  #[test]
+  fn aggregate_count_field(
+    (nodes, _gk, ak) in agg_nodes_and_two_fields(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let agg_field = key_to_pql(&ak);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") RETURN COUNT(n.{}) AS cnt"#,
+      agg_field,
+    );
+    check_aggregate(&nodes, &pql, &conn);
+  }
+
+  #[test]
+  fn aggregate_sum_grouped(
+    (nodes, gk, ak) in agg_nodes_and_two_fields(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let group_field = key_to_pql(&gk);
+    let agg_field = key_to_pql(&ak);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") RETURN n.{} AS key, SUM(n.{}) AS val"#,
+      group_field, agg_field,
+    );
+    check_aggregate(&nodes, &pql, &conn);
+  }
+
+  #[test]
+  fn aggregate_avg_single(
+    (nodes, _gk, ak) in agg_nodes_and_two_fields(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let agg_field = key_to_pql(&ak);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") RETURN AVG(n.{}) AS val"#,
+      agg_field,
+    );
+    check_aggregate(&nodes, &pql, &conn);
+  }
+
+  #[test]
+  fn aggregate_min_max_single(
+    (nodes, _gk, ak) in agg_nodes_and_two_fields(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let agg_field = key_to_pql(&ak);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") RETURN MIN(n.{}) AS min_val, MAX(n.{}) AS max_val"#,
+      agg_field, agg_field,
+    );
+    check_aggregate(&nodes, &pql, &conn);
+  }
+
+  #[test]
+  fn aggregate_count_grouped(
+    (nodes, gk, _ak) in agg_nodes_and_two_fields(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let group_field = key_to_pql(&gk);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") RETURN n.{} AS key, COUNT(n) AS cnt"#,
+      group_field,
+    );
+    check_aggregate(&nodes, &pql, &conn);
+  }
+
+  #[test]
+  fn aggregate_multi_global(
+    (nodes, _gk, ak) in agg_nodes_and_two_fields(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let agg_field = key_to_pql(&ak);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") RETURN COUNT(n) AS cnt, SUM(n.{}) AS total, AVG(n.{}) AS avg"#,
+      agg_field, agg_field,
+    );
+    check_aggregate(&nodes, &pql, &conn);
+  }
+
+  #[test]
+  fn aggregate_grouped_multi_agg(
+    (nodes, gk, ak) in agg_nodes_and_two_fields(),
+  ) {
+    let conn = setup_conn();
+    insert_nodes(&conn, &nodes);
+    let group_field = key_to_pql(&gk);
+    let agg_field = key_to_pql(&ak);
+    let pql = format!(
+      r#"MATCH (n) IN space("default") RETURN n.{} AS key, COUNT(n) AS cnt, SUM(n.{}) AS val"#,
+      group_field, agg_field,
+    );
+    check_aggregate(&nodes, &pql, &conn);
+  }
+}

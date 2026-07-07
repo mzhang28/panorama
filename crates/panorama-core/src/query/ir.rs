@@ -95,8 +95,36 @@ impl Project {
   fn hash_shape<H: std::hash::Hasher>(&self, h: &mut H) {
     self.whole_node.hash(h);
     for col in &self.columns {
-      col.field_path.hash(h);
+      col.expr.hash_shape(h);
       col.alias.hash(h);
+    }
+    for gb in &self.group_by {
+      gb.hash_shape(h);
+    }
+  }
+}
+
+impl ProjectExpr {
+  fn hash_shape<H: std::hash::Hasher>(&self, h: &mut H) {
+    let tag: u8 = match self {
+      ProjectExpr::Field(_) => 0,
+      ProjectExpr::Node(_) => 1,
+      ProjectExpr::Aggregate(_, _) => 2,
+    };
+    tag.hash(h);
+    match self {
+      ProjectExpr::Field(s) | ProjectExpr::Node(s) => s.hash(h),
+      ProjectExpr::Aggregate(func, inner) => {
+        let func_tag: u8 = match func {
+          AggregateFunc::Count => 0,
+          AggregateFunc::Sum => 1,
+          AggregateFunc::Avg => 2,
+          AggregateFunc::Min => 3,
+          AggregateFunc::Max => 4,
+        };
+        func_tag.hash(h);
+        inner.hash_shape(h);
+      }
     }
   }
 }
@@ -150,12 +178,30 @@ pub struct Project {
   /// Otherwise: return only the named columns.
   pub whole_node: bool,
   pub columns: Vec<ProjectColumn>,
+  /// Grouping keys inferred from non-aggregated columns when aggregates exist.
+  pub group_by: Vec<ProjectExpr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectColumn {
-  pub field_path: String, // "ns.field" format for JSON extraction
+  pub expr: ProjectExpr,
   pub alias: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProjectExpr {
+  Field(String),  // "namespace:field"
+  Node(String),   // variable name
+  Aggregate(AggregateFunc, Box<ProjectExpr>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AggregateFunc {
+  Count,
+  Sum,
+  Avg,
+  Min,
+  Max,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -256,24 +302,57 @@ pub fn lower_to_ir(query: &ast::Query) -> IrPlan {
     }
   }
 
+  // Build project columns and detect aggregates for implicit GROUP BY.
+  let has_aggregate = query
+    .return_clause
+    .columns
+    .iter()
+    .any(|c| matches!(c.expression, ast::ReturnExpr::Aggregate { .. }));
+
+  let project_columns: Vec<ProjectColumn> = query
+    .return_clause
+    .columns
+    .iter()
+    .map(|c| {
+      let expr = lower_return_expr(&c.expression);
+      let alias = c
+        .alias
+        .clone()
+        .or_else(|| match &c.expression {
+          ast::ReturnExpr::Field(fp) => Some(fp.field.clone()),
+          ast::ReturnExpr::Node(v) => Some(v.clone()),
+          ast::ReturnExpr::Aggregate { func, .. } => Some(match func {
+            ast::AggregateFunc::Count => "count".into(),
+            ast::AggregateFunc::Sum => "sum".into(),
+            ast::AggregateFunc::Avg => "avg".into(),
+            ast::AggregateFunc::Min => "min".into(),
+            ast::AggregateFunc::Max => "max".into(),
+          }),
+        })
+        .unwrap_or_else(|| "expr".into());
+      ProjectColumn { expr, alias }
+    })
+    .collect();
+
+  // When aggregates are present, non-aggregate columns become grouping keys.
+  let group_by: Vec<ProjectExpr> = if has_aggregate {
+    project_columns
+      .iter()
+      .filter(|c| !matches!(c.expr, ProjectExpr::Aggregate(..)))
+      .map(|c| c.expr.clone())
+      .collect()
+  } else {
+    Vec::new()
+  };
+
   let project = Project {
     whole_node: query
       .return_clause
       .columns
       .iter()
       .any(|c| matches!(c.expression, ast::ReturnExpr::Node(_))),
-    columns: query
-      .return_clause
-      .columns
-      .iter()
-      .filter_map(|c| match &c.expression {
-        ast::ReturnExpr::Field(fp) => Some(ProjectColumn {
-          field_path: format!("{}:{}", fp.namespace.as_deref().unwrap_or(""), fp.field),
-          alias: c.alias.clone().unwrap_or_else(|| fp.field.clone()),
-        }),
-        _ => None,
-      })
-      .collect(),
+    columns: project_columns,
+    group_by,
   };
 
   let order_by = query.order_by.as_ref().map(|ob| OrderBy {
@@ -294,6 +373,28 @@ pub fn lower_to_ir(query: &ast::Query) -> IrPlan {
     order_by,
     limit: query.limit,
     skip: query.skip,
+  }
+}
+
+/// Lower an AST ReturnExpr into an IR ProjectExpr.
+fn lower_return_expr(expr: &ast::ReturnExpr) -> ProjectExpr {
+  match expr {
+    ast::ReturnExpr::Node(v) => ProjectExpr::Node(v.clone()),
+    ast::ReturnExpr::Field(fp) => ProjectExpr::Field(format!(
+      "{}:{}",
+      fp.namespace.as_deref().unwrap_or(""),
+      fp.field
+    )),
+    ast::ReturnExpr::Aggregate { func, expr } => {
+      let ir_func = match func {
+        ast::AggregateFunc::Count => AggregateFunc::Count,
+        ast::AggregateFunc::Sum => AggregateFunc::Sum,
+        ast::AggregateFunc::Avg => AggregateFunc::Avg,
+        ast::AggregateFunc::Min => AggregateFunc::Min,
+        ast::AggregateFunc::Max => AggregateFunc::Max,
+      };
+      ProjectExpr::Aggregate(ir_func, Box::new(lower_return_expr(expr)))
+    }
   }
 }
 

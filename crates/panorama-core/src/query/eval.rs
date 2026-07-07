@@ -1,22 +1,32 @@
 //! Reference evaluator — executes a Query against an in-memory set of Nodes.
 //!
-//! Kept small (~120 lines of logic) so it can be verified by inspection.
 //! Serves as the differential oracle: the SQL compiler must produce identical
-//! results on the same data.
+//! results on the same data. Supports aggregated queries (GROUP BY, COUNT,
+//! SUM, AVG, MIN, MAX) with Cypher-style implicit grouping.
 
 use crate::query::ast::*;
 use crate::types::Node;
+use std::collections::HashMap;
 
 // ── Top-level entry point ─────────────────────────────────────────────────
 
 /// Evaluate a query against an in-memory collection of nodes.
 /// Returns rows in the same shape as the SQL storage layer:
 /// `Vec<serde_json::Value>` where each row has keys matching RETURN columns.
+///
+/// When aggregate functions are present, non-aggregate columns become
+/// implicit GROUP BY keys and one row is returned per group.
 pub fn eval_query(query: &Query, nodes: &[Node]) -> Vec<serde_json::Value> {
-  let mut rows: Vec<serde_json::Value> = Vec::new();
-  // Track which nodes matched each variable for RefTraverse.
-  let mut var_matches: std::collections::HashMap<String, Vec<&Node>> =
-    std::collections::HashMap::new();
+  // Check if any RETURN column is an aggregate
+  let has_aggregate = query
+    .return_clause
+    .columns
+    .iter()
+    .any(|c| matches!(c.expression, ReturnExpr::Aggregate { .. }));
+
+  // Collect all matching rows (variable → matched nodes)
+  let mut var_matches: HashMap<String, Vec<&Node>> = HashMap::new();
+  let mut all_matched: Vec<(&str, &Node)> = Vec::new();
 
   for mc in &query.matches {
     let candidates = filter_by_source(&mc.source, nodes, &var_matches);
@@ -30,19 +40,232 @@ pub fn eval_query(query: &Query, nodes: &[Node]) -> Vec<serde_json::Value> {
       candidates
     };
 
-    // Store matched nodes for this variable for downstream RefTraverse.
     var_matches.insert(mc.variable.clone(), matched.clone());
-
-    for node in matched {
-      let row = project_return(&query.return_clause, &mc.variable, node);
-      rows.push(row);
+    for node in &matched {
+      all_matched.push((mc.variable.as_str(), node));
     }
   }
 
+  if has_aggregate {
+    return eval_aggregated(query, &all_matched);
+  }
+
+  // Non-aggregate path: one row per matched node
+  let mut rows: Vec<serde_json::Value> = Vec::new();
+  for (var, node) in &all_matched {
+    rows.push(project_row(&query.return_clause, var, node));
+  }
+
   // ORDER BY
+  eval_order_by(query, &mut rows);
+
+  // LIMIT / SKIP
+  rows = eval_limit_skip(query, rows);
+
+  rows
+}
+
+/// Evaluate an aggregated query: group by non-aggregate columns, compute
+/// aggregate functions per group, return one row per group.
+fn eval_aggregated(
+  query: &Query,
+  matched: &[(&str, &Node)],
+) -> Vec<serde_json::Value> {
+  let rc = &query.return_clause;
+
+  // Separate aggregate and non-aggregate (grouping) columns
+  let group_cols: Vec<usize> = rc
+    .columns
+    .iter()
+    .enumerate()
+    .filter(|(_, c)| !matches!(c.expression, ReturnExpr::Aggregate { .. }))
+    .map(|(i, _)| i)
+    .collect();
+
+  let agg_cols: Vec<usize> = rc
+    .columns
+    .iter()
+    .enumerate()
+    .filter(|(_, c)| matches!(c.expression, ReturnExpr::Aggregate { .. }))
+    .map(|(i, _)| i)
+    .collect();
+
+  // Build groups keyed by Vec<serde_json::Value> (preserving types for
+  // comparison against SQLite output).
+  let mut groups: HashMap<Vec<serde_json::Value>, Vec<(&str, &Node)>> = HashMap::new();
+  for (var, node) in matched {
+    let key: Vec<serde_json::Value> = if group_cols.is_empty() {
+      vec![serde_json::Value::Null] // global aggregate sentinel
+    } else {
+      group_cols
+        .iter()
+        .map(|&i| {
+          let col = &rc.columns[i];
+          eval_return_expr(&col.expression, var, node)
+        })
+        .collect()
+    };
+    groups.entry(key).or_default().push((var, node));
+  }
+
+  // If no groups and no rows → return empty
+  if groups.is_empty() && matched.is_empty() {
+    return Vec::new();
+  }
+
+  // If all columns are aggregates and no rows matched → single row
+  // with null aggregates (matching SQLite behavior).
+  if groups.is_empty() && !agg_cols.is_empty() {
+    let row = eval_aggregate_row(rc, &agg_cols, &group_cols, &[], &[]);
+    return vec![row];
+  }
+
+  let mut rows: Vec<serde_json::Value> = Vec::new();
+  for (key, group_nodes) in &groups {
+    rows.push(eval_aggregate_row(rc, &agg_cols, &group_cols, group_nodes, key));
+  }
+
+  // ORDER BY (on aggregate results)
+  eval_order_by(query, &mut rows);
+
+  // LIMIT / SKIP
+  eval_limit_skip(query, rows)
+}
+
+/// Compute one aggregated row for a group.
+fn eval_aggregate_row(
+  rc: &ReturnClause,
+  agg_cols: &[usize],
+  group_cols: &[usize],
+  group_nodes: &[(&str, &Node)],
+  group_key: &[serde_json::Value],
+) -> serde_json::Value {
+  let mut map = serde_json::Map::new();
+
+  // Emit grouping columns — take value from the group key directly
+  // (which preserves the original JSON type matching SQLite output).
+  for (idx, &col_idx) in group_cols.iter().enumerate() {
+    let col = &rc.columns[col_idx];
+    let alias = col
+      .alias
+      .clone()
+      .unwrap_or_else(|| expr_default_alias(&col.expression));
+    let val = group_key
+      .get(idx)
+      .cloned()
+      .unwrap_or(serde_json::Value::Null);
+    map.insert(alias, val);
+  }
+
+  // Compute aggregate columns
+  for &col_idx in agg_cols {
+    let col = &rc.columns[col_idx];
+    let alias = col
+      .alias
+      .clone()
+      .unwrap_or_else(|| expr_default_alias(&col.expression));
+    let val = compute_aggregate(&col.expression, group_nodes);
+    map.insert(alias, val);
+  }
+
+  serde_json::Value::Object(map)
+}
+
+/// Compute an aggregate value over a group of nodes.
+fn compute_aggregate(expr: &ReturnExpr, nodes: &[(&str, &Node)]) -> serde_json::Value {
+  match expr {
+    ReturnExpr::Aggregate { func, expr: inner } => {
+      let values: Vec<serde_json::Value> = nodes
+        .iter()
+        .map(|(var, node)| eval_return_expr(inner, var, node))
+        .collect();
+
+      match func {
+        AggregateFunc::Count => {
+          // COUNT(*) counts all rows; COUNT(field) counts non-null values
+          match inner.as_ref() {
+            ReturnExpr::Node(_) => serde_json::json!(nodes.len() as f64),
+            _ => serde_json::json!(values.iter().filter(|v| !v.is_null()).count() as f64),
+          }
+        }
+        AggregateFunc::Sum => {
+          // Use i128 for exact integer summing (avoids i64 overflow)
+          let all_ints = values.iter().all(|v| v.as_i64().is_some());
+          if all_ints {
+            let sum: i128 = values.iter().filter_map(|v| v.as_i64()).map(|v| v as i128).sum();
+            serde_json::json!(sum as f64)
+          } else {
+            let sum: f64 = values.iter().filter_map(|v| v.as_f64()).sum();
+            let sum = if sum == 0.0 { 0.0 } else { sum };
+            serde_json::json!(sum)
+          }
+        }
+        AggregateFunc::Avg => {
+          let non_null: Vec<&serde_json::Value> =
+            values.iter().filter(|v| !v.is_null()).collect();
+          if non_null.is_empty() {
+            serde_json::Value::Null
+          } else if non_null.iter().all(|v| v.as_i64().is_some()) {
+            // Integer path: sum as i128 then cast to f64 for division
+            let sum: i128 = non_null.iter().filter_map(|v| v.as_i64()).map(|v| v as i128).sum();
+            serde_json::json!(sum as f64 / non_null.len() as f64)
+          } else {
+            let sum: f64 = non_null.iter().filter_map(|v| v.as_f64()).sum();
+            serde_json::json!(sum / non_null.len() as f64)
+          }
+        }
+        AggregateFunc::Min => {
+          let min_val = values
+            .iter()
+            .filter(|v| !v.is_null())
+            .min_by(|a, b| cmp_json_safe(a, b));
+          min_val.cloned().unwrap_or(serde_json::Value::Null)
+        }
+        AggregateFunc::Max => {
+          let max_val = values
+            .iter()
+            .filter(|v| !v.is_null())
+            .max_by(|a, b| cmp_json_safe(a, b));
+          max_val.cloned().unwrap_or(serde_json::Value::Null)
+        }
+      }
+    }
+    _ => serde_json::Value::Null,
+  }
+}
+
+/// Evaluate a return expression against a single node (no aggregation).
+fn eval_return_expr(expr: &ReturnExpr, _var: &str, node: &Node) -> serde_json::Value {
+  match expr {
+    ReturnExpr::Node(_) => {
+      let mut map = serde_json::Map::new();
+      map.insert("id".into(), serde_json::Value::String(node.id.to_string()));
+      let mut fields_map = serde_json::Map::new();
+      for (k, v) in &node.fields {
+        fields_map.insert(k.clone(), field_value_to_json(v));
+      }
+      map.insert("fields_json".into(), serde_json::Value::Object(fields_map));
+      serde_json::Value::Object(map)
+    }
+    ReturnExpr::Field(fp) => {
+      let key = field_key(fp);
+      node
+        .fields
+        .get(&key)
+        .map(field_value_to_json)
+        .unwrap_or(serde_json::Value::Null)
+    }
+    ReturnExpr::Aggregate { .. } => {
+      // Nested aggregates — not valid, return null.
+      serde_json::Value::Null
+    }
+  }
+}
+
+/// ORDER BY on result rows.
+fn eval_order_by(query: &Query, rows: &mut Vec<serde_json::Value>) {
   if let Some(ob) = &query.order_by {
     let field_key_str = field_key(&ob.field);
-    // If the ORDER BY field matches a RETURN column, use the alias as key
     let sort_key = query
       .return_clause
       .columns
@@ -66,17 +289,32 @@ pub fn eval_query(query: &Query, nodes: &[Node]) -> Vec<serde_json::Value> {
       }
     });
   }
+}
 
-  // LIMIT / SKIP
+/// Apply LIMIT / SKIP.
+fn eval_limit_skip(query: &Query, rows: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
   let skip = query.skip.unwrap_or(0) as usize;
   let limit = query.limit.map(|l| l as usize).unwrap_or(rows.len());
   if skip < rows.len() {
-    rows = rows.into_iter().skip(skip).take(limit).collect();
+    rows.into_iter().skip(skip).take(limit).collect()
   } else {
-    rows.clear();
+    Vec::new()
   }
+}
 
-  rows
+/// Default alias for a return expression.
+fn expr_default_alias(expr: &ReturnExpr) -> String {
+  match expr {
+    ReturnExpr::Node(v) => v.clone(),
+    ReturnExpr::Field(fp) => fp.field.clone(),
+    ReturnExpr::Aggregate { func, .. } => match func {
+      AggregateFunc::Count => "count".into(),
+      AggregateFunc::Sum => "sum".into(),
+      AggregateFunc::Avg => "avg".into(),
+      AggregateFunc::Min => "min".into(),
+      AggregateFunc::Max => "max".into(),
+    },
+  }
 }
 
 // ── Source filtering ─────────────────────────────────────────────────────
@@ -123,15 +361,13 @@ fn filter_by_source<'a>(
   }
 }
 
-// ── RETURN projection ────────────────────────────────────────────────────
-
-fn project_return(rc: &ReturnClause, _var: &str, node: &Node) -> serde_json::Value {
+/// Project all RETURN columns for a single matched node (non-aggregate path).
+fn project_row(rc: &ReturnClause, var: &str, node: &Node) -> serde_json::Value {
   let mut map = serde_json::Map::new();
-
   for col in &rc.columns {
     match &col.expression {
       ReturnExpr::Node(_) => {
-        // Whole-node return: include id and all fields
+        // Whole-node return: flatten id and fields_json into top level
         map.insert("id".into(), serde_json::Value::String(node.id.to_string()));
         let mut fields_map = serde_json::Map::new();
         for (k, v) in &node.fields {
@@ -139,19 +375,16 @@ fn project_return(rc: &ReturnClause, _var: &str, node: &Node) -> serde_json::Val
         }
         map.insert("fields_json".into(), serde_json::Value::Object(fields_map));
       }
-      ReturnExpr::Field(fp) => {
-        let key = field_key(fp);
-        let alias = col.alias.clone().unwrap_or_else(|| fp.field.clone());
-        let val = node
-          .fields
-          .get(&key)
-          .map(field_value_to_json)
-          .unwrap_or(serde_json::Value::Null);
+      _ => {
+        let val = eval_return_expr(&col.expression, var, node);
+        let alias = col
+          .alias
+          .clone()
+          .unwrap_or_else(|| expr_default_alias(&col.expression));
         map.insert(alias, val);
       }
     }
   }
-
   serde_json::Value::Object(map)
 }
 
@@ -163,6 +396,11 @@ fn column_value(row: &serde_json::Value, key: &str) -> serde_json::Value {
     .cloned()
     .or_else(|| row.get("fields_json").and_then(|fj| fj.get(key)).cloned())
     .unwrap_or(serde_json::Value::Null)
+}
+
+/// Compare two JSON values for ordering. Nulls sort first.
+fn cmp_json_safe(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
+  cmp_json(a, b)
 }
 
 fn cmp_json(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
@@ -453,7 +691,9 @@ fn field_value_to_json(fv: &crate::types::FieldValue) -> serde_json::Value {
     FieldValue::Float(f) => serde_json::Number::from_f64(*f)
       .map(serde_json::Value::Number)
       .unwrap_or(serde_json::Value::Null),
-    FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+    // SQLite stores booleans as integers 0/1 — match that representation
+    // so that GROUP BY keys and aggregate values are consistent.
+    FieldValue::Boolean(b) => serde_json::Value::Number((*b as i64).into()),
     FieldValue::Array(arr) => {
       serde_json::Value::Array(arr.iter().map(field_value_to_json).collect())
     }

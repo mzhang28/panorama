@@ -530,33 +530,65 @@ fn return_clause(s: &str) -> IResult<&str, ReturnClause> {
   Ok((s, ReturnClause { columns: cols }))
 }
 
-/// `field_path ("AS" ident)?`  |  `var ("AS" ident)?` (whole node)
+/// `aggregate_expr ("AS" ident)?` | `field_path ("AS" ident)?` | `var ("AS" ident)?`
 ///
-/// Try field_path first (which always has a "."), then fall back to bare var.
+/// Peek-based: parse the first identifier, then check what follows:
+/// - `(` → aggregate function
+/// - `.` → field path
+/// - otherwise → whole node
 fn return_col(s: &str) -> IResult<&str, ReturnColumn> {
   let (s, _) = ws(s)?;
+  let (s, first) = var_name(s)?;
 
-  // Try field_path — it always contains at least one "."
-  // We can detect: if we see `var "." ...` it's a field path.
-  // Let's parse var, then check for dot.
-  let (s, var) = var_name(s)?;
+  // Check for aggregate function: NAME "("
+  if let Ok((_, _)) = peek::<_, _, (), _>(tag("("))(s) {
+    let func = match first.to_uppercase().as_str() {
+      "COUNT" => AggregateFunc::Count,
+      "SUM" => AggregateFunc::Sum,
+      "AVG" => AggregateFunc::Avg,
+      "MIN" => AggregateFunc::Min,
+      "MAX" => AggregateFunc::Max,
+      _ => {
+        return Err(nom::Err::Error(nom::error::Error::new(
+          s,
+          nom::error::ErrorKind::Tag,
+        )));
+      }
+    };
+    let (s, _) = tag("(")(s)?;
+    let (s, inner) = aggregate_inner_expr(s)?;
+    let (s, _) = ws(s)?;
+    let (s, _) = cut(tag(")"))(s)?;
+    let (s, alias) = opt(preceded(keyword("AS"), ident))(s)?;
+    return Ok((
+      s,
+      ReturnColumn {
+        expression: ReturnExpr::Aggregate {
+          func,
+          expr: Box::new(inner),
+        },
+        alias,
+      },
+    ));
+  }
 
+  // Check for field path: "."
   let (s, expression) = if let Ok((s2, _)) = peek::<_, _, (), _>(tag("."))(s) {
     // It's a field path — we've consumed `var`, now parse from the dot onward
     let (s, _) = tag(".")(s2)?;
-    let (s, first) = ns_part(s)?;
+    let (s, first_ns) = ns_part(s)?;
     let (s, (namespace, field)) = if let Ok((s3, _)) = peek::<_, _, (), _>(tag("."))(s) {
       let (s, _) = tag(".")(s3)?;
       let (s, f) = ident(s)?;
-      (s, (Some(first), f))
+      (s, (Some(first_ns), f))
     } else {
-      (s, (None, first))
+      (s, (None, first_ns))
     };
     let (s, view) = opt(crdt_view)(s)?;
     (
       s,
       ReturnExpr::Field(FieldPath {
-        variable: var,
+        variable: first,
         namespace,
         field,
         view,
@@ -564,11 +596,21 @@ fn return_col(s: &str) -> IResult<&str, ReturnColumn> {
     )
   } else {
     // Whole node: bare variable
-    (s, ReturnExpr::Node(var))
+    (s, ReturnExpr::Node(first))
   };
 
   let (s, alias) = opt(preceded(keyword("AS"), ident))(s)?;
   Ok((s, ReturnColumn { expression, alias }))
+}
+
+/// Inner expression of an aggregate: `field_path` (var.ns.field) or bare `var`.
+fn aggregate_inner_expr(s: &str) -> IResult<&str, ReturnExpr> {
+  let (s, _) = ws(s)?;
+  // Try field_path first (which always contains "."), then bare variable
+  alt((
+    map(field_path, ReturnExpr::Field),
+    map(var_name, ReturnExpr::Node),
+  ))(s)
 }
 
 // ── MATCH ───────────────────────────────────────────────────────────────────────
@@ -1053,6 +1095,125 @@ mod tests {
         assert_eq!(field_path.view, Some(CrdtView::Merged));
       }
       _ => panic!("expected FieldCompare"),
+    }
+  }
+
+  // ── Aggregate expressions ─────────────────────────────────────────────────
+
+  #[test]
+  fn test_aggregate_count_node() {
+    let q = parse_query(r#"MATCH (n) IN space("personal") RETURN COUNT(n) AS cnt"#).unwrap();
+    let col = &q.return_clause.columns[0];
+    match &col.expression {
+      ReturnExpr::Aggregate { func, expr } => {
+        assert_eq!(*func, AggregateFunc::Count);
+        assert!(matches!(expr.as_ref(), ReturnExpr::Node(v) if v == "n"));
+      }
+      _ => panic!("expected Aggregate, got {:?}", col.expression),
+    }
+    assert_eq!(col.alias.as_deref(), Some("cnt"));
+  }
+
+  #[test]
+  fn test_aggregate_sum_field() {
+    let q = parse_query(
+      r#"MATCH (n) IN space("personal") RETURN SUM(n.coding.duration) AS total"#,
+    )
+    .unwrap();
+    let col = &q.return_clause.columns[0];
+    match &col.expression {
+      ReturnExpr::Aggregate { func, expr } => {
+        assert_eq!(*func, AggregateFunc::Sum);
+        match expr.as_ref() {
+          ReturnExpr::Field(fp) => {
+            assert_eq!(fp.variable, "n");
+            assert_eq!(fp.namespace.as_deref(), Some("coding"));
+            assert_eq!(fp.field, "duration");
+          }
+          _ => panic!("expected Field inner, got {:?}", expr),
+        }
+      }
+      _ => panic!("expected Aggregate, got {:?}", col.expression),
+    }
+    assert_eq!(col.alias.as_deref(), Some("total"));
+  }
+
+  #[test]
+  fn test_aggregate_without_alias() {
+    let q =
+      parse_query(r#"MATCH (n) IN space("personal") RETURN MAX(n.coding.time)"#).unwrap();
+    let col = &q.return_clause.columns[0];
+    match &col.expression {
+      ReturnExpr::Aggregate { func, .. } => {
+        assert_eq!(*func, AggregateFunc::Max);
+      }
+      _ => panic!("expected Aggregate"),
+    }
+    assert!(col.alias.is_none());
+  }
+
+  #[test]
+  fn test_mixed_aggregate_and_group_by() {
+    // Implicit GROUP BY: project is the grouping key, SUM is the aggregate
+    let q = parse_query(
+      r#"MATCH (n) IN space("personal") RETURN n.coding.project AS project, SUM(n.coding.duration) AS total"#,
+    )
+    .unwrap();
+    assert_eq!(q.return_clause.columns.len(), 2);
+    // First column: field (grouping key)
+    assert!(matches!(
+      q.return_clause.columns[0].expression,
+      ReturnExpr::Field(_)
+    ));
+    // Second column: aggregate
+    assert!(matches!(
+      q.return_clause.columns[1].expression,
+      ReturnExpr::Aggregate { .. }
+    ));
+  }
+
+  #[test]
+  fn test_aggregate_all_funcs() {
+    for (name, expected) in &[
+      ("COUNT", AggregateFunc::Count),
+      ("SUM", AggregateFunc::Sum),
+      ("AVG", AggregateFunc::Avg),
+      ("MIN", AggregateFunc::Min),
+      ("MAX", AggregateFunc::Max),
+    ] {
+      let pql = format!(
+        r#"MATCH (n) IN space("default") RETURN {}(n.coding.duration) AS val"#,
+        name
+      );
+      let q = parse_query(&pql).unwrap();
+      match &q.return_clause.columns[0].expression {
+        ReturnExpr::Aggregate { func, .. } => assert_eq!(*func, *expected),
+        _ => panic!("expected Aggregate for {}", name),
+      }
+    }
+  }
+
+  #[test]
+  fn test_aggregate_case_insensitive() {
+    let q = parse_query(
+      r#"MATCH (n) IN space("default") RETURN count(n.coding.entity) AS c"#,
+    )
+    .unwrap();
+    match &q.return_clause.columns[0].expression {
+      ReturnExpr::Aggregate { func, .. } => assert_eq!(*func, AggregateFunc::Count),
+      _ => panic!("expected Aggregate"),
+    }
+  }
+
+  #[test]
+  fn test_aggregate_count_bare_var() {
+    let q = parse_query(r#"MATCH (n) IN space("default") RETURN COUNT(n)"#).unwrap();
+    match &q.return_clause.columns[0].expression {
+      ReturnExpr::Aggregate { func, expr } => {
+        assert_eq!(*func, AggregateFunc::Count);
+        assert!(matches!(expr.as_ref(), ReturnExpr::Node(v) if v == "n"));
+      }
+      _ => panic!("expected Aggregate"),
     }
   }
 
