@@ -1,16 +1,16 @@
-# Panorama — full stack
+# Panorama — single-service stack
 # Build: docker compose build
 # Run:   docker compose up -d
 # Logs:  docker compose logs -f
 # Stop:  docker compose down
 
 services:
-  backend:
+  panorama:
+    image: forgejo.apps.mzhang.io/michael/panorama:latest
     build:
       context: .
-      dockerfile: Dockerfile.backend
-    image: panorama-backend:latest
-    container_name: panorama-backend
+      dockerfile: Dockerfile
+    container_name: panorama
     ports:
       - "3000:3000"
     volumes:
@@ -25,19 +25,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    image: panorama-frontend:latest
-    container_name: panorama-frontend
-    ports:
-      - "8081:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
 
 volumes:
   panorama-data:

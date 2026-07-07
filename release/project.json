@@ -1,0 +1,20 @@
+{
+  "name": "package-all-panoapps",
+  "targets": {
+    "package-all": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "echo 'All .panoapp files packaged'"
+      },
+      "dependsOn": [
+        "panorama-app-restaurants:package-panoapp",
+        "panorama-app-files:package-panoapp",
+        "panorama-app-dashboards:package-panoapp",
+        "panorama-app-journal:package-panoapp",
+        "panorama-app-music:package-panoapp",
+        "panorama-app-trips:package-panoapp",
+        "panorama-app-coding:package-panoapp"
+      ]
+    }
+  }
+}

@@ -122,41 +122,58 @@ async fn main() {
   };
 
   // ── Plugin loading runs in background after HTTP is live ───────────────
-  let plugins_dir = data_path.join("plugins");
+  let plugins_dirs: Vec<PathBuf> = std::env::var("PANORAMA_PLUGINS_DIR")
+    .unwrap_or_else(|_| data_path.join("plugins").display().to_string())
+    .split(':')
+    .map(PathBuf::from)
+    .collect();
+  tracing::info!(?plugins_dirs, "Plugin search paths");
+
   let loader_bg = plugin_loader.clone();
   let state_bg = load_state.clone();
   tokio::spawn(async move {
-    load_plugins_in_background(loader_bg, state_bg, plugins_dir).await;
+    load_plugins_in_background(loader_bg, state_bg, plugins_dirs).await;
   });
 
   axum::serve(listener, app).await.unwrap();
 }
 
-/// Scan the plugins directory and load all `.panoapp` files concurrently.
+/// Scan plugin directories (from `PANORAMA_PLUGINS_DIR`, colon-separated)
+/// and load all `.panoapp` files concurrently.
+///
+/// Duplicate plugin IDs are skipped — first directory wins.
 ///
 /// Updates `load_state` throughout so the frontend can observe progress
 /// via `GET /api/plugins/status`.
 async fn load_plugins_in_background(
   plugin_loader: Arc<PluginLoader>,
   load_state: Arc<RwLock<PluginLoadState>>,
-  plugins_dir: PathBuf,
+  plugins_dirs: Vec<PathBuf>,
 ) {
-  tracing::info!(plugins_dir = %plugins_dir.display(), exists = plugins_dir.exists(), "Scanning for plugins");
+  tracing::info!(?plugins_dirs, "Scanning for plugins");
 
-  // Phase 1: Scan directory for .panoapp files and parse manifests
+  // Phase 1: Scan all directories for .panoapp files, first-seen wins per id
+  let mut seen_ids = std::collections::HashSet::new();
   let mut packages: Vec<(panorama_server::panoapp::PanoAppPackage, PluginStatusEntry)> = Vec::new();
 
-  if plugins_dir.exists() {
-    for entry in std::fs::read_dir(&plugins_dir)
-      .into_iter()
-      .flatten()
-      .flatten()
-    {
+  for dir in &plugins_dirs {
+    if !dir.exists() {
+      tracing::warn!(dir = %dir.display(), "Plugin directory does not exist, skipping");
+      continue;
+    }
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
       let path = entry.path();
       if path.is_file() && path.extension().map_or(false, |e| e == "panoapp") {
-        tracing::info!(file = %path.display(), "Discovered .panoapp");
+        tracing::info!(file = %path.display(), dir = %dir.display(), "Discovered .panoapp");
         match panorama_server::panoapp::PanoAppPackage::load_from_file(&path) {
           Ok(package) => {
+            if !seen_ids.insert(package.manifest.id.clone()) {
+              tracing::info!(
+                id = %package.manifest.id,
+                "Skipping duplicate plugin (already found in earlier directory)"
+              );
+              continue;
+            }
             let entry = PluginStatusEntry {
               id: package.manifest.id.clone(),
               name: package.manifest.name.clone(),
@@ -172,8 +189,6 @@ async fn load_plugins_in_background(
         }
       }
     }
-  } else {
-    tracing::warn!("Plugins directory does not exist, no plugins to load");
   }
 
   if packages.is_empty() {
