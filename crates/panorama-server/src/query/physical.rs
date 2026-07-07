@@ -85,10 +85,17 @@ impl PhysicalSchema {
 
   /// Look up the access strategy for a field. Returns `Unpromoted` for unknown fields.
   pub fn field_access(&self, field_name: &str, ns: Option<&str>) -> FieldAccess {
-    // Build the lookup key: for now, field names in the mapping are bare (no
-    // namespace prefix). The namespace is implicit from the schema's owning app.
+    // Try the bare field name first (matches promoted columns).
     if let Some(access) = self.fields.get(field_name) {
       return access.clone();
+    }
+    // Also try the fully-qualified name (ns:field) — indexes created from
+    // schema declarations are stored under the qualified key.
+    if let Some(ns_str) = ns {
+      let qualified = format!("{}:{}", ns_str, field_name);
+      if let Some(access) = self.fields.get(&qualified) {
+        return access.clone();
+      }
     }
     // Fallback: generate the json_path.  If a namespace is provided, use
     // "ns:field" format; otherwise just the bare field name.
