@@ -150,22 +150,38 @@ impl CodingPlugin {
   ) -> Result<Vec<Node>, PluginError> {
     let (start, end) = parse_time_range(range);
     let start_ts = start.timestamp() as f64;
-    let end_ts = end.timestamp() as f64;
+    // +1.0 to include fractional-second timestamps within the end second
+    let end_ts = end.timestamp() as f64 + 1.0;
 
     // Push time filter into PQL so we only fetch relevant nodes (leverages index)
-    let pql = format!(
-      "MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"coding\", \"entity\") AND n.coding.time >= {} AND n.coding.time <= {} RETURN n ORDER BY n.system.node_time ASC",
-      start_ts, end_ts
-    );
-    let rows = ctx.query(&pql).await?;
-    let nodes: Vec<Node> = rows
+    // PQL >= and <= operators don't work on float fields — fetch all and filter in Rust
+    let pql = "MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"coding\", \"entity\") RETURN n ORDER BY n.system.node_time ASC";
+    let rows = ctx.query(pql).await?;
+    let all_nodes: Vec<Node> = rows
       .iter()
       .filter_map(panorama_core::query::row_to_node)
       .collect();
-    Ok(nodes)
+    let filtered: Vec<Node> = all_nodes
+      .into_iter()
+      .filter(|n| node_time_in_range(n, start, end))
+      .collect();
+    ctx
+      .log(
+        LogLevel::Info,
+        &format!(
+          "FETCH_RANGE: range={} all={} filtered={}",
+          range,
+          rows.len(),
+          filtered.len()
+        ),
+      )
+      .await;
+    Ok(filtered)
   }
 
-  /// Execute a PQL aggregate query and return the JSON result.
+  /// Aggregate heartbeats by dimension within a time range.
+  /// PQL >= and <= operators don't work on float fields, so we fetch all nodes
+  /// and aggregate in Rust with proper time filtering.
   pub(crate) async fn execute_aggregate_query(
     &self,
     ctx: &dyn PluginContext,
@@ -174,17 +190,38 @@ impl CodingPlugin {
     aggregate_func: &str,
     limit: Option<usize>,
   ) -> Result<Vec<serde_json::Value>, PluginError> {
-    let (start, end) = parse_time_range(range);
-    let start_ts = start.timestamp() as f64;
-    let end_ts = end.timestamp() as f64;
-
-    let limit_clause = limit.map(|l| format!("LIMIT {}", l)).unwrap_or_default();
-
-    let pql = format!(
-      "MATCH (n) IN space(\"default\") WHERE HAS_FIELD(n, \"coding\", \"entity\") AND n.coding.time >= {} AND n.coding.time <= {} RETURN n.coding.{} AS key, {}(n.coding.duration) AS value ORDER BY value DESC {}",
-      start_ts, end_ts, group_field, aggregate_func, limit_clause
-    );
-    let rows = ctx.query(&pql).await?;
+    let nodes = self.fetch_heartbeats_in_range(ctx, range).await?;
+    let is_count = aggregate_func.eq_ignore_ascii_case("COUNT");
+    let mut groups: HashMap<String, f64> = HashMap::new();
+    for n in &nodes {
+      let key = self.field_value(&n, group_field);
+      let val = if is_count {
+        1.0
+      } else {
+        node_duration_seconds(&n)
+      };
+      *groups.entry(key).or_default() += val;
+    }
+    let mut entries: Vec<(&String, &f64)> = groups.iter().collect();
+    entries.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+    if let Some(l) = limit {
+      entries.truncate(l);
+    }
+    let rows: Vec<serde_json::Value> = entries
+      .into_iter()
+      .map(|(k, v)| serde_json::json!({"key": k, "value": v}))
+      .collect();
+    ctx
+      .log(
+        LogLevel::Info,
+        &format!(
+          "AGG: field={} nodes={} groups={}",
+          group_field,
+          nodes.len(),
+          rows.len()
+        ),
+      )
+      .await;
     Ok(rows)
   }
 

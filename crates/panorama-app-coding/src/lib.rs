@@ -39,7 +39,7 @@ impl CodingPlugin {
 
 // ── Route dispatch table ──────────────────────────────────────────────────────
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Route {
   Heartbeats, // POST (create), GET (read), DELETE — method dispatches in handler
   Durations,  // GET
@@ -353,7 +353,6 @@ impl Plugin for CodingPlugin {
 
     let route = *matched.value;
     let params = &matched.params;
-
     match (method, route) {
       // ── Heartbeats (POST/GET/DELETE dispatch by method) ─────
       ("POST", Route::Heartbeats) => self.handle_post_heartbeats(request, ctx).await,

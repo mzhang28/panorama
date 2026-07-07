@@ -579,7 +579,6 @@ impl CodingPlugin {
     let header = 30;
     let w = cols * (cell + gap) + 40;
     let h = rows * (cell + gap) + header + 20;
-    let hash = "#";
     let mut cells = String::new();
     let mut cur = year_ago;
     let dow = cur.weekday().num_days_from_monday();
@@ -609,15 +608,9 @@ impl CodingPlugin {
       }
     }
     let svg = format!(
-      r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><style>text{{font-family:sans-serif;font-size:10px;fill:{hash}8b949e;}}</style><text x="20" y="20">Activity</text>{cells}</svg>"#
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\"><style>text{{font-family:sans-serif;font-size:10px;fill:#8b949e;}}</style><text x=\"20\" y=\"20\">Activity</text>{cells}</svg>"
     );
-    let mut headers = HashMap::new();
-    headers.insert("Content-Type".into(), "image/svg+xml".into());
-    Ok(HttpResponse {
-      status: 200,
-      headers,
-      body: bytes::Bytes::from(svg),
-    })
+    HttpResponse::json(&serde_json::json!({"svg": svg}))
   }
 
   /// SVG badge endpoint.
@@ -652,53 +645,19 @@ impl CodingPlugin {
     let value_width = text.len() as f64 * 6.0 + 10.0;
     let total_width = label_width + value_width;
 
-    let hash = "#";
-    let svg = format!(
-      r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="20">
-  <linearGradient id="b" x2="0" y2="100%">
-    <stop offset="0" stop-color="{hash}bbb" stop-opacity=".1"/>
-    <stop offset="1" stop-opacity=".1"/>
-  </linearGradient>
-  <mask id="a">
-    <rect width="{}" height="20" rx="3" fill="{hash}fff"/>
-  </mask>
-  <g mask="url({hash}a)">
-    <path fill="{hash}555" d="M0 0h{}v20H0z"/>
-    <path fill="{}" d="M{} 0h{}v20H{}z"/>
-    <path fill="url({hash}b)" d="M0 0h{}v20H0z"/>
-  </g>
-  <g fill="{hash}fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11">
-    <text x="{}" y="15" fill="{hash}010101" fill-opacity=".3">{}</text>
-    <text x="{}" y="14">{}</text>
-    <text x="{}" y="15" fill="{hash}010101" fill-opacity=".3">{}</text>
-    <text x="{}" y="14">{}</text>
-  </g>
-</svg>"#,
-      total_width,
-      total_width,
-      label_width,
-      color,
-      label_width,
-      value_width,
-      label_width,
-      total_width,
-      label_width / 2.0,
-      label,
-      label_width / 2.0,
-      label,
-      label_width + value_width / 2.0,
-      text,
-      label_width + value_width / 2.0,
-      text,
-    );
+    // Build SVG by string replacement — avoids format! arg-counting
+    let svg_template = r##"<svg xmlns="http://www.w3.org/2000/svg" width="TW" height="20"><linearGradient id="b" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient><mask id="a"><rect width="TW" height="20" rx="3" fill="#fff"/></mask><g mask="url(#a)"><path fill="#555" d="M0 0hLWv20H0z"/><path fill="COLOR" d="MLW 0hVWv20HLWz"/><path fill="url(#b)" d="M0 0hTWv20H0z"/></g><g fill="#fff" text-anchor="middle" font-family="sans-serif" font-size="11"><text x="L2" y="15" fill="#010101" fill-opacity=".3">LABEL</text><text x="L2" y="14">LABEL</text><text x="R2" y="15" fill="#010101" fill-opacity=".3">TEXT</text><text x="R2" y="14">TEXT</text></g></svg>"##;
+    let svg = svg_template
+      .replace("TW", &total_width.to_string())
+      .replace("LW", &label_width.to_string())
+      .replace("VW", &value_width.to_string())
+      .replace("COLOR", color.as_str())
+      .replace("L2", &(label_width / 2.0).to_string())
+      .replace("R2", &(label_width + value_width / 2.0).to_string())
+      .replace("LABEL", label.as_str())
+      .replace("TEXT", &text);
 
-    let mut headers = HashMap::new();
-    headers.insert("Content-Type".into(), "image/svg+xml".into());
-    Ok(HttpResponse {
-      status: 200,
-      headers,
-      body: bytes::Bytes::from(svg),
-    })
+    HttpResponse::json(&serde_json::json!({"svg": svg}))
   }
 
   /// Shields.io JSON badge endpoint.

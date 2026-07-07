@@ -46,7 +46,9 @@ pub(crate) fn parse_time_range(range: &str) -> (DateTime<Utc>, DateTime<Utc>) {
 pub(crate) fn node_time_in_range(node: &Node, start: DateTime<Utc>, end: DateTime<Utc>) -> bool {
   let ts = node_time_epoch(node);
   let start_ts = start.timestamp() as f64;
-  let end_ts = end.timestamp() as f64;
+  // +1.0: heartbeat timestamps have fractional seconds (e.g. 1783399598.623)
+  // so we must include up to the end of the end-second
+  let end_ts = end.timestamp() as f64 + 1.0;
   ts >= start_ts && ts <= end_ts
 }
 

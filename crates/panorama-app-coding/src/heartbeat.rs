@@ -259,10 +259,10 @@ impl CodingPlugin {
     }
 
     // ── Computed fields ────────────────────────────────────────
-    // Duration from the heartbeat payload if provided
-    if let Some(v) = hb["duration"].as_f64() {
-      node.set_field("coding:duration", FieldValue::Float(v));
-    }
+    // Duration: use payload value if provided, otherwise default 120s (2 min)
+    // Always writing the field so PQL SUM(n.coding.duration) works on all nodes.
+    let duration = hb["duration"].as_f64().unwrap_or(120.0);
+    node.set_field("coding:duration", FieldValue::Float(duration));
     // AI flag
     node.set_field(
       "coding:is_ai_generated",
@@ -282,7 +282,6 @@ impl CodingPlugin {
     );
     if let Ok(rows) = ctx.query(&check_query).await {
       if !rows.is_empty() {
-        // Duplicate found — return the existing node
         if let Some(existing) = rows
           .iter()
           .filter_map(panorama_core::query::row_to_node)
