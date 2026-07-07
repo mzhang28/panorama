@@ -795,11 +795,16 @@ fn setup_full_state() -> (Arc<AppState>, Arc<DeferredReactorEngine>, tempfile::T
       .with_plugin_loader(plugin_loader.clone()),
   );
 
+  let load_state = Arc::new(tokio::sync::RwLock::new(
+    panorama_server::plugin_loader::PluginLoadState::new(),
+  ));
+
   let state = Arc::new(AppState {
     storage,
     schema_registry,
     object_storage,
     plugin_loader,
+    load_state,
     reactor_registry,
     eager_pipeline,
     op_stream: op_stream.clone(),
