@@ -65,7 +65,6 @@ test.describe("Coding Activity Plugin UI", () => {
       const text = await res.text();
       return { status: res.status, body: text };
     });
-    console.log("STATS RESPONSE:", result.status, result.body.slice(0, 500));
     const resp = JSON.parse(result.body);
     expect(resp.data).toBeDefined();
     expect(resp.data.total_seconds).toBeGreaterThan(0);
