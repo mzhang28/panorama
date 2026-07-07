@@ -16,3 +16,5 @@ node_modules
 flamegraph.svg
 perf.data*
 fuzz/findings
+.nx
+**/node_modules
