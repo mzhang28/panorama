@@ -542,9 +542,15 @@ export function NewBlockForm({
   const [journalDay, setJournalDay] = useState(parentId === null ? TODAY : "");
   const isPage = parentId === null;
 
-  const handleSubmit = async () => {
-    if (!content.trim() && !title.trim()) return;
-    const body: any = { content };
+  // Accept optional HTML arg from TiptapEditor's onSave callback so we use the
+  // editor's ground-truth content rather than React state, which may be stale
+  // when Enter is pressed immediately after a programmatic fill() (e.g. in e2e).
+  // Must guard — button onClick passes a React event, not an HTML string.
+  const handleSubmit = async (htmlArg?: unknown) => {
+    const submissionContent: string =
+      typeof htmlArg === "string" ? htmlArg : content;
+    if (!submissionContent.trim() && !title.trim()) return;
+    const body: any = { content: submissionContent };
     if (title) body.title = title;
     if (parentId) body.parent_id = parentId;
     if (tags)
