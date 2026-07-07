@@ -164,30 +164,50 @@ fn call_host(name: &str, input: &[u8], out_buf: &mut [u8]) -> Option<usize> {
   }
 }
 
+/// Call a host function with automatic buffer growth when the result may be
+/// truncated.  Starts at `start_size` and doubles until the result fits or
+/// `sanity_limit` is reached.
+fn call_host_growable(
+  name: &str,
+  input: &[u8],
+  start_size: usize,
+  sanity_limit: usize,
+) -> Option<Vec<u8>> {
+  let mut size = start_size;
+  loop {
+    let mut buf = vec![0u8; size];
+    match call_host(name, input, &mut buf) {
+      Some(written) if written < size => {
+        buf.truncate(written);
+        return Some(buf);
+      }
+      Some(_) => {
+        // written == size — might be truncated, double and retry
+        size = size.saturating_mul(2);
+        if size > sanity_limit {
+          // Give up: return None so the caller falls through to an error
+          return None;
+        }
+      }
+      None => return None,
+    }
+  }
+}
+
 #[async_trait]
 impl PluginContext for WasmPluginContext {
   async fn create_nodes(&self, nodes: Vec<Node>) -> Result<Vec<Node>, PluginError> {
     let json = serde_json::to_vec(&nodes).unwrap_or_default();
-    let mut buf = vec![0u8; 131072];
-    match call_host("create_nodes", &json, &mut buf) {
-      Some(len) => {
-        let len = len.min(buf.len());
-        serde_json::from_slice(&buf[..len]).map_err(|e| PluginError::internal(e.to_string()))
-      }
-      None => Err(PluginError::internal("host_ctx_create_nodes failed".into())),
-    }
+    let data = call_host_growable("create_nodes", &json, 65536, 16 * 1024 * 1024)
+      .ok_or_else(|| PluginError::internal("host_ctx_create_nodes failed".into()))?;
+    serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
   }
 
   async fn get_node(&self, id: Uuid) -> Result<Option<Node>, PluginError> {
     let id_str = id.to_string();
-    let mut buf = vec![0u8; 32768];
-    match call_host("get_node", id_str.as_bytes(), &mut buf) {
-      Some(len) => {
-        let len = len.min(buf.len());
-        serde_json::from_slice(&buf[..len]).map_err(|e| PluginError::internal(e.to_string()))
-      }
-      None => Ok(None),
-    }
+    let data = call_host_growable("get_node", id_str.as_bytes(), 32768, 4 * 1024 * 1024)
+      .ok_or_else(|| PluginError::internal("host_ctx_get_node failed".into()))?;
+    serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
   }
 
   async fn update_node(
@@ -203,14 +223,9 @@ impl PluginContext for WasmPluginContext {
     packed.extend_from_slice(id_bytes);
     packed.extend_from_slice(&fields_json);
 
-    let mut buf = vec![0u8; 32768];
-    match call_host("update_node", &packed, &mut buf) {
-      Some(len) => {
-        let len = len.min(buf.len());
-        serde_json::from_slice(&buf[..len]).map_err(|e| PluginError::internal(e.to_string()))
-      }
-      None => Err(PluginError::internal("host_ctx_update_node failed".into())),
-    }
+    let data = call_host_growable("update_node", &packed, 32768, 4 * 1024 * 1024)
+      .ok_or_else(|| PluginError::internal("host_ctx_update_node failed".into()))?;
+    serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
   }
 
   async fn delete_node(&self, id: Uuid) -> Result<(), PluginError> {
@@ -220,14 +235,9 @@ impl PluginContext for WasmPluginContext {
   }
 
   async fn query(&self, query_string: &str) -> Result<Vec<serde_json::Value>, PluginError> {
-    let mut buf = vec![0u8; 65536];
-    match call_host("query", query_string.as_bytes(), &mut buf) {
-      Some(len) => {
-        let len = len.min(buf.len());
-        serde_json::from_slice(&buf[..len]).map_err(|e| PluginError::internal(e.to_string()))
-      }
-      None => Ok(vec![]),
-    }
+    let data = call_host_growable("query", query_string.as_bytes(), 65536, 16 * 1024 * 1024)
+      .ok_or_else(|| PluginError::internal("host_ctx_query failed".into()))?;
+    serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
   }
 
   async fn register_schema(
@@ -344,5 +354,14 @@ pub fn run_plugin(plugin: impl Plugin + 'static) {
     },
   };
 
-  println!("{}", serde_json::to_string(&output).unwrap_or_default());
+  // Length-prefixed protocol: 4-byte LE u32 length then JSON payload.
+  // This lets the host know the exact size and avoids fixed-buffer truncation.
+  let output_json = serde_json::to_string(&output).unwrap_or_default();
+  let output_bytes = output_json.as_bytes();
+  let len = output_bytes.len() as u32;
+  let mut stdout = std::io::stdout();
+  use std::io::Write;
+  stdout.write_all(&len.to_le_bytes()).ok();
+  stdout.write_all(output_bytes).ok();
+  stdout.flush().ok();
 }

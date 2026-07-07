@@ -13,12 +13,13 @@
 //! per-request WASI stdin/stdout store is built fresh.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use panorama_core::capabilities::CapabilityGrants;
 use panorama_core::plugin::{HttpRequest, HttpResponse, LogLevel, PluginContext, PluginError};
 use uuid::Uuid;
+use wasmtime_wasi::{HostOutputStream, StreamError, Subscribe};
 
 use crate::object_store::ObjectStorage;
 use crate::plugin_runtime::RuntimeContext;
@@ -26,6 +27,55 @@ use crate::schema_registry::SchemaRegistry;
 use crate::storage::NodeStorage;
 
 pub(crate) type WasiCtx = wasmtime_wasi::preview1::WasiP1Ctx;
+
+// ── Unbounded output pipe ──────────────────────────────────────────────────
+
+/// A `HostOutputStream` with no fixed capacity — grows a `Vec<u8>` without limit.
+#[derive(Debug, Clone)]
+struct UnboundedOutputPipe {
+  buffer: Arc<Mutex<Vec<u8>>>,
+}
+
+impl UnboundedOutputPipe {
+  fn new() -> Self {
+    Self {
+      buffer: Arc::new(Mutex::new(Vec::new())),
+    }
+  }
+
+  fn contents(&self) -> Vec<u8> {
+    self.buffer.lock().unwrap().clone()
+  }
+}
+
+#[async_trait::async_trait]
+impl HostOutputStream for UnboundedOutputPipe {
+  fn write(&mut self, bytes: Bytes) -> Result<(), StreamError> {
+    self.buffer.lock().unwrap().extend_from_slice(&bytes);
+    Ok(())
+  }
+  fn flush(&mut self) -> Result<(), StreamError> {
+    Ok(())
+  }
+  fn check_write(&mut self) -> Result<usize, StreamError> {
+    Ok(usize::MAX)
+  }
+}
+
+#[async_trait::async_trait]
+impl Subscribe for UnboundedOutputPipe {
+  async fn ready(&mut self) {}
+}
+
+impl wasmtime_wasi::StdoutStream for UnboundedOutputPipe {
+  fn stream(&self) -> Box<dyn HostOutputStream> {
+    Box::new(self.clone())
+  }
+
+  fn isatty(&self) -> bool {
+    false
+  }
+}
 
 /// Build a pre-linked `InstancePre` for a WASM plugin.
 ///
@@ -419,7 +469,7 @@ pub async fn execute_wasm_handler(
   }))
   .map_err(|e| PluginError::internal(format!("json: {}", e)))?;
 
-  let stdout_pipe = wasmtime_wasi::pipe::MemoryOutputPipe::new(65536);
+  let stdout_pipe = UnboundedOutputPipe::new();
   let stdin_pipe = wasmtime_wasi::pipe::MemoryInputPipe::new(Bytes::from(input_json));
 
   let mut builder = wasmtime_wasi::WasiCtxBuilder::new();
@@ -443,7 +493,24 @@ pub async fn execute_wasm_handler(
     .map_err(|e| PluginError::internal(format!("trap: {}", e)))?;
 
   let output_bytes = stdout_pipe.contents();
-  let output_str = String::from_utf8_lossy(&output_bytes);
+
+  // Length-prefixed protocol: first 4 bytes = little-endian u32 payload length
+  if output_bytes.len() < 4 {
+    return Err(PluginError::internal(format!(
+      "stdout too short: {} bytes (need at least 4 for length prefix)",
+      output_bytes.len()
+    )));
+  }
+  let body_len = u32::from_le_bytes(output_bytes[..4].try_into().unwrap()) as usize;
+  if output_bytes.len() < 4 + body_len {
+    return Err(PluginError::internal(format!(
+      "stdout truncated: expected {} bytes, got {}",
+      4 + body_len,
+      output_bytes.len()
+    )));
+  }
+  let body_bytes = &output_bytes[4..4 + body_len];
+  let output_str = String::from_utf8_lossy(body_bytes);
   let out: serde_json::Value = serde_json::from_str(output_str.trim()).map_err(|e| {
     PluginError::internal(format!(
       "stdout: {} (raw: {})",
