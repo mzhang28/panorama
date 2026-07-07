@@ -2037,6 +2037,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "matchit",
  "panorama-core",
  "serde",
  "serde_json",

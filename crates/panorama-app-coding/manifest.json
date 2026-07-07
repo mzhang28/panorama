@@ -2,13 +2,13 @@
   "manifest_version": 1,
   "id": "io.mzhang.panorama.coding",
   "name": "Coding Activity",
-  "version": "0.2.0",
-  "description": "Full Coding Activity API-compatible heartbeat collection with stats, durations, leaderboards, and time-series analysis",
+  "version": "0.3.0",
+  "description": "Full Coding Activity API-compatible heartbeat collection with stats, durations, leaderboards, and WakaTime compatibility",
   "author": "Panorama",
   "schemas": [
     {
       "name": "Heartbeat",
-      "version": { "major": 2, "minor": 0 },
+      "version": { "major": 2, "minor": 1 },
       "schema_mode": "Preferred",
       "fields": [
         {
@@ -111,6 +111,51 @@
           "computed": null
         },
         {
+          "name": "editor",
+          "namespace": "coding",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Editor/IDE name",
+          "computed": null
+        },
+        {
+          "name": "operating_system",
+          "namespace": "coding",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Operating system name",
+          "computed": null
+        },
+        {
+          "name": "user_agent",
+          "namespace": "coding",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Raw User-Agent string",
+          "computed": null
+        },
+        {
+          "name": "hash",
+          "namespace": "coding",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Deduplication hash",
+          "computed": null
+        },
+        {
+          "name": "origin",
+          "namespace": "coding",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Source of the heartbeat (e.g. wakatime)",
+          "computed": null
+        },
+        {
           "name": "ai_line_changes",
           "namespace": "coding",
           "required": false,
@@ -171,6 +216,24 @@
           "field_type": null,
           "default": null,
           "description": "GenAI tool subscription plan tier",
+          "computed": null
+        },
+        {
+          "name": "line_additions",
+          "namespace": "coding",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Lines added since last heartbeat",
+          "computed": null
+        },
+        {
+          "name": "line_deletions",
+          "namespace": "coding",
+          "required": false,
+          "field_type": null,
+          "default": null,
+          "description": "Lines deleted since last heartbeat",
           "computed": null
         },
         {
@@ -437,27 +500,27 @@
     {
       "method": "POST",
       "path": "/users/current/heartbeats",
-      "description": "Coding Activity API: receive a single heartbeat"
+      "description": "Receive a single heartbeat"
     },
     {
       "method": "POST",
       "path": "/users/current/heartbeats.bulk",
-      "description": "Coding Activity API: receive bulk heartbeats (max 25)"
+      "description": "Receive bulk heartbeats (max 25)"
     },
     {
       "method": "GET",
       "path": "/users/current/heartbeats",
-      "description": "Coding Activity API: get heartbeats for a date"
+      "description": "Get heartbeats for a date"
     },
     {
       "method": "GET",
       "path": "/users/current/durations",
-      "description": "Coding Activity API: get durations for a date"
+      "description": "Get durations for a date"
     },
     {
       "method": "DELETE",
       "path": "/users/current/heartbeats.bulk",
-      "description": "Coding Activity API: delete heartbeats for a date"
+      "description": "Delete heartbeats for a date"
     },
     {
       "method": "POST",
@@ -493,6 +556,171 @@
       "method": "GET",
       "path": "/summaries",
       "description": "Get daily summaries"
+    },
+
+    {
+      "method": "POST",
+      "path": "/users/{user}/heartbeats",
+      "description": "WakaTime compat: receive a single heartbeat"
+    },
+    {
+      "method": "POST",
+      "path": "/users/{user}/heartbeats.bulk",
+      "description": "WakaTime compat: receive bulk heartbeats"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/users/{user}/heartbeats",
+      "description": "WakaTime compat v1: receive a single heartbeat"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/users/{user}/heartbeats.bulk",
+      "description": "WakaTime compat v1: receive bulk heartbeats"
+    },
+    {
+      "method": "POST",
+      "path": "/compat/wakatime/v1/users/{user}/heartbeats",
+      "description": "WakaTime compat v1: receive a single heartbeat"
+    },
+    {
+      "method": "POST",
+      "path": "/compat/wakatime/v1/users/{user}/heartbeats.bulk",
+      "description": "WakaTime compat v1: receive bulk heartbeats"
+    },
+
+    {
+      "method": "GET",
+      "path": "/users/{user}/stats/{range}",
+      "description": "WakaTime compat: get stats for a range"
+    },
+    {
+      "method": "GET",
+      "path": "/users/{user}/stats",
+      "description": "WakaTime compat: get stats (auto range)"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/{user}/stats/{range}",
+      "description": "WakaTime compat v1: get stats for a range"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/{user}/stats",
+      "description": "WakaTime compat v1: get stats (auto range)"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/users/{user}/stats/{range}",
+      "description": "WakaTime compat v1: get stats for a range"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/users/{user}/stats",
+      "description": "WakaTime compat v1: get stats (auto range)"
+    },
+
+    {
+      "method": "GET",
+      "path": "/users/{user}/summaries",
+      "description": "WakaTime compat: get daily summaries"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/{user}/summaries",
+      "description": "WakaTime compat v1: get daily summaries"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/users/{user}/summaries",
+      "description": "WakaTime compat v1: get daily summaries"
+    },
+
+    {
+      "method": "GET",
+      "path": "/users/{user}/all_time_since_today",
+      "description": "WakaTime compat: all-time total"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/{user}/all_time_since_today",
+      "description": "WakaTime compat v1: all-time total"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/users/{user}/all_time_since_today",
+      "description": "WakaTime compat v1: all-time total"
+    },
+
+    {
+      "method": "GET",
+      "path": "/users/{user}/projects",
+      "description": "WakaTime compat: project list"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/users/{user}/projects",
+      "description": "WakaTime compat v1: project list"
+    },
+
+    {
+      "method": "GET",
+      "path": "/users/{user}/statusbar/{range}",
+      "description": "WakaTime compat: statusbar data"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/{user}/statusbar/{range}",
+      "description": "WakaTime compat v1: statusbar data"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/users/{user}/statusbar/{range}",
+      "description": "WakaTime compat v1: statusbar data"
+    },
+
+    {
+      "method": "GET",
+      "path": "/users/{user}/user_agents",
+      "description": "WakaTime compat: user agents"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/users/{user}/user_agents",
+      "description": "WakaTime compat v1: user agents"
+    },
+
+    {
+      "method": "GET",
+      "path": "/users/{user}",
+      "description": "WakaTime compat: user info"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/users/{user}",
+      "description": "WakaTime compat v1: user info"
+    },
+
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/users/{user}/heartbeats",
+      "description": "WakaTime compat v1: get heartbeats for a date"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/wakatime/v1/leaders",
+      "description": "WakaTime compat v1: leaderboard"
+    },
+
+    {
+      "method": "GET",
+      "path": "/badge/{user}/{*rest}",
+      "description": "SVG badge for coding time"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/shields/v1/{user}/{interval}/{filter}",
+      "description": "Shields.io JSON badge endpoint"
     }
   ],
   "ui_components": [
@@ -511,7 +739,6 @@
   ],
   "capabilities": {
     "version": 1,
-    "reason": null,
     "network_hosts": ["api.wakatime.com"],
     "field_read": ["*"],
     "field_write": ["coding:*", "system:node_time", "system:node_end_time"],
