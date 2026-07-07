@@ -273,7 +273,10 @@ pub fn create_prelinked_instance(
         let id = match Uuid::parse_str(id_str) {
           Ok(id) => id,
           Err(e) => {
-            error!("[host_ctx_get_node] UUID parse failed: {} (input: {})", e, id_str);
+            error!(
+              "[host_ctx_get_node] UUID parse failed: {} (input: {})",
+              e, id_str
+            );
             return 0;
           }
         };
@@ -332,7 +335,10 @@ pub fn create_prelinked_instance(
         let id = match Uuid::parse_str(id_str) {
           Ok(id) => id,
           Err(e) => {
-            error!("[host_ctx_update_node] UUID parse failed: {} (input: {})", e, id_str);
+            error!(
+              "[host_ctx_update_node] UUID parse failed: {} (input: {})",
+              e, id_str
+            );
             return 0;
           }
         };
@@ -344,7 +350,10 @@ pub fn create_prelinked_instance(
         let f_json = match std::str::from_utf8(&data[f_start..f_end]) {
           Ok(s) => s,
           Err(e) => {
-            error!("[host_ctx_update_node] UTF-8 decode failed for fields: {}", e);
+            error!(
+              "[host_ctx_update_node] UTF-8 decode failed for fields: {}",
+              e
+            );
             return 0;
           }
         };
