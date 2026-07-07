@@ -34,6 +34,7 @@ wasmtime = "29"
 wasmtime-wasi = "29"
 pollster = "0.4"
 futures = "0.3"
+sentry = "0.48.3"
 
 [dev-dependencies]
 tempfile = "3"

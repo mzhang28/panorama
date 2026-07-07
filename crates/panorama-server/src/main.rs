@@ -13,8 +13,28 @@ use panorama_server::schema_registry::SchemaRegistry;
 use panorama_server::storage::{sqlite::SqliteBackend, NodeStorage};
 use tokio::sync::RwLock;
 
-#[tokio::main]
-async fn main() {
+fn main() {
+  let _guard = std::env::var("PANORAMA_SENTRY_DSN").ok().map(|dsn| {
+    sentry::init((
+      dsn,
+      sentry::ClientOptions {
+        release: sentry::release_name!(),
+        // Capture user IPs and potentially sensitive headers when using HTTP server integrations
+        // see https://docs.sentry.io/platforms/rust/data-management/data-collected for more info
+        send_default_pii: true,
+        ..Default::default()
+      },
+    ))
+  });
+
+  tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .build()
+    .unwrap()
+    .block_on(run());
+}
+
+async fn run() {
   tracing_subscriber::fmt()
     .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
     .with_target(false)

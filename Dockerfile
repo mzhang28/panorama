@@ -12,7 +12,7 @@ FROM rust:1-slim-bookworm AS builder
 
 # Install bun
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl unzip \
+    ca-certificates curl openssl pkg-config unzip \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
