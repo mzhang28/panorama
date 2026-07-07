@@ -141,3 +141,11 @@ Specific workflows to target for v0.0:
 - maybe honestly a subsonic-compatible music interface? so we can stream music
 - allow for uploading files
   - resumable uploads
+- website analytics
+  - GDPR compliant
+    - do IP->city conversion once and drop personal info
+    - only keep aggregatable statistics
+    - this should feed into the grafana-like app
+- workflow app like ifttt/n8n/windmill/etc...
+  - create webhooks, write code to handle it and possibly spin off other thigns
+  - based heavily on the existing reactor stuff
