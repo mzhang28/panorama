@@ -145,9 +145,7 @@ pub fn build_router(state: AppState) -> Router {
     .layer(
       ServiceBuilder::new()
         .layer(sentry::integrations::tower::NewSentryLayer::new_from_top())
-        .layer(
-          sentry::integrations::tower::SentryHttpLayer::new().enable_transaction(),
-        )
+        .layer(sentry::integrations::tower::SentryHttpLayer::new().enable_transaction())
         .layer(middleware::from_fn(sentry_middleware::sentry_request_id)),
     )
 }
@@ -900,7 +898,10 @@ fn execute_query(
   sentry::add_breadcrumb(sentry::Breadcrumb {
     ty: "query".into(),
     category: Some("query".into()),
-    message: Some(format!("executing query: {}", &query_string[..query_string.len().min(200)])),
+    message: Some(format!(
+      "executing query: {}",
+      &query_string[..query_string.len().min(200)]
+    )),
     level: sentry::Level::Info,
     data: breadcrumb_data! { "query" => query_string },
     ..Default::default()
@@ -1047,8 +1048,7 @@ async fn create_reactor(
     category: Some("reactor".into()),
     message: Some(format!(
       "created reactor {} ({})",
-      registered.id,
-      req.action_kind
+      registered.id, req.action_kind
     )),
     level: sentry::Level::Info,
     data: breadcrumb_data! {

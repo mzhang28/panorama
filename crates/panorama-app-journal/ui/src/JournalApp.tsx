@@ -566,7 +566,11 @@ export function NewBlockForm({
       setTags("");
       onCreated(data);
     } catch (_e: any) {
-      console.error("[NewBlockForm] createBlock failed:", _e?.message || _e, body);
+      console.error(
+        "[NewBlockForm] createBlock failed:",
+        _e?.message || _e,
+        body,
+      );
     }
   };
 
