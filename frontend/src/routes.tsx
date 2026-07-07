@@ -88,7 +88,7 @@ const appSplatRoute = createRoute({
 
 function PluginAppView() {
   const { pluginId } = useParams({ from: "/app/$pluginId" });
-  const navigate = useNavigate({ strict: false });
+  const navigate = useNavigate();
   const location = useLocation();
 
   // Extract subpath from location.pathname

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use axum::{
   extract::{Path, Query, State},
   http::{header, StatusCode, Uri},
+  middleware,
   response::{Json, Response},
   routing::{get, post, put},
   Router,
@@ -13,7 +14,24 @@ use panorama_core::plugin::HttpRequest;
 use panorama_core::reactor::HookPoint;
 use panorama_core::types::{FieldValue, Node};
 use serde::{Deserialize, Serialize};
+use tower::ServiceBuilder;
 use uuid::Uuid;
+
+use crate::sentry_middleware;
+
+// -- Breadcrumb helpers ----------------------------------------------------
+
+/// Shorthand for building `BTreeMap<String, serde_json::Value>` entries
+/// inline without the `serde_json::Value::String(...)` noise.
+macro_rules! breadcrumb_data {
+  ($($key:expr => $val:expr),* $(,)?) => {{
+    let mut m = std::collections::BTreeMap::new();
+    $(
+      m.insert($key.into(), serde_json::Value::String($val.to_string()));
+    )*
+    m
+  }};
+}
 
 use crate::object_store::ObjectStorage;
 use crate::plugin_loader::{PluginLoadState, PluginLoader};
@@ -120,6 +138,18 @@ pub fn build_router(state: AppState) -> Router {
     // SPA fallback — serve embedded frontend if present
     .fallback(get(frontend_spa_fallback))
     .with_state(state)
+    // Sentry instrumentation — ServiceBuilder layers apply outermost-first:
+    //   1. NewSentryLayer  — fresh hub per request (outermost, runs first)
+    //   2. SentryHttpLayer — attaches HTTP method/URL/status to events
+    //   3. sentry_request_id — generates UUID, tags scope, drops breadcrumb
+    .layer(
+      ServiceBuilder::new()
+        .layer(sentry::integrations::tower::NewSentryLayer::new_from_top())
+        .layer(
+          sentry::integrations::tower::SentryHttpLayer::new().enable_transaction(),
+        )
+        .layer(middleware::from_fn(sentry_middleware::sentry_request_id)),
+    )
 }
 
 // -- Request types --
@@ -269,6 +299,19 @@ async fn create_node(
     .create(node)
     .map_err(|e| ApiError::internal(e))?;
 
+  sentry::add_breadcrumb(sentry::Breadcrumb {
+    ty: "db".into(),
+    category: Some("node".into()),
+    message: Some(format!("created node {}", created.id)),
+    level: sentry::Level::Info,
+    data: breadcrumb_data! {
+      "node_id" => created.id,
+      "space_id" => created.space_id,
+      "schema_id" => created.preferred_schemas.first().map(|s| s.schema_node_id).unwrap_or_default(),
+    },
+    ..Default::default()
+  });
+
   // ── Op stream: record the creation ───────────────────────────────────
   let _ = state.op_stream.append_sync(
     panorama_core::reactor::OpType::NodeCreated,
@@ -294,6 +337,15 @@ async fn get_node(
     .get(id)
     .map_err(|e| ApiError::internal(e))?
     .ok_or_else(|| ApiError::not_found("Node not found"))?;
+
+  sentry::add_breadcrumb(sentry::Breadcrumb {
+    ty: "db".into(),
+    category: Some("node".into()),
+    message: Some(format!("fetched node {}", node.id)),
+    level: sentry::Level::Info,
+    data: breadcrumb_data! { "node_id" => node.id },
+    ..Default::default()
+  });
   Ok(Json(node))
 }
 
@@ -384,6 +436,15 @@ async fn update_node(
     .update(id, final_fields)
     .map_err(|e| ApiError::internal(e))?;
 
+  sentry::add_breadcrumb(sentry::Breadcrumb {
+    ty: "db".into(),
+    category: Some("node".into()),
+    message: Some(format!("updated node {}", updated.id)),
+    level: sentry::Level::Info,
+    data: breadcrumb_data! { "node_id" => updated.id },
+    ..Default::default()
+  });
+
   // ── Op stream: record the update ────────────────────────────────────
   let _ = state.op_stream.append_sync(
     panorama_core::reactor::OpType::NodeUpdated,
@@ -444,6 +505,14 @@ async fn delete_node(
     .storage
     .delete(id)
     .map(|_| {
+      sentry::add_breadcrumb(sentry::Breadcrumb {
+        ty: "db".into(),
+        category: Some("node".into()),
+        message: Some(format!("deleted node {}", id)),
+        level: sentry::Level::Info,
+        data: breadcrumb_data! { "node_id" => id },
+        ..Default::default()
+      });
       let _ = state.op_stream.append_sync(
         panorama_core::reactor::OpType::NodeDeleted,
         Some(id),
@@ -731,6 +800,19 @@ async fn plugin_handler(
   // The endpoint is the path (strip leading slash if present)
   let endpoint = path.trim_start_matches('/');
 
+  sentry::add_breadcrumb(sentry::Breadcrumb {
+    ty: "http".into(),
+    category: Some("plugin".into()),
+    message: Some(format!("plugin dispatch: {} -> {}", plugin_id, endpoint)),
+    level: sentry::Level::Info,
+    data: breadcrumb_data! {
+      "plugin_id" => plugin_id,
+      "endpoint" => endpoint,
+      "method" => method.to_string(),
+    },
+    ..Default::default()
+  });
+
   match state
     .plugin_loader
     .dispatch_http(&plugin_id, endpoint, req)
@@ -815,6 +897,15 @@ fn execute_query(
   state: &AppState,
   query_string: &str,
 ) -> Result<serde_json::Value, (StatusCode, Json<ApiError>)> {
+  sentry::add_breadcrumb(sentry::Breadcrumb {
+    ty: "query".into(),
+    category: Some("query".into()),
+    message: Some(format!("executing query: {}", &query_string[..query_string.len().min(200)])),
+    level: sentry::Level::Info,
+    data: breadcrumb_data! { "query" => query_string },
+    ..Default::default()
+  });
+
   let rows = state
     .storage
     .query_lang(query_string)
@@ -950,6 +1041,23 @@ async fn create_reactor(
     .register(reactor)
     .await
     .map_err(|e| ApiError::bad_request(e.as_str()))?;
+
+  sentry::add_breadcrumb(sentry::Breadcrumb {
+    ty: "db".into(),
+    category: Some("reactor".into()),
+    message: Some(format!(
+      "created reactor {} ({})",
+      registered.id,
+      req.action_kind
+    )),
+    level: sentry::Level::Info,
+    data: breadcrumb_data! {
+      "reactor_id" => registered.id,
+      "action_kind" => req.action_kind,
+      "mode" => req.mode,
+    },
+    ..Default::default()
+  });
   Ok(Json(serde_json::to_value(registered).unwrap_or_default()))
 }
 

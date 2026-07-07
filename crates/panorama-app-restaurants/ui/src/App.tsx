@@ -54,6 +54,7 @@ export default function RestaurantsApp({ pluginId }: RestaurantsAppProps) {
       const rankRes = await callPluginEndpoint(PLUGIN_ID, "rankings");
       setRankings(await rankRes.json());
     } catch (e: any) {
+      console.error("[RestaurantsApp] fetchData error:", e?.message || e);
       setError(e.message);
     }
     setLoading(false);

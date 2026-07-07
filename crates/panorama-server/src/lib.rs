@@ -11,6 +11,7 @@ pub mod plugin_runtime;
 pub mod query;
 pub mod reactor;
 pub mod schema_registry;
+pub mod sentry_middleware;
 pub mod spaces;
 pub mod storage;
 pub mod wasm_runtime;
