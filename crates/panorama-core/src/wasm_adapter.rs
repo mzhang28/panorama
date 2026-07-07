@@ -164,38 +164,20 @@ fn call_host(name: &str, input: &[u8], out_buf: &mut [u8]) -> Option<usize> {
   }
 }
 
-/// Initial buffer size for host calls (256 KiB).
-const HOST_BUF_BASE: usize = 256 * 1024;
-/// Hard limit after which a growable host call gives up (16 MiB).
-const HOST_BUF_LIMIT: usize = 16 * 1024 * 1024;
+/// Buffer size for host calls (512 KiB).  Large enough for typical query
+/// results and node payloads, small enough to fit in WASM linear memory.
+/// Single fixed allocation — growing doubles and zeroes, which crashes
+/// dlmalloc at large sizes.
+const HOST_BUF_SIZE: usize = 512 * 1024;
 
-/// Call a host function with automatic buffer growth when the result may be
-/// truncated.  Starts at `start_size` and doubles until the result fits or
-/// `sanity_limit` is reached.
-fn call_host_growable(
-  name: &str,
-  input: &[u8],
-  start_size: usize,
-  sanity_limit: usize,
-) -> Option<Vec<u8>> {
-  let mut size = start_size;
-  loop {
-    let mut buf = vec![0u8; size];
-    match call_host(name, input, &mut buf) {
-      Some(written) if written < size => {
-        buf.truncate(written);
-        return Some(buf);
-      }
-      Some(_) => {
-        // written == size — might be truncated, double and retry
-        size = size.saturating_mul(2);
-        if size > sanity_limit {
-          // Give up: return None so the caller falls through to an error
-          return None;
-        }
-      }
-      None => return None,
+fn call_host_buffered(name: &str, input: &[u8]) -> Option<Vec<u8>> {
+  let mut buf = vec![0u8; HOST_BUF_SIZE];
+  match call_host(name, input, &mut buf) {
+    Some(written) => {
+      buf.truncate(written);
+      Some(buf)
     }
+    None => None,
   }
 }
 
@@ -203,14 +185,14 @@ fn call_host_growable(
 impl PluginContext for WasmPluginContext {
   async fn create_nodes(&self, nodes: Vec<Node>) -> Result<Vec<Node>, PluginError> {
     let json = serde_json::to_vec(&nodes).unwrap_or_default();
-    let data = call_host_growable("create_nodes", &json, HOST_BUF_BASE, HOST_BUF_LIMIT)
+    let data = call_host_buffered("create_nodes", &json)
       .ok_or_else(|| PluginError::internal("host_ctx_create_nodes failed".into()))?;
     serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
   }
 
   async fn get_node(&self, id: Uuid) -> Result<Option<Node>, PluginError> {
     let id_str = id.to_string();
-    let data = call_host_growable("get_node", id_str.as_bytes(), HOST_BUF_BASE, HOST_BUF_LIMIT)
+    let data = call_host_buffered("get_node", id_str.as_bytes())
       .ok_or_else(|| PluginError::internal("host_ctx_get_node failed".into()))?;
     serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
   }
@@ -228,7 +210,7 @@ impl PluginContext for WasmPluginContext {
     packed.extend_from_slice(id_bytes);
     packed.extend_from_slice(&fields_json);
 
-    let data = call_host_growable("update_node", &packed, HOST_BUF_BASE, HOST_BUF_LIMIT)
+    let data = call_host_buffered("update_node", &packed)
       .ok_or_else(|| PluginError::internal("host_ctx_update_node failed".into()))?;
     serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
   }
@@ -240,13 +222,8 @@ impl PluginContext for WasmPluginContext {
   }
 
   async fn query(&self, query_string: &str) -> Result<Vec<serde_json::Value>, PluginError> {
-    let data = call_host_growable(
-      "query",
-      query_string.as_bytes(),
-      HOST_BUF_BASE,
-      HOST_BUF_LIMIT,
-    )
-    .ok_or_else(|| PluginError::internal("host_ctx_query failed".into()))?;
+    let data = call_host_buffered("query", query_string.as_bytes())
+      .ok_or_else(|| PluginError::internal("host_ctx_query failed".into()))?;
     serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
   }
 
