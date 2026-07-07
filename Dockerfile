@@ -12,7 +12,7 @@ FROM rust:1-slim-bookworm AS builder
 
 # Install bun
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl openssl pkg-config unzip \
+    ca-certificates curl openssl libssl-dev pkg-config unzip \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
@@ -41,7 +41,10 @@ COPY . .
 RUN bun x nx run-many -t package-panoapp -c release
 
 # Build server binary with embedded frontend SPA
-RUN bun x nx build panorama-server -c release
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/build/target \
+    bun x nx build panorama-server -c release && cp target/release/panorama-server .
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -50,7 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/target/release/panorama-server /usr/local/bin/panorama-server
+COPY --from=builder /build/panorama-server /usr/local/bin/panorama-server
 
 # Bake .panoapp files into the image
 COPY --from=builder /build/dist/panoapp /usr/local/share/panorama/plugins

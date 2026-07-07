@@ -15,7 +15,7 @@ use tokio::sync::RwLock;
 
 fn main() {
   let _guard = std::env::var("PANORAMA_SENTRY_DSN").ok().map(|dsn| {
-    sentry::init((
+    let guard = sentry::init((
       dsn,
       sentry::ClientOptions {
         release: sentry::release_name!(),
@@ -24,7 +24,9 @@ fn main() {
         send_default_pii: true,
         ..Default::default()
       },
-    ))
+    ));
+    eprintln!("Sentry initialized.");
+    guard
   });
 
   tokio::runtime::Builder::new_multi_thread()

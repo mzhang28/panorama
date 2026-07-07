@@ -46,3 +46,4 @@ perf.data*
 .mf
 .nx
 storybook-static
+.buildx-cache

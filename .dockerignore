@@ -18,3 +18,4 @@ perf.data*
 fuzz/findings
 .nx
 **/node_modules
+.buildx-cache
