@@ -447,65 +447,42 @@ pub fn create_prelinked_instance(
           }
         }; // data borrow released here
 
-        let result = {
-          // Create a tracing span with query diagnostics so Sentry
-          // automatically attaches plugin_id, query text, and query length
-          // to any error logged inside this span.
-          let span = tracing::info_span!(
-            "host_ctx_query",
-            plugin_id = %c5.as_ref().plugin_id(),
-            query = %qs,
-            query_len = qs.len(),
-          );
-          let _guard = span.enter();
-
-          // Add a breadcrumb so the query is visible in the Sentry
-          // timeline even if execution succeeds.
-          sentry::add_breadcrumb(sentry::Breadcrumb {
-            ty: "query".into(),
-            category: Some("host_ctx_query".into()),
-            message: Some(if qs.len() <= 200 {
-              qs.clone()
-            } else {
-              format!("{}...", &qs[..200])
-            }),
-            level: sentry::Level::Info,
-            data: {
-              let mut m = std::collections::BTreeMap::new();
-              m.insert("plugin_id".into(), c5.as_ref().plugin_id().into());
-              m.insert("query".into(), qs.clone().into());
-              m.insert("query_len".into(), qs.len().into());
-              m
-            },
-            ..Default::default()
-          });
-
-          pollster::block_on(c5.as_ref().query(&qs))
-        };
-        let rows = match result {
-          Ok(r) => r,
+        let result = pollster::block_on(c5.as_ref().query(&qs));
+        match result {
+          Ok(rows) => {
+            let json = serde_json::to_vec(&rows).unwrap_or_default();
+            let data_mut = mem.data_mut(&mut caller);
+            let r_start = r_ptr as usize;
+            if r_start >= data_mut.len() {
+              return 0;
+            }
+            let wl = json.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + wl].copy_from_slice(&json[..wl]);
+            wl as i32
+          }
           Err(ref e) => {
-            // Capture the wasm backtrace before logging so the Sentry
-            // event shows which guest code called this host function.
+            // Capture the wasm backtrace so the Sentry event shows which
+            // guest code called this query.  The guest receives the full
+            // structured PluginError so it can enrich with business context
+            // (why the query was made) before propagating up.
             capture_and_attach_host_error_backtrace(&mut caller, c5.as_ref().plugin_id());
             error!(
               "[host_ctx_query] ERROR: {} | query={}",
               e.message,
               &qs[..qs.len().min(200)]
             );
-            vec![]
+            let error_json =
+              serde_json::to_vec(&serde_json::json!({"error": &e})).unwrap_or_default();
+            let data_mut = mem.data_mut(&mut caller);
+            let r_start = r_ptr as usize;
+            if r_start >= data_mut.len() {
+              return 0;
+            }
+            let wl = error_json.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + wl].copy_from_slice(&error_json[..wl]);
+            wl as i32
           }
-        };
-        let json = serde_json::to_vec(&rows).unwrap_or_default();
-
-        let data_mut = mem.data_mut(&mut caller);
-        let r_start = r_ptr as usize;
-        if r_start >= data_mut.len() {
-          return 0;
         }
-        let wl = json.len().min(data_mut.len() - r_start);
-        data_mut[r_start..r_start + wl].copy_from_slice(&json[..wl]);
-        wl as i32
       },
     )
     .map_err(|e| PluginError::internal(format!("link host_ctx_query: {}", e)))?;
