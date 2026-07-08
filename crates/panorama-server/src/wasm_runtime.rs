@@ -421,6 +421,9 @@ pub fn create_prelinked_instance(
     .map_err(|e| PluginError::internal(format!("link host_ctx_delete_node: {}", e)))?;
 
   // ── host_ctx_query ─────────────────────────────────────────────────
+  // Initiate a query and return a cursor ID.  The guest then fetches
+  // rows in chunks via host_ctx_query_fetch, avoiding the 512 KiB buffer
+  // limit for large result sets.
   let c5 = ctx.clone();
   linker
     .func_wrap(
@@ -450,21 +453,19 @@ pub fn create_prelinked_instance(
         let result = pollster::block_on(c5.as_ref().query(&qs));
         match result {
           Ok(rows) => {
-            let json = serde_json::to_vec(&rows).unwrap_or_default();
+            let cursor_id = c5.create_query_cursor(rows);
+            let cursor_json =
+              serde_json::to_vec(&serde_json::json!({"cursor": cursor_id})).unwrap_or_default();
             let data_mut = mem.data_mut(&mut caller);
             let r_start = r_ptr as usize;
             if r_start >= data_mut.len() {
               return 0;
             }
-            let wl = json.len().min(data_mut.len() - r_start);
-            data_mut[r_start..r_start + wl].copy_from_slice(&json[..wl]);
+            let wl = cursor_json.len().min(data_mut.len() - r_start);
+            data_mut[r_start..r_start + wl].copy_from_slice(&cursor_json[..wl]);
             wl as i32
           }
           Err(ref e) => {
-            // Capture the wasm backtrace so the Sentry event shows which
-            // guest code called this query.  The guest receives the full
-            // structured PluginError so it can enrich with business context
-            // (why the query was made) before propagating up.
             capture_and_attach_host_error_backtrace(&mut caller, c5.as_ref().plugin_id());
             error!(
               "[host_ctx_query] ERROR: {} | query={}",
@@ -486,6 +487,89 @@ pub fn create_prelinked_instance(
       },
     )
     .map_err(|e| PluginError::internal(format!("link host_ctx_query: {}", e)))?;
+
+  // ── host_ctx_query_fetch ────────────────────────────────────────────
+  // Fetch the next chunk of rows for the given cursor.  Each chunk is a
+  // complete JSON array that fits in the guest's buffer.  Returns bytes
+  // written, or 0 when the cursor is exhausted / invalid.
+  let c5b = ctx.clone();
+  linker
+    .func_wrap(
+      "env",
+      "host_ctx_query_fetch",
+      move |mut caller: wasmtime::Caller<'_, WasiCtx>, cursor_id: i32, r_ptr: i32| -> i32 {
+        if cursor_id <= 0 {
+          return 0;
+        }
+        let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+          Some(m) => m,
+          None => return 0,
+        };
+        let mut cursors = c5b.query_cursors.lock().unwrap();
+        let cursor = match cursors.get_mut(&(cursor_id as u32)) {
+          Some(c) => c,
+          None => return 0,
+        };
+        // Serialize rows one at a time until we'd exceed the chunk target.
+        // The guest buffer is 1 MiB; we target 256 KiB to leave headroom.
+        const CHUNK_TARGET: usize = 256 * 1024;
+        let mut chunk = Vec::with_capacity(4096);
+        chunk.push(b'[');
+        let mut first = true;
+        while cursor.next_idx < cursor.rows.len() {
+          let row_json = serde_json::to_vec(&cursor.rows[cursor.next_idx]).unwrap_or_default();
+          // +1 for comma (or 0 for first), +1 for closing ']'
+          let overhead = if first { 1 } else { 2 };
+          if chunk.len() + row_json.len() + overhead > CHUNK_TARGET && !first {
+            break;
+          }
+          if !first {
+            chunk.push(b',');
+          }
+          chunk.extend_from_slice(&row_json);
+          first = false;
+          cursor.next_idx += 1;
+        }
+        chunk.push(b']');
+        // If nothing was written, cursor is exhausted — clean up.
+        if first {
+          drop(cursors);
+          c5b
+            .query_cursors
+            .lock()
+            .unwrap()
+            .remove(&(cursor_id as u32));
+          return 0;
+        }
+        let data_mut = mem.data_mut(&mut caller);
+        let r_start = r_ptr as usize;
+        if r_start >= data_mut.len() {
+          return 0;
+        }
+        let wl = chunk.len().min(data_mut.len() - r_start);
+        data_mut[r_start..r_start + wl].copy_from_slice(&chunk[..wl]);
+        wl as i32
+      },
+    )
+    .map_err(|e| PluginError::internal(format!("link host_ctx_query_fetch: {}", e)))?;
+
+  // ── host_ctx_query_close ────────────────────────────────────────────
+  let c5c = ctx.clone();
+  linker
+    .func_wrap(
+      "env",
+      "host_ctx_query_close",
+      move |_caller: wasmtime::Caller<'_, WasiCtx>, cursor_id: i32| {
+        if cursor_id > 0 {
+          c5c
+            .query_cursors
+            .lock()
+            .unwrap()
+            .remove(&(cursor_id as u32));
+        }
+      },
+    )
+    .map_err(|e| PluginError::internal(format!("link host_ctx_query_close: {}", e)))?;
 
   // ── host_ctx_log ───────────────────────────────────────────────────
   let c6 = ctx.clone();

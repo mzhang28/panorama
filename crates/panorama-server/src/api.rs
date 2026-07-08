@@ -841,27 +841,13 @@ async fn plugin_handler(
         trap_frames_count = e.trap_frames.as_ref().map(|f| f.len()).unwrap_or(0),
         "Plugin dispatch error"
       );
-      // Carry structured error info through to the response.
-      let mut error_body = serde_json::json!({
-        "error": e.message,
-        "code": e.code,
-      });
-      if let Some(id) = e.backtrace_id {
-        error_body["backtrace_id"] = serde_json::json!(id);
-      }
-      if let Some(ref loc) = e.location {
-        error_body["location"] = serde_json::json!({
-          "file": loc.file,
-          "line": loc.line,
-        });
-      }
-      if let Some(ref frames) = e.trap_frames {
-        error_body["trap_frames"] = serde_json::to_value(frames).unwrap_or_default();
-      }
+      // Structured backtrace data goes to Sentry (already attached to scope
+      // above).  The HTTP response gets a plain error message — no
+      // double-serialization.
       Err((
         status,
         Json(ApiError {
-          error: serde_json::to_string(&error_body).unwrap_or_else(|_| e.message),
+          error: e.message,
           code: e.code,
         }),
       ))

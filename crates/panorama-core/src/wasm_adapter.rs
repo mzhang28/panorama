@@ -41,6 +41,8 @@ extern "C" {
   ) -> i32;
   fn host_ctx_delete_node(id_ptr: i32, id_len: i32);
   fn host_ctx_query(query_ptr: i32, query_len: i32, result_ptr: i32) -> i32;
+  fn host_ctx_query_fetch(cursor_id: i32, result_ptr: i32) -> i32;
+  fn host_ctx_query_close(cursor_id: i32);
   fn host_ctx_log(msg_ptr: i32, msg_len: i32);
   /// Report a panic message + location to the host before aborting.
   /// Fire-and-forget; the host stores the message for the trap error path.
@@ -72,6 +74,12 @@ struct WasmOutput {
   pub headers: HashMap<String, String>,
   #[serde(default)]
   pub body: serde_json::Value,
+}
+
+/// Response from host_ctx_query: contains a cursor ID for streaming.
+#[derive(Debug, Deserialize)]
+struct CursorResponse {
+  cursor: u32,
 }
 
 // ── Async bridge (sync-only, panics if any future yields Pending) ───────────
@@ -167,11 +175,9 @@ fn call_host(name: &str, input: &[u8], out_buf: &mut [u8]) -> Option<usize> {
   }
 }
 
-/// Buffer size for host calls (512 KiB).  Large enough for typical query
-/// results and node payloads, small enough to fit in WASM linear memory.
-/// Single fixed allocation — growing doubles and zeroes, which crashes
-/// dlmalloc at large sizes.
-const HOST_BUF_SIZE: usize = 512 * 1024;
+/// Buffer size for host calls (1 MiB).  Fixed allocation — growing
+/// (doubling + zeroing) crashes dlmalloc in WASM, so we pre-allocate.
+const HOST_BUF_SIZE: usize = 1024 * 1024;
 
 fn call_host_buffered(name: &str, input: &[u8]) -> Option<Vec<u8>> {
   let mut buf = vec![0u8; HOST_BUF_SIZE];
@@ -192,29 +198,59 @@ fn parse_host_response<T: serde::de::DeserializeOwned>(
   host_fn_name: &str,
 ) -> Result<T, PluginError> {
   // Try the expected type first.
-  if let Ok(val) = serde_json::from_slice::<T>(data) {
-    return Ok(val);
-  }
-  // If that fails, check if it's a host error response.
-  if let Ok(wrapper) = serde_json::from_slice::<serde_json::Value>(data) {
-    if let Some(err_val) = wrapper.get("error") {
-      if let Ok(host_err) = serde_json::from_value::<PluginError>(err_val.clone()) {
-        return Err(host_err);
-      }
-      // If the error field is a plain string (legacy format), wrap it.
-      if let Some(msg) = err_val.as_str() {
+  match serde_json::from_slice::<T>(data) {
+    Ok(val) => return Ok(val),
+    Err(deser_err) => {
+      // If that fails, check if it's a host error response.
+      if let Ok(wrapper) = serde_json::from_slice::<serde_json::Value>(data) {
+        if let Some(err_val) = wrapper.get("error") {
+          if let Ok(host_err) = serde_json::from_value::<PluginError>(err_val.clone()) {
+            return Err(host_err);
+          }
+          // If the error field is a plain string (legacy format), wrap it.
+          if let Some(msg) = err_val.as_str() {
+            return Err(PluginError::internal(format!(
+              "{} host error: {}",
+              host_fn_name, msg
+            )));
+          }
+        }
+        // We parsed valid JSON but it doesn't match T and isn't an error
+        // wrapper.  The schema doesn't match — surface what we got.
+        let preview = truncate_utf8(&String::from_utf8_lossy(data), MAX_ERROR_PREVIEW_LEN);
         return Err(PluginError::internal(format!(
-          "{} host error: {}",
-          host_fn_name, msg
+          "{} response parse failed: deserialization error: {} | data ({} B): {}",
+          host_fn_name,
+          deser_err,
+          data.len(),
+          preview
         )));
       }
+      // Not even valid JSON — probably truncated or binary garbage.
+      let preview = truncate_utf8(&String::from_utf8_lossy(data), MAX_ERROR_PREVIEW_LEN);
+      Err(PluginError::internal(format!(
+        "{} response parse failed: deserialization error: {} | data ({} B) is not valid JSON: {}",
+        host_fn_name,
+        deser_err,
+        data.len(),
+        preview
+      )))
     }
   }
-  // Last resort: report the deserialization failure.
-  Err(PluginError::internal(format!(
-    "{} response parse failed",
-    host_fn_name
-  )))
+}
+
+/// Max bytes of raw response data to embed in error messages.
+const MAX_ERROR_PREVIEW_LEN: usize = 500;
+
+fn truncate_utf8(s: &str, max_len: usize) -> String {
+  if s.len() <= max_len {
+    return s.to_string();
+  }
+  let mut end = max_len;
+  while end > 0 && !s.is_char_boundary(end) {
+    end -= 1;
+  }
+  format!("{}…<truncated>", &s[..end])
 }
 
 #[async_trait]
@@ -258,9 +294,43 @@ impl PluginContext for WasmPluginContext {
   }
 
   async fn query(&self, query_string: &str) -> Result<Vec<serde_json::Value>, PluginError> {
+    // ── Step 1: Initiate query, get cursor ID ──────────────────────────
     let data = call_host_buffered("query", query_string.as_bytes())
       .ok_or_else(|| PluginError::internal("host_ctx_query failed".into()))?;
-    parse_host_response(&data, "query")
+    let cursor_resp: CursorResponse = parse_host_response(&data, "query")?;
+
+    // ── Step 2: Fetch chunks in a loop ─────────────────────────────────
+    let mut rows = Vec::new();
+    loop {
+      let mut buf = vec![0u8; HOST_BUF_SIZE];
+      let written =
+        unsafe { host_ctx_query_fetch(cursor_resp.cursor as i32, buf.as_mut_ptr() as i32) };
+      if written <= 0 {
+        break;
+      }
+      let chunk: Vec<serde_json::Value> = serde_json::from_slice(&buf[..written as usize])
+        .map_err(|e| {
+          PluginError::internal(format!(
+            "query fetch parse failed: {} | preview: {}",
+            e,
+            truncate_utf8(
+              &String::from_utf8_lossy(&buf[..written as usize]),
+              MAX_ERROR_PREVIEW_LEN
+            )
+          ))
+        })?;
+      if chunk.is_empty() {
+        break;
+      }
+      rows.extend(chunk);
+    }
+
+    // ── Step 3: Close cursor ───────────────────────────────────────────
+    unsafe {
+      host_ctx_query_close(cursor_resp.cursor as i32);
+    }
+
+    Ok(rows)
   }
 
   async fn register_schema(

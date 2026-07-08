@@ -4,13 +4,20 @@ use panorama_core::plugin::{LogLevel, ObjectData, PluginContext, PluginError};
 use panorama_core::schema::Schema;
 use panorama_core::types::{FieldValue, Node, ObjectRef};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::backtrace::BacktraceStore;
 use crate::object_store::ObjectStorage;
 use crate::schema_registry::SchemaRegistry;
 use crate::storage::NodeStorage;
+
+/// Holds a query result set for streaming to the WASM guest in chunks.
+pub struct QueryCursor {
+  pub rows: Vec<serde_json::Value>,
+  pub next_idx: usize,
+}
 
 /// Concrete implementation of PluginContext that plugins use
 /// to interact with the Panorama platform.
@@ -24,6 +31,9 @@ pub struct RuntimeContext {
   granted_caps: panorama_core::capabilities::CapabilityGrants,
   /// Host-side backtrace store shared with wasm host functions
   pub backtrace_store: Arc<BacktraceStore>,
+  /// Active query cursors for streaming results to WASM guests.
+  pub query_cursors: Mutex<HashMap<u32, QueryCursor>>,
+  next_cursor_id: AtomicU32,
 }
 
 impl RuntimeContext {
@@ -42,7 +52,20 @@ impl RuntimeContext {
       object_storage,
       granted_caps,
       backtrace_store: Arc::new(BacktraceStore::new()),
+      query_cursors: Mutex::new(HashMap::new()),
+      next_cursor_id: AtomicU32::new(1),
     }
+  }
+
+  /// Store a query result and return a cursor ID for streaming it out.
+  pub fn create_query_cursor(&self, rows: Vec<serde_json::Value>) -> u32 {
+    let id = self.next_cursor_id.fetch_add(1, Ordering::Relaxed);
+    self
+      .query_cursors
+      .lock()
+      .unwrap()
+      .insert(id, QueryCursor { rows, next_idx: 0 });
+    id
   }
 
   pub fn schema_registry(&self) -> &SchemaRegistry {
