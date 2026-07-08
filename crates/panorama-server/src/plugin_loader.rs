@@ -291,8 +291,13 @@ impl PluginLoader {
       .await
       .map_err(|e| PluginError::internal(format!("wasm spawn_blocking: {}", e)))?;
 
-      // If the error carries a backtrace_id, resolve it against the store
-      // and attach the frames so downstream (Sentry, log) can use them.
+      // If the response carries an error with a backtrace_id, resolve it
+      // against the store and convert it to a PluginError so the Sentry
+      // attachment path in api.rs is triggered.
+      //
+      // Recoverable wasm errors arrive as Ok(HttpResponse) with status >= 400
+      // and a JSON body containing the structured error — the Err arm only
+      // handles traps (wasmtime errors).  We need to handle both.
       match result {
         Err(mut err) => {
           if let Some(id) = err.backtrace_id {
@@ -308,7 +313,41 @@ impl PluginLoader {
           }
           return Err(err);
         }
-        Ok(resp) => return Ok(resp),
+        Ok(resp) => {
+          // Check if the response body is a structured error with backtrace.
+          if resp.status >= 400 {
+            if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&resp.body) {
+              if let Some(id) = body.get("backtrace_id").and_then(|v| v.as_u64()) {
+                if let Some(ctx) = bt_store.take(id) {
+                  let trap_frames: Vec<panorama_core::plugin::TrapFrame> = ctx
+                    .frames
+                    .iter()
+                    .map(|f| panorama_core::plugin::TrapFrame::from(f))
+                    .collect();
+                  let err_msg = body
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("wasm error")
+                    .to_string();
+                  let err_code = body
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("INTERNAL_ERROR")
+                    .to_string();
+                  return Err(PluginError {
+                    code: err_code,
+                    message: err_msg,
+                    status: resp.status,
+                    location: None,
+                    backtrace_id: Some(id),
+                    trap_frames: Some(trap_frames),
+                  });
+                }
+              }
+            }
+          }
+          return Ok(resp);
+        }
       }
     }
 

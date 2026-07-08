@@ -431,24 +431,29 @@ pub fn create_prelinked_instance(
           Some(m) => m,
           None => return 0,
         };
-        let data = mem.data(&caller);
-        let start = q_ptr as usize;
-        let end = start.saturating_add(q_len as usize);
-        if end > data.len() {
-          return 0;
-        }
-        let qs = match std::str::from_utf8(&data[start..end]) {
-          Ok(s) => s,
-          Err(e) => {
-            error!("[host_ctx_query] UTF-8 decode failed: {}", e);
+        let qs = {
+          let data = mem.data(&caller);
+          let start = q_ptr as usize;
+          let end = start.saturating_add(q_len as usize);
+          if end > data.len() {
             return 0;
           }
-        };
+          match std::str::from_utf8(&data[start..end]) {
+            Ok(s) => s.to_string(),
+            Err(e) => {
+              error!("[host_ctx_query] UTF-8 decode failed: {}", e);
+              return 0;
+            }
+          }
+        }; // data borrow released here
 
-        let result = pollster::block_on(c5.as_ref().query(qs));
+        let result = pollster::block_on(c5.as_ref().query(&qs));
         let rows = match result {
           Ok(r) => r,
           Err(ref e) => {
+            // Capture the wasm backtrace before logging so the Sentry
+            // event shows which guest code called this host function.
+            capture_and_attach_host_error_backtrace(&mut caller, c5.as_ref().plugin_id());
             error!(
               "[host_ctx_query] ERROR: {} | query={}",
               e.message,
@@ -697,6 +702,30 @@ pub async fn execute_wasm_handler(
     headers,
     body: body_bytes,
   })
+}
+
+// ── Host function error backtrace helper ────────────────────────────────────
+
+/// Capture a wasm backtrace from within a host function and attach it to
+/// the Sentry scope.  Call this before `error!()` in host functions that
+/// handle errors from the guest — it shows which guest code called the
+/// host function that failed.
+fn capture_and_attach_host_error_backtrace(
+  caller: &mut wasmtime::Caller<'_, WasiCtx>,
+  plugin_id: &str,
+) {
+  let bt = wasmtime::WasmBacktrace::force_capture(caller);
+  let frames: Vec<panorama_core::plugin::TrapFrame> = bt
+    .frames()
+    .iter()
+    .map(|f| {
+      let sf = crate::backtrace::StoredFrame::from_frame_info(f);
+      panorama_core::plugin::TrapFrame::from(&sf)
+    })
+    .collect();
+  if !frames.is_empty() {
+    crate::sentry_middleware::attach_wasm_backtrace_to_scope(&frames, plugin_id);
+  }
 }
 
 // ── Length-prefixed protocol ───────────────────────────────────────────────

@@ -89,26 +89,26 @@ where
 /// Convert wasm `TrapFrame` vec to a Sentry stacktrace and attach it to the
 /// current scope.  Frames are innermost-first from `WasmBacktrace::frames()`;
 /// Sentry expects oldest-to-newest (caller-to-callee), so we reverse.
+///
+/// The stacktrace is attached via `set_context` so it appears in Sentry's
+/// structured `contexts` section, not in the unstructured `extra` blob.
 pub fn attach_wasm_backtrace_to_scope(frames: &[TrapFrame], plugin_id: &str) {
   sentry::configure_scope(|scope| {
-    // Sentry frame list: first frame = oldest (caller), last = newest (error site).
-    // WasmBacktrace::frames() is innermost-first, so reverse.
     let sentry_frames: Vec<sentry::protocol::Frame> = frames
       .iter()
       .rev()
-      .map(|f| {
-        sentry::protocol::Frame {
-          function: f.func_name.clone(),
-          module: f
-            .module_name
-            .clone()
-            .or_else(|| Some(plugin_id.to_string())),
-          instruction_addr: Some(sentry::protocol::Addr(f.func_index as u64)),
-          // Use relative addressing for WASM — Sentry needs the debug_id
-          // to resolve addresses against the uploaded debug companion.
-          addr_mode: Some("rel:0".to_string()),
-          ..Default::default()
-        }
+      .map(|f| sentry::protocol::Frame {
+        function: f.func_name.clone(),
+        module: f
+          .module_name
+          .clone()
+          .or_else(|| Some(plugin_id.to_string())),
+        filename: f.file.clone(),
+        lineno: f.line.map(|l| l as u64),
+        colno: f.column.map(|c| c as u64),
+        instruction_addr: Some(sentry::protocol::Addr(f.func_index as u64)),
+        addr_mode: Some("rel:0".to_string()),
+        ..Default::default()
       })
       .collect();
 
@@ -117,11 +117,16 @@ pub fn attach_wasm_backtrace_to_scope(frames: &[TrapFrame], plugin_id: &str) {
       ..Default::default()
     };
 
-    // Attach the stacktrace as extra context on the scope.
-    // The tracing integration picks it up when an error event is logged.
-    scope.set_extra(
-      "wasm_stacktrace",
-      serde_json::to_value(&stacktrace).unwrap_or_default().into(),
+    // Use set_context so the data appears in the structured contexts
+    // section (visible in Sentry UI), not just in the raw extra blob.
+    let mut ctx_map = sentry::protocol::Map::new();
+    ctx_map.insert(
+      "frames".into(),
+      serde_json::to_value(&stacktrace).unwrap_or_default(),
     );
+    scope.set_context("wasm_stacktrace", sentry::protocol::Context::Other(ctx_map));
+
+    // Also tag with the plugin so events are filterable.
+    scope.set_tag("plugin_id", plugin_id.to_string());
   });
 }
