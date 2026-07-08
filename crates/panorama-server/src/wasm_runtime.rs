@@ -447,7 +447,41 @@ pub fn create_prelinked_instance(
           }
         }; // data borrow released here
 
-        let result = pollster::block_on(c5.as_ref().query(&qs));
+        let result = {
+          // Create a tracing span with query diagnostics so Sentry
+          // automatically attaches plugin_id, query text, and query length
+          // to any error logged inside this span.
+          let span = tracing::info_span!(
+            "host_ctx_query",
+            plugin_id = %c5.as_ref().plugin_id(),
+            query = %qs,
+            query_len = qs.len(),
+          );
+          let _guard = span.enter();
+
+          // Add a breadcrumb so the query is visible in the Sentry
+          // timeline even if execution succeeds.
+          sentry::add_breadcrumb(sentry::Breadcrumb {
+            ty: "query".into(),
+            category: Some("host_ctx_query".into()),
+            message: Some(if qs.len() <= 200 {
+              qs.clone()
+            } else {
+              format!("{}...", &qs[..200])
+            }),
+            level: sentry::Level::Info,
+            data: {
+              let mut m = std::collections::BTreeMap::new();
+              m.insert("plugin_id".into(), c5.as_ref().plugin_id().into());
+              m.insert("query".into(), qs.clone().into());
+              m.insert("query_len".into(), qs.len().into());
+              m
+            },
+            ..Default::default()
+          });
+
+          pollster::block_on(c5.as_ref().query(&qs))
+        };
         let rows = match result {
           Ok(r) => r,
           Err(ref e) => {
