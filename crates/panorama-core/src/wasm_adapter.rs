@@ -42,6 +42,9 @@ extern "C" {
   fn host_ctx_delete_node(id_ptr: i32, id_len: i32);
   fn host_ctx_query(query_ptr: i32, query_len: i32, result_ptr: i32) -> i32;
   fn host_ctx_log(msg_ptr: i32, msg_len: i32);
+  /// Report a panic message + location to the host before aborting.
+  /// Fire-and-forget; the host stores the message for the trap error path.
+  fn host_report_panic(msg_ptr: i32, msg_len: i32);
 }
 
 // ── I/O types ───────────────────────────────────────────────────────────────
@@ -181,20 +184,53 @@ fn call_host_buffered(name: &str, input: &[u8]) -> Option<Vec<u8>> {
   }
 }
 
+/// Try to deserialize a host response buffer into `T`.  If the response is
+/// a host error (`{"error": PluginError}`), extract and propagate the
+/// error with its structured data intact — never flatten to string.
+fn parse_host_response<T: serde::de::DeserializeOwned>(
+  data: &[u8],
+  host_fn_name: &str,
+) -> Result<T, PluginError> {
+  // Try the expected type first.
+  if let Ok(val) = serde_json::from_slice::<T>(data) {
+    return Ok(val);
+  }
+  // If that fails, check if it's a host error response.
+  if let Ok(wrapper) = serde_json::from_slice::<serde_json::Value>(data) {
+    if let Some(err_val) = wrapper.get("error") {
+      if let Ok(host_err) = serde_json::from_value::<PluginError>(err_val.clone()) {
+        return Err(host_err);
+      }
+      // If the error field is a plain string (legacy format), wrap it.
+      if let Some(msg) = err_val.as_str() {
+        return Err(PluginError::internal(format!(
+          "{} host error: {}",
+          host_fn_name, msg
+        )));
+      }
+    }
+  }
+  // Last resort: report the deserialization failure.
+  Err(PluginError::internal(format!(
+    "{} response parse failed",
+    host_fn_name
+  )))
+}
+
 #[async_trait]
 impl PluginContext for WasmPluginContext {
   async fn create_nodes(&self, nodes: Vec<Node>) -> Result<Vec<Node>, PluginError> {
     let json = serde_json::to_vec(&nodes).unwrap_or_default();
     let data = call_host_buffered("create_nodes", &json)
       .ok_or_else(|| PluginError::internal("host_ctx_create_nodes failed".into()))?;
-    serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
+    parse_host_response(&data, "create_nodes")
   }
 
   async fn get_node(&self, id: Uuid) -> Result<Option<Node>, PluginError> {
     let id_str = id.to_string();
     let data = call_host_buffered("get_node", id_str.as_bytes())
       .ok_or_else(|| PluginError::internal("host_ctx_get_node failed".into()))?;
-    serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
+    parse_host_response(&data, "get_node")
   }
 
   async fn update_node(
@@ -212,7 +248,7 @@ impl PluginContext for WasmPluginContext {
 
     let data = call_host_buffered("update_node", &packed)
       .ok_or_else(|| PluginError::internal("host_ctx_update_node failed".into()))?;
-    serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
+    parse_host_response(&data, "update_node")
   }
 
   async fn delete_node(&self, id: Uuid) -> Result<(), PluginError> {
@@ -224,7 +260,7 @@ impl PluginContext for WasmPluginContext {
   async fn query(&self, query_string: &str) -> Result<Vec<serde_json::Value>, PluginError> {
     let data = call_host_buffered("query", query_string.as_bytes())
       .ok_or_else(|| PluginError::internal("host_ctx_query failed".into()))?;
-    serde_json::from_slice(&data).map_err(|e| PluginError::internal(e.to_string()))
+    parse_host_response(&data, "query")
   }
 
   async fn register_schema(
@@ -297,6 +333,31 @@ impl PluginContext for WasmPluginContext {
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 pub fn run_plugin(plugin: impl Plugin + 'static) {
+  // Install a panic hook that reports the panic message + location to the
+  // host before the wasm module aborts.  This is fire-and-forget — the host
+  // stores the message so the trap error path can attach it to the error.
+  // Must be installed ONCE at plugin init, not per call site.
+  #[cfg(target_arch = "wasm32")]
+  {
+    std::panic::set_hook(Box::new(|info| {
+      let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+        s.to_string()
+      } else if let Some(s) = info.payload().downcast_ref::<String>() {
+        s.clone()
+      } else {
+        "unknown panic".to_string()
+      };
+      let loc = info
+        .location()
+        .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+        .unwrap_or_default();
+      let full_msg = format!("{} (at {})", msg, loc);
+      unsafe {
+        host_report_panic(full_msg.as_ptr() as i32, full_msg.len() as i32);
+      }
+    }));
+  }
+
   let mut buf = String::new();
   std::io::stdin().read_to_string(&mut buf).ok();
   let input: WasmInput = serde_json::from_str(&buf).unwrap_or_else(|_| WasmInput {
@@ -330,15 +391,35 @@ pub fn run_plugin(plugin: impl Plugin + 'static) {
       headers: response.headers,
       body: serde_json::from_slice(&response.body).unwrap_or(serde_json::Value::Null),
     },
-    Err(e) => WasmOutput {
-      status: e.status,
-      headers: {
-        let mut h = HashMap::new();
-        h.insert("Content-Type".into(), "application/json".into());
-        h
-      },
-      body: serde_json::json!({"error": e.message, "code": e.code}),
-    },
+    Err(e) => {
+      let mut error_body = serde_json::json!({
+        "error": e.message,
+        "code": e.code,
+      });
+      // Carry structured diagnostics — never flatten to string.
+      if let Some(ref loc) = e.location {
+        error_body["location"] = serde_json::json!({
+          "file": loc.file,
+          "line": loc.line,
+          "column": loc.column,
+        });
+      }
+      if let Some(id) = e.backtrace_id {
+        error_body["backtrace_id"] = serde_json::json!(id);
+      }
+      if let Some(ref frames) = e.trap_frames {
+        error_body["trap_frames"] = serde_json::to_value(frames).unwrap_or_default();
+      }
+      WasmOutput {
+        status: e.status,
+        headers: {
+          let mut h = HashMap::new();
+          h.insert("Content-Type".into(), "application/json".into());
+          h
+        },
+        body: error_body,
+      }
+    }
   };
 
   // Length-prefixed protocol: 4-byte LE u32 length then JSON payload.

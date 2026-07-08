@@ -181,3 +181,67 @@ Every context operation is subject to verification against the app's `Capability
 | `app_managed_nodes` | Boolean | `true` or `false` | Permission to mark nodes as app-managed (immutable by direct user edits). |
 
 Any attempt to perform an operation not covered by capability grants returns a `PluginError::permission_denied` error.
+
+---
+
+## 4. Error Handling & Wasm Backtraces
+
+`PluginError` carries structured diagnostic data that survives the wasm/host boundary — nothing is flattened to a string.
+
+### Error constructors
+
+| Constructor | Host calls | Captures |
+|---|---|---|
+| `PluginError::bad_request(msg)` | 0 | File + line (via `#[track_caller]`) |
+| `PluginError::not_found(msg)` | 0 | File + line |
+| `PluginError::permission_denied(msg)` | 0 | File + line |
+| `PluginError::internal(msg)` | 0 | File + line |
+| `PluginError::with_backtrace(code, msg, status)` | 1 | File + line + **full wasm call chain** |
+
+All constructors use `#[track_caller]`, so every error carries the exact `file:line` where it was created — free, no host round-trip.
+
+`with_backtrace` additionally calls the `host_capture_backtrace` host import, which walks the JIT frame-pointer chain and captures every wasm frame currently on the stack, plus DWARF-resolved source locations (`file:line:column`). One call per error origin, not per `?` hop — a single call at the deepest level captures every caller above it.
+
+### When to use `with_backtrace`
+
+Use `PluginError::with_backtrace` at the **origin** of an error deep in a call chain:
+
+```rust
+fn level3() -> Result<HttpResponse, PluginError> {
+    Err(PluginError::with_backtrace(
+        "DEEP_ERROR",
+        "something went wrong at the lowest level".into(),
+        500,
+    ))
+}
+fn level2() -> Result<HttpResponse, PluginError> { level3() }
+fn level1() -> Result<HttpResponse, PluginError> { level2() }
+```
+
+The resulting backtrace contains `level1 → level2 → level3` — the full chain captured by one host call at `level3`.
+
+For validation errors at the handler level (`bad_request`, `not_found`), the default constructors are sufficient — `#[track_caller]` already tells you the exact line.
+
+### For non-Rust languages
+
+The primitive is a raw wasm import:
+
+```wat
+(import "env" "host_capture_backtrace" (func $host_capture_backtrace (result i64)))
+```
+
+Call it at your error origin. It returns an opaque `u64` id (0 on failure). Include this id in your error response as `backtrace_id`. The host resolves it to a full frame chain with DWARF file:line info.
+
+To preserve panic messages through traps, also import and call before aborting:
+
+```wat
+(import "env" "host_report_panic" (func $host_report_panic (param i32 i32)))
+```
+
+Pass a pointer and length to the panic message string. The host stores it and attaches it to the trap error.
+
+**Important**: DWARF debug info is only available when the wasm binary is compiled with debug symbols (e.g. Rust debug builds, or `-g` in clang). Release builds retain function names from the wasm `name` section but not file:line. For production, use `wasm-split` to extract DWARF into a companion file uploaded to Sentry, leaving only a `build_id` section in the shipped binary.
+
+### Trap errors
+
+Panics (`panic!`, `unreachable`, OOB access) are automatically caught by the wasmtime runtime. The host extracts the `WasmBacktrace` from the trap and attaches all frames to the error — no guest cooperation needed. The panic hook in `wasm_adapter::run_plugin` reports the panic message + location to the host before the module aborts, so even `panic!` messages are preserved.

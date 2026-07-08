@@ -1,0 +1,20 @@
+{
+  "manifest_version": 1,
+  "id": "io.mzhang.panorama.backtrace-test",
+  "name": "Backtrace Test Plugin",
+  "version": "0.1.0",
+  "description": "Test-only plugin for verifying wasm backtrace capture",
+  "wasm_module": "backtrace-test.wasm",
+  "http_endpoints": [
+    {
+      "method": "POST",
+      "path": "/test_trap_error",
+      "description": "Trigger a panic for trap backtrace verification"
+    },
+    {
+      "method": "POST",
+      "path": "/test_backtrace_error",
+      "description": "Return recoverable error with backtrace"
+    }
+  ]
+}

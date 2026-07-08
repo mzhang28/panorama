@@ -8,6 +8,7 @@ use panorama_core::plugin::{
 use panorama_core::schema::Schema;
 use tokio::sync::RwLock;
 
+use crate::backtrace::BacktraceStore;
 use crate::object_store::ObjectStorage;
 use crate::panoapp::PanoAppPackage;
 use crate::plugin_runtime::RuntimeContext;
@@ -59,6 +60,8 @@ pub struct PluginLoader {
   schema_registry: SchemaRegistry,
   object_storage: ObjectStorage,
   wasm_engine: Arc<wasmtime::Engine>,
+  /// Shared backtrace store for all WASM plugins.
+  pub backtrace_store: Arc<BacktraceStore>,
 }
 
 impl PluginLoader {
@@ -69,6 +72,12 @@ impl PluginLoader {
   ) -> Self {
     let mut config = wasmtime::Config::new();
     config.async_support(true);
+    // Generate address maps so wasm byte offsets can be resolved to
+    // source file:line via DWARF (used for backtrace symbolication).
+    config.generate_address_map(true);
+    // Parse DWARF debug info from wasm custom sections — required for
+    // FrameInfo::symbols() to return file:line data.
+    config.wasm_backtrace_details(wasmtime::WasmBacktraceDetails::Enable);
     let wasm_engine =
       Arc::new(wasmtime::Engine::new(&config).expect("Failed to initialize WASM engine"));
 
@@ -80,6 +89,7 @@ impl PluginLoader {
       schema_registry,
       object_storage,
       wasm_engine,
+      backtrace_store: Arc::new(BacktraceStore::new()),
     }
   }
 
@@ -163,7 +173,7 @@ impl PluginLoader {
         .map_err(|e| format!("wasm compile: {}", e))?;
       tracing::info!(plugin = %plugin_id, "Pre-compiled WASM module");
 
-      // Pre-link: build linker, register WASI + all 6 host functions,
+      // Pre-link: build linker, register WASI + all host functions,
       // and cache an InstancePre so per-request instantiation is nearly free (§1.1).
       let instance_pre = crate::wasm_runtime::create_prelinked_instance(
         &self.wasm_engine,
@@ -173,8 +183,9 @@ impl PluginLoader {
         &self.storage,
         &self.schema_registry,
         &self.object_storage,
+        self.backtrace_store.clone(),
       )
-      .map_err(|e| format!("wasm pre-link: {}", e.message))?;
+      .map_err(|e| format!("wasm pre-link: {}", e))?;
       tracing::info!(plugin = %plugin_id, "Cached pre-linked InstancePre");
 
       self.wasm_plugins.write().await.insert(
@@ -266,17 +277,39 @@ impl PluginLoader {
       let engine = wp._engine.clone();
       let instance_pre = wp.instance_pre.clone();
       let endpoint = endpoint.to_string();
+      let bt_store = self.backtrace_store.clone();
+      let bt_store_for_closure = bt_store.clone();
       let result = tokio::task::spawn_blocking(move || {
         pollster::block_on(wasm_runtime::execute_wasm_handler(
           &engine,
           &instance_pre,
           &endpoint,
           &request,
+          &bt_store_for_closure,
         ))
       })
       .await
-      .map_err(|e| PluginError::internal(format!("wasm panic: {}", e)))?;
-      return result;
+      .map_err(|e| PluginError::internal(format!("wasm spawn_blocking: {}", e)))?;
+
+      // If the error carries a backtrace_id, resolve it against the store
+      // and attach the frames so downstream (Sentry, log) can use them.
+      match result {
+        Err(mut err) => {
+          if let Some(id) = err.backtrace_id {
+            if let Some(ctx) = bt_store.take(id) {
+              err.trap_frames = Some(
+                ctx
+                  .frames
+                  .iter()
+                  .map(|f| panorama_core::plugin::TrapFrame::from(f))
+                  .collect(),
+              );
+            }
+          }
+          return Err(err);
+        }
+        Ok(resp) => return Ok(resp),
+      }
     }
 
     // Otherwise, try native plugin
@@ -345,6 +378,7 @@ impl PluginLoader {
     let engine = wp._engine.clone();
     let instance_pre = wp.instance_pre.clone();
     let path = request.path.clone();
+    let bt_store = self.backtrace_store.clone();
 
     // Execute via the same WASM runtime used for HTTP handlers.
     // This gives reactors access to all host functions (create_nodes,
@@ -355,6 +389,7 @@ impl PluginLoader {
         &instance_pre,
         &path,
         &request,
+        &bt_store,
       ))
     })
     .await

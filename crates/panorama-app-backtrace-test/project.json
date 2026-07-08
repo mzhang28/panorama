@@ -1,0 +1,31 @@
+{
+  "name": "panorama-app-backtrace-test",
+  "targets": {
+    "build-wasm": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-backtrace-test --target wasm32-wasip1"
+      },
+      "configurations": {
+        "development": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build -p panorama-app-backtrace-test --target wasm32-wasip1"
+        },
+        "release": {
+          "command": "RUSTFLAGS=\"-C link-arg=--allow-undefined\" cargo build --release -p panorama-app-backtrace-test --target wasm32-wasip1"
+        }
+      },
+      "defaultConfiguration": "development",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/Cargo.toml",
+        "{workspaceRoot}/crates/panorama-core/src/**/*",
+        "{workspaceRoot}/Cargo.lock"
+      ],
+      "outputs": [
+        "{workspaceRoot}/target/wasm32-wasip1/debug/backtrace-test.wasm",
+        "{workspaceRoot}/target/wasm32-wasip1/release/backtrace-test.wasm"
+      ],
+      "cache": true
+    }
+  }
+}

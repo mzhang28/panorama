@@ -18,9 +18,11 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use panorama_core::capabilities::CapabilityGrants;
 use panorama_core::plugin::{HttpRequest, HttpResponse, LogLevel, PluginContext, PluginError};
+use tracing::Span;
 use uuid::Uuid;
 use wasmtime_wasi::{HostOutputStream, StreamError, Subscribe};
 
+use crate::backtrace::{BacktraceStore, CapturedContext, SpanSnapshot};
 use crate::object_store::ObjectStorage;
 use crate::plugin_runtime::RuntimeContext;
 use crate::schema_registry::SchemaRegistry;
@@ -92,6 +94,7 @@ pub fn create_prelinked_instance(
   storage: &NodeStorage,
   schema_registry: &SchemaRegistry,
   object_storage: &ObjectStorage,
+  backtrace_store: Arc<BacktraceStore>,
 ) -> Result<wasmtime::InstancePre<WasiCtx>, PluginError> {
   let mut linker = wasmtime::Linker::new(engine);
 
@@ -103,13 +106,15 @@ pub fn create_prelinked_instance(
   .map_err(|e| PluginError::internal(format!("wasi: {}", e)))?;
 
   // ── RuntimeContext (shared by all host functions) ─────────────────────
-  let ctx = Arc::new(RuntimeContext::new(
+  let mut ctx = RuntimeContext::new(
     plugin_id,
     storage.clone(),
     schema_registry.clone(),
     object_storage.clone(),
     capabilities.clone(),
-  ));
+  );
+  ctx.backtrace_store = backtrace_store;
+  let ctx = Arc::new(ctx);
 
   // ── host_ctx_create_nodes ──────────────────────────────────────────
   let c1 = ctx.clone();
@@ -158,9 +163,7 @@ pub fn create_prelinked_instance(
         let result = pollster::block_on(c1.as_ref().create_nodes(nodes));
         let out_bytes = match result {
           Ok(ns) => serde_json::to_vec(&ns).unwrap_or_default(),
-          Err(e) => {
-            serde_json::to_vec(&serde_json::json!({"error": e.message})).unwrap_or_default()
-          }
+          Err(e) => serde_json::to_vec(&serde_json::json!({"error": &e})).unwrap_or_default(),
         };
 
         let data_mut = mem.data_mut(&mut caller);
@@ -224,9 +227,7 @@ pub fn create_prelinked_instance(
           Ok(_) => {
             serde_json::to_vec(&serde_json::json!({"error": "No node created"})).unwrap_or_default()
           }
-          Err(e) => {
-            serde_json::to_vec(&serde_json::json!({"error": e.message})).unwrap_or_default()
-          }
+          Err(e) => serde_json::to_vec(&serde_json::json!({"error": &e})).unwrap_or_default(),
         };
 
         let data_mut = mem.data_mut(&mut caller);
@@ -285,9 +286,7 @@ pub fn create_prelinked_instance(
         let out_bytes = match result {
           Ok(Some(n)) => serde_json::to_vec(&n).unwrap_or_default(),
           Ok(None) => serde_json::to_vec(&serde_json::Value::Null).unwrap_or_default(),
-          Err(e) => {
-            serde_json::to_vec(&serde_json::json!({"error": e.message})).unwrap_or_default()
-          }
+          Err(e) => serde_json::to_vec(&serde_json::json!({"error": &e})).unwrap_or_default(),
         };
 
         let data_mut = mem.data_mut(&mut caller);
@@ -373,9 +372,7 @@ pub fn create_prelinked_instance(
         let result = pollster::block_on(c3.as_ref().update_node(id, fields));
         let out_bytes = match result {
           Ok(n) => serde_json::to_vec(&n).unwrap_or_default(),
-          Err(e) => {
-            serde_json::to_vec(&serde_json::json!({"error": e.message})).unwrap_or_default()
-          }
+          Err(e) => serde_json::to_vec(&serde_json::json!({"error": &e})).unwrap_or_default(),
         };
 
         let data_mut = mem.data_mut(&mut caller);
@@ -498,6 +495,82 @@ pub fn create_prelinked_instance(
     )
     .map_err(|e| PluginError::internal(format!("link host_ctx_log: {}", e)))?;
 
+  // ── host_report_panic ──────────────────────────────────────────────
+  // Fire-and-forget: the panic hook in wasm_adapter calls this before the
+  // wasm module aborts.  The message is stored so the trap error path
+  // can attach it to the error.
+  let panic_store = ctx.backtrace_store.clone();
+  linker
+    .func_wrap(
+      "env",
+      "host_report_panic",
+      move |mut caller: wasmtime::Caller<'_, WasiCtx>, msg_ptr: i32, msg_len: i32| {
+        let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
+          Some(m) => m,
+          None => return,
+        };
+        let data = mem.data(&caller);
+        let start = msg_ptr as usize;
+        let end = start.saturating_add(msg_len as usize);
+        if end > data.len() {
+          return;
+        }
+        if let Ok(msg) = std::str::from_utf8(&data[start..end]) {
+          if let Ok(mut p) = panic_store.last_panic.lock() {
+            *p = Some(msg.to_string());
+          }
+        }
+      },
+    )
+    .map_err(|e| PluginError::internal(format!("link host_report_panic: {}", e)))?;
+
+  // ── host_capture_backtrace ──────────────────────────────────────────
+  let bt_store = ctx.backtrace_store.clone();
+  let bt_plugin_id = plugin_id.to_string();
+  linker
+    .func_wrap(
+      "env",
+      "host_capture_backtrace",
+      move |mut caller: wasmtime::Caller<'_, WasiCtx>| -> u64 {
+        // Capture the wasm backtrace through the JIT frame-pointer chain.
+        // wasmtime::WasmBacktrace::force_capture walks the native stack
+        // (Cranelift-compiled wasm → real call instructions, real frame
+        // pointers) and returns every wasm frame currently live.
+        let bt = wasmtime::WasmBacktrace::force_capture(&mut caller);
+        let frames: Vec<crate::backtrace::StoredFrame> = bt
+          .frames()
+          .iter()
+          .map(|f| crate::backtrace::StoredFrame::from_frame_info(f))
+          .collect();
+
+        // Capture the current tracing span (innermost only — tracing 0.1
+        // has no Span::parent() to walk the chain).
+        let spans = match Span::current().id() {
+          Some(_) => {
+            let name = Span::current()
+              .metadata()
+              .map(|m| m.name().to_string())
+              .unwrap_or_default();
+            vec![SpanSnapshot {
+              name,
+              fields: HashMap::new(),
+            }]
+          }
+          None => Vec::new(),
+        };
+
+        let ctx = CapturedContext {
+          frames,
+          spans,
+          plugin_id: bt_plugin_id.clone(),
+          request_id: None, // filled in by caller if available
+        };
+
+        bt_store.insert(ctx)
+      },
+    )
+    .map_err(|e| PluginError::internal(format!("link host_capture_backtrace: {}", e)))?;
+
   // ── Pre-link ───────────────────────────────────────────────────────
   linker
     .instantiate_pre(module)
@@ -514,6 +587,7 @@ pub async fn execute_wasm_handler(
   instance_pre: &wasmtime::InstancePre<WasiCtx>,
   endpoint: &str,
   request: &HttpRequest,
+  backtrace_store: &BacktraceStore,
 ) -> Result<HttpResponse, PluginError> {
   let input_json = serde_json::to_vec(&serde_json::json!({
       "endpoint": endpoint,
@@ -543,10 +617,52 @@ pub async fn execute_wasm_handler(
   let start = instance
     .get_typed_func::<(), ()>(&mut store, "_start")
     .map_err(|_| PluginError::internal("no _start export".into()))?;
-  start
-    .call_async(&mut store, ())
-    .await
-    .map_err(|e| PluginError::internal(format!("trap: {}", e)))?;
+
+  // Execute the wasm module.  If it traps, wasmtime attaches a
+  // WasmBacktrace to the error automatically — extract it and store
+  // the frames directly in the PluginError (trap path, no store needed).
+  if let Err(e) = start.call_async(&mut store, ()).await {
+    // Extract frames from the wasmtime error, including DWARF file:line
+    // symbols when available (requires wasmtime's addr2line feature).
+    let frames: Vec<panorama_core::plugin::TrapFrame> = e
+      .downcast_ref::<wasmtime::WasmBacktrace>()
+      .map(|bt| {
+        bt.frames()
+          .iter()
+          .map(|f| {
+            let sf = crate::backtrace::StoredFrame::from_frame_info(f);
+            panorama_core::plugin::TrapFrame::from(&sf)
+          })
+          .collect()
+      })
+      .unwrap_or_default();
+
+    let trap_msg = if let Some(trap) = e.downcast_ref::<wasmtime::Trap>() {
+      format!("{}", trap)
+    } else {
+      format!("{}", e)
+    };
+
+    // If the panic hook stored a message, prepend it to the trap message.
+    let msg = if let Ok(mut p) = backtrace_store.last_panic.lock() {
+      if let Some(panic_msg) = p.take() {
+        format!("panic: {} | trap: {}", panic_msg, trap_msg)
+      } else {
+        format!("trap: {}", trap_msg)
+      }
+    } else {
+      format!("trap: {}", trap_msg)
+    };
+
+    return Err(PluginError {
+      trap_frames: if frames.is_empty() {
+        None
+      } else {
+        Some(frames)
+      },
+      ..PluginError::internal(msg)
+    });
+  }
 
   let output_bytes = stdout_pipe.contents();
   let body_bytes = decode_length_prefixed(&output_bytes)

@@ -522,7 +522,13 @@ impl DashboardsPlugin {
 
     // 3. Translate to PQL + post-steps
     let tq = promql::translator::translate(&expr, &registry, &from.to_rfc3339(), &to.to_rfc3339())
-      .map_err(|e| PluginError::bad_request(&format!("PromQL translation error: {}", e)))?;
+      .map_err(|e| {
+        PluginError::with_backtrace(
+          "PROMQL_TRANSLATION",
+          format!("PromQL translation error: {}", e),
+          400,
+        )
+      })?;
 
     // 4. Execute PQL query
     let rows = ctx.query(&tq.pql).await?;
@@ -532,8 +538,13 @@ impl DashboardsPlugin {
       .collect();
 
     // 5. Apply post-processing and produce DataFrame
-    let mut df = promql::translator::execute_translated(&tq, &nodes)
-      .map_err(|e| PluginError::internal(format!("PromQL execution error: {}", e)))?;
+    let mut df = promql::translator::execute_translated(&tq, &nodes).map_err(|e| {
+      PluginError::with_backtrace(
+        "PROMQL_EXECUTION",
+        format!("PromQL execution error: {}", e),
+        500,
+      )
+    })?;
 
     df.name = ref_id.to_string();
     df.meta = Some(serde_json::json!({

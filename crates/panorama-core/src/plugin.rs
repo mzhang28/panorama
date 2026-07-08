@@ -283,51 +283,196 @@ pub struct ObjectData {
   pub size: u64,
 }
 
-/// Error type for plugin operations
+/// Source location captured via `#[track_caller]`.
+///
+/// Always available for the origin line of an error, with zero host round-trips.
+/// Works on both wasm32 and native targets — `std::panic::Location` is a
+/// compile-time construct, not a runtime stack walk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceLocation {
+  pub file: String,
+  pub line: u32,
+  pub column: u32,
+}
+
+/// A single wasm stack frame, extracted from a trap or from
+/// `WasmBacktrace::force_capture`.  Serializable so it can cross
+/// the host/guest boundary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrapFrame {
+  /// Function name (demangled Rust symbol, or from wasm `name` section).
+  pub func_name: Option<String>,
+  /// Wasm function index.
+  pub func_index: u32,
+  /// Module name, if available.
+  pub module_name: Option<String>,
+  /// Source file path (from DWARF/addr2line), if available.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub file: Option<String>,
+  /// Source line number (from DWARF/addr2line), if available.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub line: Option<u32>,
+  /// Source column number (from DWARF/addr2line), if available.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub column: Option<u32>,
+}
+
+/// Rich error type for plugin operations.
+///
+/// Carries structured diagnostic data *alongside* the human-readable message —
+/// nothing is flattened into a string.  Three diagnostic tiers:
+///
+/// 1. **Default** — `#[track_caller]` records `(file, line, column)` at the
+///    error origin.  Zero host round-trips, always correct.
+/// 2. **Opt-in** — `with_backtrace()` additionally calls the
+///    `host_capture_backtrace` host import (one call per error origin), storing
+///    an opaque backtrace id the host can resolve into a full wasm frame chain
+///    + tracing span context.
+/// 3. **Trap** — wasmtime attaches a `WasmBacktrace` to trap errors
+///    automatically.  The host extracts frames and stores them inline in
+///    `trap_frames` (no store round-trip).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginError {
   pub code: String,
   pub message: String,
   pub status: u16,
+  /// Source location from `#[track_caller]` (always captured).
+  pub location: Option<SourceLocation>,
+  /// ID referencing a host-captured backtrace + span context.
+  /// `None` when the error was constructed without the opt-in host call.
+  pub backtrace_id: Option<u64>,
+  /// Frames extracted from a wasm trap, set by the host.
+  /// Mutually exclusive with `backtrace_id` in practice.
+  #[serde(default)]
+  pub trap_frames: Option<Vec<TrapFrame>>,
 }
 
 impl PluginError {
+  #[track_caller]
   pub fn not_found(message: &str) -> Self {
+    let loc = std::panic::Location::caller();
     Self {
       code: "NOT_FOUND".into(),
       message: message.into(),
       status: 404,
+      location: Some(SourceLocation {
+        file: loc.file().to_string(),
+        line: loc.line(),
+        column: loc.column(),
+      }),
+      backtrace_id: None,
+      trap_frames: None,
     }
   }
 
+  #[track_caller]
   pub fn permission_denied(message: &str) -> Self {
+    let loc = std::panic::Location::caller();
     Self {
       code: "PERMISSION_DENIED".into(),
       message: message.into(),
       status: 403,
+      location: Some(SourceLocation {
+        file: loc.file().to_string(),
+        line: loc.line(),
+        column: loc.column(),
+      }),
+      backtrace_id: None,
+      trap_frames: None,
     }
   }
 
+  #[track_caller]
   pub fn internal(message: String) -> Self {
+    let loc = std::panic::Location::caller();
     Self {
       code: "INTERNAL_ERROR".into(),
       message,
       status: 500,
+      location: Some(SourceLocation {
+        file: loc.file().to_string(),
+        line: loc.line(),
+        column: loc.column(),
+      }),
+      backtrace_id: None,
+      trap_frames: None,
     }
   }
 
+  #[track_caller]
   pub fn bad_request(message: &str) -> Self {
+    let loc = std::panic::Location::caller();
     Self {
       code: "BAD_REQUEST".into(),
       message: message.into(),
       status: 400,
+      location: Some(SourceLocation {
+        file: loc.file().to_string(),
+        line: loc.line(),
+        column: loc.column(),
+      }),
+      backtrace_id: None,
+      trap_frames: None,
     }
+  }
+
+  /// Construct an error with a host-captured backtrace.
+  ///
+  /// On wasm32 targets, calls the `host_capture_backtrace` host import
+  /// (one host round-trip) and stores the opaque id.  On native targets
+  /// the backtrace id is always `None` — there is no wasm call chain to
+  /// capture.
+  #[track_caller]
+  pub fn with_backtrace(code: &str, message: String, status: u16) -> Self {
+    let loc = std::panic::Location::caller();
+    let backtrace_id = Self::capture_backtrace_impl();
+    Self {
+      code: code.into(),
+      message,
+      status,
+      location: Some(SourceLocation {
+        file: loc.file().to_string(),
+        line: loc.line(),
+        column: loc.column(),
+      }),
+      backtrace_id,
+      trap_frames: None,
+    }
+  }
+
+  /// Platform-specific backtrace capture.
+  ///
+  /// On wasm32: calls the `host_capture_backtrace` host import.
+  /// On native: returns `None` — there is no wasm call chain.
+  #[cfg(target_arch = "wasm32")]
+  fn capture_backtrace_impl() -> Option<u64> {
+    extern "C" {
+      fn host_capture_backtrace() -> u64;
+    }
+    let id = unsafe { host_capture_backtrace() };
+    if id == 0 {
+      None
+    } else {
+      Some(id)
+    }
+  }
+
+  #[cfg(not(target_arch = "wasm32"))]
+  fn capture_backtrace_impl() -> Option<u64> {
+    None
   }
 }
 
 impl std::fmt::Display for PluginError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "[{}] {}", self.code, self.message)
+    write!(f, "[{}] {}", self.code, self.message)?;
+    if let Some(ref loc) = self.location {
+      write!(f, " ({}:{})", loc.file, loc.line)?;
+    }
+    if let Some(id) = self.backtrace_id {
+      write!(f, " [bt:{}]", id)?;
+    }
+    Ok(())
   }
 }
 

@@ -61,7 +61,15 @@ impl CodingPlugin {
         Ok(node) => created.push(node),
         Err(e) => errors.push(serde_json::json!({
             "entity": hb.get("entity"),
-            "error": e.message,
+            "error": {
+              "message": e.message,
+              "code": e.code,
+              "backtrace_id": e.backtrace_id,
+              "location": e.location.as_ref().map(|l| serde_json::json!({
+                "file": l.file,
+                "line": l.line,
+              })),
+            },
         })),
       }
     }

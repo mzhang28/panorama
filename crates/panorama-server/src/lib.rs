@@ -2,6 +2,7 @@
 extern crate tracing;
 
 pub mod api;
+pub mod backtrace;
 pub mod frontend;
 pub mod meta;
 pub mod object_store;

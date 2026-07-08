@@ -1,4 +1,5 @@
 use axum::{body::Body, extract::MatchedPath, http::Request, middleware::Next, response::Response};
+use panorama_core::plugin::TrapFrame;
 use uuid::Uuid;
 
 /// Attaches a `request_id` tag and a "request.start" breadcrumb to the Sentry
@@ -81,4 +82,46 @@ where
       )
     })
   }
+}
+
+// -- Wasm backtrace → Sentry helpers -------------------------------------------
+
+/// Convert wasm `TrapFrame` vec to a Sentry stacktrace and attach it to the
+/// current scope.  Frames are innermost-first from `WasmBacktrace::frames()`;
+/// Sentry expects oldest-to-newest (caller-to-callee), so we reverse.
+pub fn attach_wasm_backtrace_to_scope(frames: &[TrapFrame], plugin_id: &str) {
+  sentry::configure_scope(|scope| {
+    // Sentry frame list: first frame = oldest (caller), last = newest (error site).
+    // WasmBacktrace::frames() is innermost-first, so reverse.
+    let sentry_frames: Vec<sentry::protocol::Frame> = frames
+      .iter()
+      .rev()
+      .map(|f| {
+        sentry::protocol::Frame {
+          function: f.func_name.clone(),
+          module: f
+            .module_name
+            .clone()
+            .or_else(|| Some(plugin_id.to_string())),
+          instruction_addr: Some(sentry::protocol::Addr(f.func_index as u64)),
+          // Use relative addressing for WASM — Sentry needs the debug_id
+          // to resolve addresses against the uploaded debug companion.
+          addr_mode: Some("rel:0".to_string()),
+          ..Default::default()
+        }
+      })
+      .collect();
+
+    let stacktrace = sentry::protocol::Stacktrace {
+      frames: sentry_frames,
+      ..Default::default()
+    };
+
+    // Attach the stacktrace as extra context on the scope.
+    // The tracing integration picks it up when an error event is logged.
+    scope.set_extra(
+      "wasm_stacktrace",
+      serde_json::to_value(&stacktrace).unwrap_or_default().into(),
+    );
+  });
 }

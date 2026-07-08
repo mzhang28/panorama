@@ -826,11 +826,42 @@ async fn plugin_handler(
     }
     Err(e) => {
       let status = StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-      tracing::error!(status = %status, error = %e.message, code = %e.code, "Plugin dispatch error");
+
+      // Attach wasm backtrace frames to Sentry before logging the error.
+      if let Some(ref frames) = e.trap_frames {
+        crate::sentry_middleware::attach_wasm_backtrace_to_scope(frames, &plugin_id);
+      }
+
+      tracing::error!(
+        status = %status,
+        error = %e.message,
+        code = %e.code,
+        backtrace_id = ?e.backtrace_id,
+        location = ?e.location,
+        trap_frames_count = e.trap_frames.as_ref().map(|f| f.len()).unwrap_or(0),
+        "Plugin dispatch error"
+      );
+      // Carry structured error info through to the response.
+      let mut error_body = serde_json::json!({
+        "error": e.message,
+        "code": e.code,
+      });
+      if let Some(id) = e.backtrace_id {
+        error_body["backtrace_id"] = serde_json::json!(id);
+      }
+      if let Some(ref loc) = e.location {
+        error_body["location"] = serde_json::json!({
+          "file": loc.file,
+          "line": loc.line,
+        });
+      }
+      if let Some(ref frames) = e.trap_frames {
+        error_body["trap_frames"] = serde_json::to_value(frames).unwrap_or_default();
+      }
       Err((
         status,
         Json(ApiError {
-          error: e.message,
+          error: serde_json::to_string(&error_body).unwrap_or_else(|_| e.message),
           code: e.code,
         }),
       ))

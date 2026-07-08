@@ -4,8 +4,10 @@ use panorama_core::plugin::{LogLevel, ObjectData, PluginContext, PluginError};
 use panorama_core::schema::Schema;
 use panorama_core::types::{FieldValue, Node, ObjectRef};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::backtrace::BacktraceStore;
 use crate::object_store::ObjectStorage;
 use crate::schema_registry::SchemaRegistry;
 use crate::storage::NodeStorage;
@@ -20,6 +22,8 @@ pub struct RuntimeContext {
   object_storage: ObjectStorage,
   /// The capabilities granted to this plugin
   granted_caps: panorama_core::capabilities::CapabilityGrants,
+  /// Host-side backtrace store shared with wasm host functions
+  pub backtrace_store: Arc<BacktraceStore>,
 }
 
 impl RuntimeContext {
@@ -37,6 +41,7 @@ impl RuntimeContext {
       schema_registry,
       object_storage,
       granted_caps,
+      backtrace_store: Arc::new(BacktraceStore::new()),
     }
   }
 

@@ -2683,6 +2683,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "panorama-app-backtrace-test"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "panorama-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "panorama-app-coding"
 version = "0.1.0"
 dependencies = [
