@@ -523,8 +523,11 @@ fn extract_conforms_to(
       });
       let physical = resolve_physical_schema(conn, &sid)?;
 
+      // Only generate a data CTE when the schema has promoted columns
+      // backed by a physical table.  Index-only schemas don't need one.
       let data_cte = physical
         .as_ref()
+        .filter(|p| !p.table_name.is_empty())
         .map(|_| {
           format!(
             "_schema_data_{}",

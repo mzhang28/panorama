@@ -107,42 +107,51 @@ impl PhysicalSchema {
   }
 }
 
-/// Resolve the physical schema for a given schema ID by consulting `schema_tables`.
+/// Resolve the physical schema for a given schema ID by consulting `schema_tables`
+/// and `managed_indexes`.
 ///
-/// Returns `None` if the schema is not registered in `schema_tables`.
-/// When the storage mode is `jsonb`, all fields are `Unpromoted` but the
-/// struct is still returned (the caller still needs the table name for
-/// the `node_schema_conformance` join).
+/// Returns `None` only when the schema has neither a `schema_tables` entry nor
+/// any ready expression indexes.  A schema with only expression indexes (no
+/// promoted columns) will return a `PhysicalSchema` with an empty `table_name`.
 pub fn resolve_physical_schema(
   conn: &Connection,
   schema_id: &Uuid,
 ) -> Result<Option<PhysicalSchema>, String> {
-  let st = match MetaStore::get_schema_table(conn, schema_id)
-    .map_err(|e| format!("failed to query schema_tables: {}", e))?
-  {
-    Some(st) => st,
-    None => return Ok(None),
-  };
-
-  // Parse field_mappings JSON
-  let raw_mappings: HashMap<String, FieldMappingEntry> =
-    serde_json::from_value(st.field_mappings.clone()).unwrap_or_default();
-
-  let mut fields: HashMap<String, FieldAccess> = HashMap::new();
-  let mut field_types: HashMap<String, String> = HashMap::new();
-
-  // Also look up ready indexes for this schema
+  // Look up ready indexes first — they exist independently of schema_tables.
   let indexes = MetaStore::get_ready_indexes(conn, Some(schema_id))
     .map_err(|e| format!("failed to query managed_indexes: {}", e))?;
 
-  for (field_name, entry) in &raw_mappings {
-    let access = FieldAccess::Promoted {
-      table: st.physical_table_name.clone(),
-      column: entry.column.clone(),
-    };
-    fields.insert(field_name.clone(), access);
-    if let Some(ref t) = entry.field_type {
-      field_types.insert(field_name.clone(), t.clone());
+  let st = MetaStore::get_schema_table(conn, schema_id)
+    .map_err(|e| format!("failed to query schema_tables: {}", e))?;
+
+  // If neither schema_tables nor indexes exist, this schema has no physical
+  // footprint — the caller treats all fields as unpromoted JSONB.
+  if st.is_none() && indexes.is_empty() {
+    return Ok(None);
+  }
+
+  let mut fields: HashMap<String, FieldAccess> = HashMap::new();
+  let mut field_types: HashMap<String, String> = HashMap::new();
+  let mut table_name = String::new();
+  let mut storage_mode = "jsonb".to_string();
+
+  // Promoted columns from schema_tables (if any)
+  if let Some(ref st_entry) = st {
+    table_name = st_entry.physical_table_name.clone();
+    storage_mode = st_entry.storage_mode.as_str().to_string();
+
+    let raw_mappings: HashMap<String, FieldMappingEntry> =
+      serde_json::from_value(st_entry.field_mappings.clone()).unwrap_or_default();
+
+    for (field_name, entry) in &raw_mappings {
+      let access = FieldAccess::Promoted {
+        table: table_name.clone(),
+        column: entry.column.clone(),
+      };
+      fields.insert(field_name.clone(), access);
+      if let Some(ref t) = entry.field_type {
+        field_types.insert(field_name.clone(), t.clone());
+      }
     }
   }
 
@@ -177,8 +186,8 @@ pub fn resolve_physical_schema(
   }
 
   Ok(Some(PhysicalSchema {
-    table_name: st.physical_table_name,
-    storage_mode: st.storage_mode.as_str().to_string(),
+    table_name,
+    storage_mode,
     fields,
     field_types,
   }))
