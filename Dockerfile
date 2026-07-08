@@ -37,14 +37,12 @@ RUN bun install
 # Copy full source tree
 COPY . .
 
-# Build all .panoapp files (plugin UIs + WASM + package)
-RUN bun x nx run-many -t package-panoapp -c release
-
-# Build server binary with embedded frontend SPA
+# Build everything (plugins + server + frontend)
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/target \
-    bun x nx build panorama-server -c release && cp target/release/panorama-server .
+    --mount=type=cache,target=/build/.nx \
+    bun x nx build release -c release && cp target/release/panorama-server .
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime

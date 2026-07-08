@@ -6,6 +6,15 @@
       "options": {
         "command": "echo 'All .panoapp files packaged'"
       },
+      "configurations": {
+        "development": {
+          "command": "echo 'All .panoapp files packaged (debug)'"
+        },
+        "release": {
+          "command": "echo 'All .panoapp files packaged (release)'"
+        }
+      },
+      "defaultConfiguration": "development",
       "dependsOn": [
         "panorama-app-restaurants:package-panoapp",
         "panorama-app-files:package-panoapp",
@@ -15,6 +24,26 @@
         "panorama-app-trips:package-panoapp",
         "panorama-app-coding:package-panoapp"
       ]
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "echo 'Build complete'"
+      },
+      "configurations": {
+        "development": {
+          "command": "echo 'Build complete (debug)'"
+        },
+        "release": {
+          "command": "echo 'Build complete (release)'"
+        }
+      },
+      "defaultConfiguration": "development",
+      "dependsOn": [
+        "package-all-panoapps:package-all",
+        "panorama-server:build"
+      ],
+      "cache": true
     }
   }
 }

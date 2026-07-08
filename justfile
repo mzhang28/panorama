@@ -22,13 +22,11 @@ build-panoapps-release:
 
 # Build everything in debug mode (fastest for development)
 build:
-    bun x nx run-many --no-tui -t package-panoapp -c development
-    bun x nx build --no-tui panorama-server -c development
+    bun x nx build release -c development
 
 # Build everything in release mode (production binaries)
 build-release:
-    bun x nx run-many --no-tui -t package-panoapp -c release
-    bun x nx build --no-tui panorama-server -c release
+    bun x nx build release -c release
 
 # Build + start the server in debug mode
 serve: build
