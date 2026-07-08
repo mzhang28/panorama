@@ -505,42 +505,28 @@ pub fn create_prelinked_instance(
           Some(m) => m,
           None => return 0,
         };
-        let mut cursors = c5b.query_cursors.lock().unwrap();
-        let cursor = match cursors.get_mut(&(cursor_id as u32)) {
-          Some(c) => c,
-          None => return 0,
-        };
-        // Serialize rows one at a time until we'd exceed the chunk target.
-        // The guest buffer is 1 MiB; we target 256 KiB to leave headroom.
+        // The guest buffer is 1 MiB; we target 256 KiB per chunk to
+        // leave ample headroom for JSON overhead and WASM stack frames.
         const CHUNK_TARGET: usize = 256 * 1024;
-        let mut chunk = Vec::with_capacity(4096);
-        chunk.push(b'[');
-        let mut first = true;
-        while cursor.next_idx < cursor.rows.len() {
-          let row_json = serde_json::to_vec(&cursor.rows[cursor.next_idx]).unwrap_or_default();
-          // +1 for comma (or 0 for first), +1 for closing ']'
-          let overhead = if first { 1 } else { 2 };
-          if chunk.len() + row_json.len() + overhead > CHUNK_TARGET && !first {
-            break;
+        let chunk = {
+          let mut cursors = c5b.query_cursors.lock().unwrap();
+          let cursor = match cursors.get_mut(&(cursor_id as u32)) {
+            Some(c) => c,
+            None => return 0,
+          };
+          let data = cursor.fetch_chunk(CHUNK_TARGET);
+          if data.is_empty() {
+            // Cursor exhausted — clean up.
+            drop(cursors);
+            c5b
+              .query_cursors
+              .lock()
+              .unwrap()
+              .remove(&(cursor_id as u32));
+            return 0;
           }
-          if !first {
-            chunk.push(b',');
-          }
-          chunk.extend_from_slice(&row_json);
-          first = false;
-          cursor.next_idx += 1;
-        }
-        chunk.push(b']');
-        // If nothing was written, cursor is exhausted — clean up.
-        if first {
-          drop(cursors);
-          c5b
-            .query_cursors
-            .lock()
-            .unwrap()
-            .remove(&(cursor_id as u32));
-          return 0;
-        }
+          data
+        }; // lock released before mem.data_mut borrow
         let data_mut = mem.data_mut(&mut caller);
         let r_start = r_ptr as usize;
         if r_start >= data_mut.len() {
