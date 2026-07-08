@@ -106,7 +106,13 @@ pub fn attach_wasm_backtrace_to_scope(frames: &[TrapFrame], plugin_id: &str) {
         filename: f.file.clone(),
         lineno: f.line.map(|l| l as u64),
         colno: f.column.map(|c| c as u64),
-        instruction_addr: Some(sentry::protocol::Addr(f.func_index as u64)),
+        // Use the module byte offset as the instruction address — this is
+        // the actual PC that Sentry needs for server-side symbolication
+        // against the uploaded debug companion.  func_index is just the
+        // wasm function index space number and is not useful for lookups.
+        instruction_addr: Some(sentry::protocol::Addr(
+          f.module_offset.unwrap_or(f.func_index as u64),
+        )),
         addr_mode: Some("rel:0".to_string()),
         ..Default::default()
       })

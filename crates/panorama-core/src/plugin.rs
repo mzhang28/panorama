@@ -306,6 +306,11 @@ pub struct TrapFrame {
   pub func_index: u32,
   /// Module name, if available.
   pub module_name: Option<String>,
+  /// Byte offset within the wasm module.  This is the instruction address
+  /// Sentry needs for server-side symbolication — the actual PC, not the
+  /// function index.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub module_offset: Option<u64>,
   /// Source file path (from DWARF/addr2line), if available.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub file: Option<String>,

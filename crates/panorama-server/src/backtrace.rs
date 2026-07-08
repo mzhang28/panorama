@@ -19,12 +19,15 @@ use std::sync::Mutex;
 ///
 /// If wasmtime was compiled with `addr2line` and the wasm module has DWARF
 /// debug info, `file`, `line`, and `column` will be populated from the
-/// `FrameSymbol` data.
+/// `FrameSymbol` data.  `module_offset` is the byte offset within the wasm
+/// module — the instruction address Sentry needs for server-side symbolication.
 #[derive(Debug, Clone)]
 pub struct StoredFrame {
   pub func_name: Option<String>,
   pub func_index: u32,
   pub module_name: Option<String>,
+  /// Byte offset within the wasm module (requires `generate_address_map`).
+  pub module_offset: Option<u64>,
   /// Source file (from DWARF), if available.
   pub file: Option<String>,
   /// Source line (from DWARF), if available.
@@ -48,6 +51,7 @@ impl StoredFrame {
         .or_else(|| best_symbol.and_then(|s| s.name().map(|n| n.to_string()))),
       func_index: f.func_index(),
       module_name: f.module().name().map(|s| s.to_string()),
+      module_offset: f.module_offset().map(|o| o as u64),
       file: best_symbol.and_then(|s| s.file().map(|f| f.to_string())),
       line: best_symbol.and_then(|s| s.line()),
       column: best_symbol.and_then(|s| s.column()),
@@ -61,6 +65,7 @@ impl From<&StoredFrame> for panorama_core::plugin::TrapFrame {
       func_name: f.func_name.clone(),
       func_index: f.func_index,
       module_name: f.module_name.clone(),
+      module_offset: f.module_offset,
       file: f.file.clone(),
       line: f.line,
       column: f.column,
